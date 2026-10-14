@@ -106,6 +106,15 @@ jobs:
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           ./tools/scripts/check-workflows.ps1
 
+      - name: Verify documentation links
+        shell: pwsh
+        run: |
+          # 文档互相引用很多，而相对链接是按「包含它的文件所在目录」解析的。
+          # ../ 的层数差一层，编辑器里看起来正常，点下去是 404。
+          # 断链是读者在最需要那条指引时才会发现的缺陷。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/check-doc-links.ps1
+
       - name: Verify PowerShell scripts are ASCII-only
         shell: bash
         run: |

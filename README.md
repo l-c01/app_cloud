@@ -75,11 +75,16 @@ git diff v0.1.0 v0.2.0      # 对比两个版本
 
 ## 文档
 
+- 📘 **文档入口**：[中文](docs/zh-CN/README.md) · [English](docs/en/README.md)
 - 📤 **上传源码与手动构建操作步骤**：[docs/zh-CN/dev/upload-and-build.md](docs/zh-CN/dev/upload-and-build.md) ← **从这里开始**
+- ✅ **验证说明（哪些检查做过、哪些没有）**：[中文](docs/zh-CN/dev/verification.md) · [English](docs/en/dev/verification.md)
+- 🏗 **架构说明**：[中文](docs/zh-CN/dev/architecture.md) · [English](docs/en/dev/architecture.md)
+- 📖 **使用说明**：[中文](docs/zh-CN/use/README.md) · [English](docs/en/use/README.md)
 - 设计基线：[中文](design/DESIGN.zh-CN.md) · [English](design/DESIGN.en.md)
 - 公共配置填写：[CONFIGURATION.md](design/CONFIGURATION.md) · 模板 [client-config.json](design/client-config.json)
 - 面板接口契约：[design/contracts/](design/contracts/)
 - 多语言约定：[design/architecture/i18n-convention.md](design/architecture/i18n-convention.md)
+- 打包契约：[deploy/packaging/README.md](src/versions/0.1.0/deploy/packaging/README.md) · Docker 契约：[README.md](src/versions/0.1.0/deploy/docker/README.md)
 - 来源审计：[design/audit/source-register.md](design/audit/source-register.md)
 - 阶段状态：[design/plan/STATUS.md](design/plan/STATUS.md)
 - 环境约束（为何本地不能编译）：[design/plan/environment-constraints.md](design/plan/environment-constraints.md)
