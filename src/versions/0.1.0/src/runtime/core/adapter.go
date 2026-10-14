@@ -1,15 +1,14 @@
-// Package core 管理核心（Xray / sing-box）子进程的生命周期。
+// Package core 管理核心（sing-box）子进程的生命周期。
 //
 // 职责边界（设计基线 §5.2）：
 //   - 本包**只**负责：原生配置检查、启动/停止、进程健康、日志转发；
 //   - 不负责：编译配置（由 shared/compiler 负责）、接管系统网络（由 platform 负责）、
 //     决定何时连接（由 runtime/coordinator 负责）。
 //
+// 单内核（ADR-0005）：本包曾经同时适配多个核心，各自有不同的命令行与
+// 配置错误退出码。现在只剩 sing-box，命令表只有一行——
 // 命令行依据（已核实的源码事实）：
-//   - Xray：`xray run -test -c <file>` 做配置检查，输出 "Configuration OK."，退出码 0；
-//     配置错误退出码为 23（src/references/Xray-core-main/main/run.go:59、:86-92）。
-//     运行态为 `xray run -c <file>`，响应 SIGINT/SIGTERM 优雅退出（同文件 :104-108）。
-//   - sing-box：`sing-box check -c <file>` 检查配置；`sing-box run -c <file>` 运行。
+//   - `sing-box check -c <file>` 检查配置；`sing-box run -c <file>` 运行。
 //     全局参数含 -c/--config 与 --disable-color
 //     （src/references/sing-box-testing/cmd/sing-box/cmd.go:34-37、cmd_check.go:Use="check"）。
 package core
@@ -33,12 +32,15 @@ import (
 type Kind string
 
 const (
-	KindXray    Kind = "xray"
+	// KindSingBox 是本构建唯一发布的内核（ADR-0005）。
 	KindSingBox Kind = "sing-box"
 )
 
 // Valid 判断核心标识是否受支持。
-func (k Kind) Valid() bool { return k == KindXray || k == KindSingBox }
+//
+// 单内核下只有一个合法取值。这道校验的意义在于：即使调用方传了别的名字，
+// 也不会被当成 sing-box 去启动——那会用一个错误的可执行文件去跑配置检查。
+func (k Kind) Valid() bool { return k == KindSingBox }
 
 // commandSpec 描述某个核心的命令行形态。
 type commandSpec struct {
@@ -46,18 +48,14 @@ type commandSpec struct {
 	checkArgs func(configPath string) []string
 	// runArgs 返回运行态的参数。
 	runArgs func(configPath string) []string
-	// configErrorExitCodes 是该核心在配置错误时使用的特殊退出码。
-	configErrorExitCodes []int
 }
 
 // commandTable 是核心命令行的事实表。
+//
+// 单内核后只剩一项。这里刻意保留「按 Kind 查表」的形状而不是写死成常量：
+// 命令行的每个字串都对应上游源码里的一行，集中在一处才便于日后
+// 针对锁定版本复核（G4）。
 var commandTable = map[Kind]commandSpec{
-	KindXray: {
-		// -test 只检查配置并退出；配置错误时退出码为 23。
-		checkArgs:            func(p string) []string { return []string{"run", "-test", "-c", p} },
-		runArgs:              func(p string) []string { return []string{"run", "-c", p} },
-		configErrorExitCodes: []int{23},
-	},
 	KindSingBox: {
 		checkArgs: func(p string) []string { return []string{"check", "-c", p} },
 		// --disable-color 让日志便于解析。
@@ -131,26 +129,16 @@ func (a *Adapter) CheckConfig(ctx context.Context, configPath string) error {
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			code := exitErr.ExitCode()
-			for _, special := range spec.configErrorExitCodes {
-				if code == special {
-					return &ConfigError{
-						Core:        a.kind,
-						ExitCode:    code,
-						Output:      text,
-						MessageKey:  "core.config_rejected",
-						MessageArgs: []any{code},
-						Message:     fmt.Sprintf("%s rejected the configuration (exit %d)", a.kind, code),
-					}
-				}
-			}
+			// sing-box 用非零退出码表示配置不可用，诊断文本在它的输出里。
+			// 这里不再区分「特殊退出码」：那是为另一个内核的退出码 23 准备的，
+			// 而单内核构建里没有任何需要特判的退出码（ADR-0005）。
 			return &ConfigError{
 				Core:        a.kind,
-				ExitCode:    code,
+				ExitCode:    exitErr.ExitCode(),
 				Output:      text,
 				MessageKey:  "core.config_rejected",
-				MessageArgs: []any{code},
-				Message:     fmt.Sprintf("%s config check failed (exit %d)", a.kind, code),
+				MessageArgs: []any{exitErr.ExitCode()},
+				Message:     fmt.Sprintf("%s rejected the configuration (exit %d)", a.kind, exitErr.ExitCode()),
 			}
 		}
 		return fmt.Errorf("core: run %s config check: %w", a.kind, err)

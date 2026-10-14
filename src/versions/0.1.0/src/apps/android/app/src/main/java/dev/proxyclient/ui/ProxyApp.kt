@@ -70,10 +70,13 @@ data class ProxyUiState(
 /**
  * 主界面 / main screen.
  *
- * 简单模式刻意**不显示**核心选择、路由策略与应用范围。
+ * 简单模式刻意**不显示**路由策略与应用范围。
  * 这不是隐藏次要功能，而是会让人做错决定的选项：
  * 不懂分流规则的用户选了「全局直连」，表现就是「连上了但打不开网页」，
  * 而他不会知道原因。
+ *
+ * 专业模式也不再显示内核：本构建只发布 sing-box（ADR-0005），
+ * 一个不可改变的取值不值得占用界面空间，更不该让人以为换个内核能解决问题。
  */
 @Composable
 fun ProxyApp(
@@ -181,7 +184,6 @@ fun ProxyApp(
             Spacer(Modifier.height(8.dp))
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LabelledValue(t("ui.label.core"), state.core)
                     LabelledValue(t("ui.label.routing_policy"), t("ui.policy.${state.routingPolicy}"))
                     LabelledValue(
                         t("ui.label.network_mode"),
@@ -191,6 +193,7 @@ fun ProxyApp(
             }
 
             // 能力未实测时如实提示：假装某些选项可用比不显示更糟。
+            // 这里仍然报出内核名，因为「哪张能力表没实测过」是这条提示的一部分。
             Text(
                 text = t("ui.warn.unverified_capability", state.core),
                 style = MaterialTheme.typography.bodySmall,

@@ -12,27 +12,13 @@ import (
 
 // TestCommandTableMatchesVerifiedCLI 锁定已核实的核心命令行事实。
 //
-// 依据：
-//   - Xray：main/run.go:59（-test 只检查配置）、:26（run [-c config.json]）
-//   - sing-box：cmd/sing-box/cmd.go:34（-c/--config）、cmd_check.go（check 子命令）
+// 依据：sing-box 的 cmd/sing-box/cmd.go:34（-c/--config）、
+// cmd_check.go（check 子命令）。
 //
-// 如果有人「顺手调整」了参数顺序或漏掉 -test，这个测试会失败。
+// 如果有人「顺手调整」了参数顺序、漏掉 check 子命令或去掉 --disable-color，
+// 这个测试会失败。单内核（ADR-0005）之后另一套命令行已随内核一起删除，
+// 这里不再有可能被张冠李戴的对照项。
 func TestCommandTableMatchesVerifiedCLI(t *testing.T) {
-	xray, ok := commandTable[KindXray]
-	if !ok {
-		t.Fatal("xray command spec missing")
-	}
-	if got := strings.Join(xray.checkArgs("/tmp/c.json"), " "); got != "run -test -c /tmp/c.json" {
-		t.Errorf("xray check args = %q", got)
-	}
-	if got := strings.Join(xray.runArgs("/tmp/c.json"), " "); got != "run -c /tmp/c.json" {
-		t.Errorf("xray run args = %q", got)
-	}
-	// Xray 用退出码 23 表示配置错误（main/run.go:86）。
-	if len(xray.configErrorExitCodes) != 1 || xray.configErrorExitCodes[0] != 23 {
-		t.Errorf("xray config error codes = %v, want [23]", xray.configErrorExitCodes)
-	}
-
 	sb, ok := commandTable[KindSingBox]
 	if !ok {
 		t.Fatal("sing-box command spec missing")
@@ -46,10 +32,8 @@ func TestCommandTableMatchesVerifiedCLI(t *testing.T) {
 }
 
 func TestKindValid(t *testing.T) {
-	for _, k := range []Kind{KindXray, KindSingBox} {
-		if !k.Valid() {
-			t.Errorf("%q should be valid", k)
-		}
+	if !KindSingBox.Valid() {
+		t.Errorf("%q should be valid", KindSingBox)
 	}
 	if Kind("mihomo").Valid() {
 		t.Error("unknown kind must be invalid")
@@ -60,15 +44,15 @@ func TestNewAdapterValidation(t *testing.T) {
 	if _, err := NewAdapter("mihomo", "/bin/x", Options{}); err == nil {
 		t.Error("unknown core must be rejected")
 	}
-	if _, err := NewAdapter(KindXray, "   ", Options{}); err == nil {
+	if _, err := NewAdapter(KindSingBox, "   ", Options{}); err == nil {
 		t.Error("empty binary path must be rejected")
 	}
 
-	a, err := NewAdapter(KindXray, "/usr/bin/xray", Options{})
+	a, err := NewAdapter(KindSingBox, "/usr/bin/sing-box", Options{})
 	if err != nil {
 		t.Fatalf("NewAdapter: %v", err)
 	}
-	if a.Kind() != KindXray || a.BinaryPath() != "/usr/bin/xray" {
+	if a.Kind() != KindSingBox || a.BinaryPath() != "/usr/bin/sing-box" {
 		t.Errorf("adapter = %v / %v", a.Kind(), a.BinaryPath())
 	}
 	// 未指定时应填入默认值。
@@ -81,7 +65,7 @@ func TestNewAdapterValidation(t *testing.T) {
 }
 
 func TestStartRejectsSecondProcess(t *testing.T) {
-	a, err := NewAdapter(KindXray, "/usr/bin/xray", Options{})
+	a, err := NewAdapter(KindSingBox, "/usr/bin/sing-box", Options{})
 	if err != nil {
 		t.Fatalf("NewAdapter: %v", err)
 	}
@@ -95,7 +79,7 @@ func TestStartRejectsSecondProcess(t *testing.T) {
 
 func TestCheckConfigMissingBinaryIsNotAConfigError(t *testing.T) {
 	// 环境问题与配置问题必须区分：前者不是配置错误，用户提示与重试策略不同。
-	a, err := NewAdapter(KindXray, "/nonexistent/xray-binary", Options{})
+	a, err := NewAdapter(KindSingBox, "/nonexistent/sing-box-binary", Options{})
 	if err != nil {
 		t.Fatalf("NewAdapter: %v", err)
 	}
@@ -110,13 +94,13 @@ func TestCheckConfigMissingBinaryIsNotAConfigError(t *testing.T) {
 
 func TestConfigErrorFormatting(t *testing.T) {
 	e := &ConfigError{
-		Core:     KindXray,
-		ExitCode: 23,
+		Core:     KindSingBox,
+		ExitCode: 1,
 		Output:   "failed to load config\nsecond line\nthird line",
 		Message:  "核心拒绝了该配置",
 	}
 	got := e.Error()
-	if !strings.Contains(got, "exit 23") {
+	if !strings.Contains(got, "exit 1") {
 		t.Errorf("error should carry the exit code: %q", got)
 	}
 	if !strings.Contains(got, "failed to load config") {
@@ -225,7 +209,7 @@ func TestScrubberIsAppliedToCapturedLogs(t *testing.T) {
 	secret := "subscription-token-value-123"
 	scrubber.Add(secret)
 
-	a, err := NewAdapter(KindXray, "/usr/bin/xray", Options{Scrubber: scrubber})
+	a, err := NewAdapter(KindSingBox, "/usr/bin/sing-box", Options{Scrubber: scrubber})
 	if err != nil {
 		t.Fatalf("NewAdapter: %v", err)
 	}
@@ -238,7 +222,7 @@ func TestScrubberIsAppliedToCapturedLogs(t *testing.T) {
 
 // 未配置清洗器时不应篡改内容（明确记录该行为，避免误以为默认安全）。
 func TestWithoutScrubberLogsAreUnchanged(t *testing.T) {
-	a, err := NewAdapter(KindXray, "/usr/bin/xray", Options{})
+	a, err := NewAdapter(KindSingBox, "/usr/bin/sing-box", Options{})
 	if err != nil {
 		t.Fatalf("NewAdapter: %v", err)
 	}

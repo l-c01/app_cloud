@@ -38,7 +38,6 @@ public:
     void SetRefreshHandler(std::function<void()> handler);
     void SetSwitchNodeHandler(std::function<void(const std::string& node_id)> handler);
     void SetNetworkModeHandler(std::function<void(const std::string& mode)> handler);
-    void SetCoreHandler(std::function<void(const std::string& core)> handler);
     void SetRoutingPolicyHandler(std::function<void(const std::string& policy)> handler);
 
 private:
@@ -56,7 +55,6 @@ private:
     wxButton* refresh_button_ = nullptr;
 
     wxListBox* node_list_ = nullptr;
-    wxChoice* core_choice_ = nullptr;
     wxChoice* mode_choice_ = nullptr;
     wxChoice* policy_choice_ = nullptr;
     wxTextCtrl* log_view_ = nullptr;
@@ -66,11 +64,9 @@ private:
     std::function<void()> refresh_handler_;
     std::function<void(const std::string&)> switch_node_handler_;
     std::function<void(const std::string&)> network_mode_handler_;
-    std::function<void(const std::string&)> core_handler_;
     std::function<void(const std::string&)> policy_handler_;
 
     // 选择控件的取值与其显示名一一对应；按下标取回取值。
-    std::vector<std::string> core_values_;
     std::vector<std::string> mode_values_;
     std::vector<std::string> policy_values_;
 
@@ -79,7 +75,7 @@ private:
     std::vector<std::string> node_labels_;
 
     // suppress_events_ 在程序化设置选择项时置位，避免把程序自己的改动
-    // 当成用户操作再发一次请求（那会导致「切换核心」被触发两次）。
+    // 当成用户操作再发一次请求（那会导致「切换接入方式」被触发两次）。
     bool suppress_events_ = false;
 };
 

@@ -644,8 +644,13 @@ func newCoreRunner(binaryDir string, scrubber *secrets.Scrubber) (*coreRunner, e
 	return runner, nil
 }
 
+// kinds 返回本构建支持的内核。
+//
+// 单内核（ADR-0005）：只有一个条目。这个函数保留成返回切片的形式，
+// 是因为 capabilities() 与 newCoreRunner 都按「一组核心」遍历——
+// 把循环拆掉反而会让「多内核」的逻辑重新长回来时无人察觉。
 func (r *coreRunner) kinds() []compiler.Core {
-	return []compiler.Core{compiler.CoreXray, compiler.CoreSingBox}
+	return []compiler.Core{compiler.CoreSingBox}
 }
 
 // binaryPath 返回核心可执行文件的路径。

@@ -8,8 +8,12 @@ import (
 	"proxyclient/shared/domain"
 )
 
-// 这些测试把「能力差异」与「字段不静默丢弃」两条设计约束固化下来。
+// 这些测试把「能力边界」与「字段不静默丢弃」两条设计约束固化下来。
 // 它们是契约测试：如果哪天有人为了「让它编过」而放宽校验，测试会失败。
+//
+// 单内核（ADR-0005）之后，这里只测 sing-box。原先成对出现的
+// 「同一节点在另一个内核里如何」的用例已经删除：另一个内核不存在了，
+// 保留它们只会让读者以为还存在两条代码路径。
 
 func trojanNode(name string) *domain.Node {
 	n := &domain.Node{
@@ -45,9 +49,13 @@ func vlessRealityNode() *domain.Node {
 	return n
 }
 
-func baseRequest(core Core, nodes ...*domain.Node) *Request {
+// baseRequest 构造一次合法的编译请求。
+//
+// 核心不再作为参数：单内核构建里只有 CoreSingBox 一个合法取值，
+// 把它逐个调用点重复一遍只会掩盖「这里到底在测哪个内核」。
+func baseRequest(nodes ...*domain.Node) *Request {
 	return &Request{
-		Core:  core,
+		Core:  CoreSingBox,
 		Nodes: nodes,
 		Inbound: InboundOptions{
 			Listen:    "127.0.0.1",
@@ -58,85 +66,9 @@ func baseRequest(core Core, nodes ...*domain.Node) *Request {
 	}
 }
 
-func TestCompileXrayTrojan(t *testing.T) {
-	req := baseRequest(CoreXray, trojanNode("A"))
-	out, report, err := CompileXray(req)
-	if err != nil {
-		t.Fatalf("CompileXray: %v (report: %v)", err, report.Issues)
-	}
-
-	var cfg map[string]any
-	if err := json.Unmarshal(out, &cfg); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-
-	outbounds := cfg["outbounds"].([]any)
-	// 期望：proxy + direct + block
-	if len(outbounds) != 3 {
-		t.Errorf("outbound count = %d, want 3", len(outbounds))
-	}
-
-	proxy := outbounds[0].(map[string]any)
-	if proxy["protocol"] != "trojan" {
-		t.Errorf("protocol = %v", proxy["protocol"])
-	}
-	settings := proxy["settings"].(map[string]any)
-	servers := settings["servers"].([]any)
-	first := servers[0].(map[string]any)
-	if first["address"] != "t.example.com" || first["password"] != "secret" {
-		t.Errorf("trojan server block = %v", first)
-	}
-
-	// streamSettings 必须带上已核实的安全类型。
-	ss := proxy["streamSettings"].(map[string]any)
-	if ss["security"] != "tls" {
-		t.Errorf("security = %v, want tls", ss["security"])
-	}
-	if report.CompiledNodes != 1 {
-		t.Errorf("compiled nodes = %d, want 1", report.CompiledNodes)
-	}
-}
-
-func TestCompileXrayVLESSReality(t *testing.T) {
-	req := baseRequest(CoreXray, vlessRealityNode())
-	out, _, err := CompileXray(req)
-	if err != nil {
-		t.Fatalf("CompileXray: %v", err)
-	}
-
-	var cfg map[string]any
-	_ = json.Unmarshal(out, &cfg)
-	proxy := cfg["outbounds"].([]any)[0].(map[string]any)
-	ss := proxy["streamSettings"].(map[string]any)
-
-	if ss["security"] != "reality" {
-		t.Errorf("security = %v, want reality", ss["security"])
-	}
-	reality, ok := ss["realitySettings"].(map[string]any)
-	if !ok {
-		t.Fatalf("realitySettings missing: %v", ss)
-	}
-	if reality["publicKey"] != "PUBKEY" || reality["shortId"] != "ab12" {
-		t.Errorf("reality block = %v", reality)
-	}
-	// REALITY 下 serverName 应在 realitySettings 内，而不是顶层 tlsSettings。
-	if reality["serverName"] != "www.microsoft.com" {
-		t.Errorf("realitySettings.serverName = %v", reality["serverName"])
-	}
-	if _, dup := ss["tlsSettings"]; dup {
-		t.Errorf("tlsSettings should not be emitted for reality-only node: %v", ss["tlsSettings"])
-	}
-
-	// flow 必须在 users 中体现。
-	users := proxy["settings"].(map[string]any)["vnext"].([]any)[0].(map[string]any)["users"].([]any)
-	if users[0].(map[string]any)["flow"] != "xtls-rprx-vision" {
-		t.Errorf("flow missing: %v", users[0])
-	}
-}
-
 func TestCompileSingBoxTrojan(t *testing.T) {
-	req := baseRequest(CoreSingBox, trojanNode("A"))
-	out, _, err := CompileSingBox(req)
+	req := baseRequest(trojanNode("A"))
+	out, report, err := CompileSingBox(req)
 	if err != nil {
 		t.Fatalf("CompileSingBox: %v", err)
 	}
@@ -158,10 +90,13 @@ func TestCompileSingBoxTrojan(t *testing.T) {
 	if tls["enabled"] != true || tls["server_name"] != "t.example.com" {
 		t.Errorf("tls block = %v", tls)
 	}
+	if report.CompiledNodes != 1 {
+		t.Errorf("compiled nodes = %d, want 1", report.CompiledNodes)
+	}
 }
 
 func TestCompileSingBoxRealityUsesUTLSAndRealityBlocks(t *testing.T) {
-	req := baseRequest(CoreSingBox, vlessRealityNode())
+	req := baseRequest(vlessRealityNode())
 	out, _, err := CompileSingBox(req)
 	if err != nil {
 		t.Fatalf("CompileSingBox: %v", err)
@@ -191,22 +126,19 @@ func TestCompileSingBoxRealityUsesUTLSAndRealityBlocks(t *testing.T) {
 	}
 }
 
-// xhttp 是两核心的关键能力差异：Xray 支持，sing-box 不支持。
-func TestXHTTPDifferenceBetweenCores(t *testing.T) {
+// xhttp 是 sing-box 明确不具备的传输。
+//
+// 原先这个用例叫 TestXHTTPDifferenceBetweenCores，靠「Xray 能编、sing-box 不能」
+// 来证明能力表在起作用。另一个内核删除后，这半边的对照消失了，但**断言本身
+// 仍然成立且更重要**：面板如果只提供 xhttp，我们必须拒绝并说清原因，
+// 而不是产出一份核心启动时才发现不认的配置。
+func TestSingBoxRejectsXHTTP(t *testing.T) {
 	n := trojanNode("xhttp")
 	n.Transport = domain.TransportXHTTP
 	n.TransportOptions = domain.TransportOptions{Path: "/xh", Host: "h.example.com"}
 	n.ComputeID()
 
-	// Xray：应可编译。
-	if _, report, err := CompileXray(baseRequest(CoreXray, n)); err != nil {
-		t.Fatalf("xray should support xhttp: %v", err)
-	} else if report.HasErrors() {
-		t.Errorf("xray reported errors for xhttp: %v", report.Errors())
-	}
-
-	// sing-box：必须产生字段级错误，并被排除出产物。
-	_, report, err := CompileSingBox(baseRequest(CoreSingBox, n))
+	_, report, err := CompileSingBox(baseRequest(n))
 	if err == nil {
 		t.Fatal("sing-box must reject xhttp")
 	}
@@ -222,20 +154,15 @@ func TestXHTTPDifferenceBetweenCores(t *testing.T) {
 	}
 }
 
-// TCP 上的 HTTP 伪装头同样是能力差异。
-func TestTCPHeaderObfsDifferenceBetweenCores(t *testing.T) {
+// TCP 上的 HTTP 伪装头同样是 sing-box 不支持的字段。
+// 理由与 xhttp 相同：拒绝并给出字段级错误，而不是静默丢掉。
+func TestSingBoxRejectsTCPHeaderObfs(t *testing.T) {
 	n := trojanNode("obfs")
 	n.Transport = domain.TransportTCP
 	n.TransportOptions = domain.TransportOptions{HeaderType: "http", Path: "/", Host: "h.example.com"}
 	n.ComputeID()
 
-	if _, report, err := CompileXray(baseRequest(CoreXray, n)); err != nil {
-		t.Fatalf("xray should support tcp header obfs: %v", err)
-	} else if report.HasErrors() {
-		t.Errorf("xray reported errors: %v", report.Errors())
-	}
-
-	_, report, err := CompileSingBox(baseRequest(CoreSingBox, n))
+	_, report, err := CompileSingBox(baseRequest(n))
 	if err == nil {
 		t.Fatal("sing-box must reject tcp header obfs")
 	}
@@ -257,7 +184,7 @@ func TestFlowRequiresTLS(t *testing.T) {
 	}
 	n.ComputeID()
 
-	_, report, err := CompileXray(baseRequest(CoreXray, n))
+	_, report, err := CompileSingBox(baseRequest(n))
 	if err == nil {
 		t.Fatal("expected failure: flow without TLS must be rejected")
 	}
@@ -278,9 +205,9 @@ func TestQuarantinedFieldsAreReportedNotSilentlyDropped(t *testing.T) {
 	n.QuarantineField("some_future_option", "value")
 	n.ComputeID()
 
-	out, report, err := CompileXray(baseRequest(CoreXray, n))
+	out, report, err := CompileSingBox(baseRequest(n))
 	if err != nil {
-		t.Fatalf("CompileXray: %v", err)
+		t.Fatalf("CompileSingBox: %v", err)
 	}
 
 	found := false
@@ -300,12 +227,12 @@ func TestQuarantinedFieldsAreReportedNotSilentlyDropped(t *testing.T) {
 
 // 选定的节点不存在时必须回退并警告，不能静默换节点。
 func TestSelectedNodeMissingFallsBackWithWarning(t *testing.T) {
-	req := baseRequest(CoreXray, trojanNode("A"), trojanNode("B"))
+	req := baseRequest(trojanNode("A"), trojanNode("B"))
 	req.SelectedNodeID = "does-not-exist"
 
-	_, report, err := CompileXray(req)
+	_, report, err := CompileSingBox(req)
 	if err != nil {
-		t.Fatalf("CompileXray: %v", err)
+		t.Fatalf("CompileSingBox: %v", err)
 	}
 	found := false
 	for _, w := range report.Warnings() {
@@ -328,7 +255,7 @@ func TestNoCompilableNodeFails(t *testing.T) {
 	}
 	bad.ComputeID()
 
-	_, report, err := CompileSingBox(baseRequest(CoreSingBox, bad))
+	_, report, err := CompileSingBox(baseRequest(bad))
 	if err == nil {
 		t.Fatal("expected failure when no node is compilable")
 	}
@@ -338,7 +265,7 @@ func TestNoCompilableNodeFails(t *testing.T) {
 }
 
 func TestRequestValidation(t *testing.T) {
-	good := baseRequest(CoreXray, trojanNode("A"))
+	good := baseRequest(trojanNode("A"))
 
 	cases := []struct {
 		name   string
@@ -365,14 +292,14 @@ func TestRequestValidation(t *testing.T) {
 
 // 策略 global / direct 必须改变默认出口。
 func TestRoutingPolicyChangesDefaultOutbound(t *testing.T) {
-	reqGlobal := baseRequest(CoreSingBox, trojanNode("A"))
+	reqGlobal := baseRequest(trojanNode("A"))
 	reqGlobal.Policy = PolicyGlobal
 	outGlobal, _, err := CompileSingBox(reqGlobal)
 	if err != nil {
 		t.Fatalf("CompileSingBox global: %v", err)
 	}
 
-	reqDirect := baseRequest(CoreSingBox, trojanNode("A"))
+	reqDirect := baseRequest(trojanNode("A"))
 	reqDirect.Policy = PolicyDirect
 	outDirect, _, err := CompileSingBox(reqDirect)
 	if err != nil {
@@ -395,20 +322,20 @@ func TestRoutingPolicyChangesDefaultOutbound(t *testing.T) {
 
 // 入口必须按 allowLanAccess 决定监听地址。
 func TestAllowLanAccessChangesListenAddress(t *testing.T) {
-	req := baseRequest(CoreXray, trojanNode("A"))
+	req := baseRequest(trojanNode("A"))
 	req.Inbound.AllowLanAccess = false
-	out, _, err := CompileXray(req)
+	out, _, err := CompileSingBox(req)
 	if err != nil {
-		t.Fatalf("CompileXray: %v", err)
+		t.Fatalf("CompileSingBox: %v", err)
 	}
 	if !strings.Contains(string(out), `"listen": "127.0.0.1"`) {
 		t.Error("expected loopback listen by default")
 	}
 
 	req.Inbound.AllowLanAccess = true
-	out, _, err = CompileXray(req)
+	out, _, err = CompileSingBox(req)
 	if err != nil {
-		t.Fatalf("CompileXray: %v", err)
+		t.Fatalf("CompileSingBox: %v", err)
 	}
 	if !strings.Contains(string(out), `"listen": "0.0.0.0"`) {
 		t.Error("expected all-interface listen when LAN access is enabled")
@@ -416,113 +343,97 @@ func TestAllowLanAccessChangesListenAddress(t *testing.T) {
 }
 
 func TestCapabilitySummaryIsAvailable(t *testing.T) {
-	xray, ok := Describe(CoreXray)
-	if !ok {
-		t.Fatal("xray capability missing")
-	}
 	singbox, ok := Describe(CoreSingBox)
 	if !ok {
 		t.Fatal("sing-box capability missing")
 	}
 	// 能力表必须显式标注「尚未实测」，避免被误当作已验证结论。
-	if xray.VerifiedAgainst != "unverified" || singbox.VerifiedAgainst != "unverified" {
-		t.Errorf("capability tables must be marked unverified until G4: %q / %q",
-			xray.VerifiedAgainst, singbox.VerifiedAgainst)
+	if singbox.VerifiedAgainst != "unverified" {
+		t.Errorf("the capability table must stay marked unverified until G4: %q",
+			singbox.VerifiedAgainst)
 	}
-	if !Supports(CoreXray, domain.ProtocolTrojan) {
-		t.Error("xray should support trojan")
+	if !Supports(CoreSingBox, domain.ProtocolTrojan) {
+		t.Error("sing-box should support trojan")
+	}
+	// 单内核构建里没有第二个内核的能力表可查；这里锁定「问别的核心一律回答没有」，
+	// 避免有人日后为了让某个调用点通过而偷偷回退到 sing-box 的表。
+	if _, ok := Describe(Core("mihomo")); ok {
+		t.Error("only sing-box has a capability table")
 	}
 }
 
 // 回归保护：出站 tag 不得重复。
 //
 // 曾经的缺陷：direct 策略下会同时追加两个 tag 为 "direct" 的出站，
-// 而 Xray 遇到重复 tag 会直接拒绝启动。此测试锁死该约束。
+// 而重复 tag 会让核心直接拒绝启动。此测试锁死该约束。
 func TestNoDuplicateOutboundTags(t *testing.T) {
 	for _, policy := range []OutboundPolicy{PolicyGlobal, PolicyDirect, PolicyRule} {
 		t.Run(string(policy), func(t *testing.T) {
-			for _, core := range []Core{CoreXray, CoreSingBox} {
-				req := baseRequest(core, trojanNode("A"), trojanNode("B"))
-				req.Policy = policy
+			req := baseRequest(trojanNode("A"), trojanNode("B"))
+			req.Policy = policy
 
-				out, _, err := Compile(req)
-				if err != nil {
-					t.Fatalf("%s/%s: %v", core, policy, err)
-				}
+			out, _, err := Compile(req)
+			if err != nil {
+				t.Fatalf("%s: %v", policy, err)
+			}
 
-				var cfg struct {
-					Outbounds []map[string]any `json:"outbounds"`
-				}
-				if err := json.Unmarshal(out, &cfg); err != nil {
-					t.Fatalf("%s/%s: invalid JSON: %v", core, policy, err)
-				}
+			var cfg struct {
+				Outbounds []map[string]any `json:"outbounds"`
+			}
+			if err := json.Unmarshal(out, &cfg); err != nil {
+				t.Fatalf("%s: invalid JSON: %v", policy, err)
+			}
 
-				seen := map[string]bool{}
-				for _, ob := range cfg.Outbounds {
-					tag, _ := ob["tag"].(string)
-					if tag == "" {
-						t.Errorf("%s/%s: outbound without a tag: %v", core, policy, ob)
-						continue
-					}
-					if seen[tag] {
-						t.Errorf("%s/%s: duplicate outbound tag %q", core, policy, tag)
-					}
-					seen[tag] = true
+			seen := map[string]bool{}
+			for _, ob := range cfg.Outbounds {
+				tag, _ := ob["tag"].(string)
+				if tag == "" {
+					t.Errorf("%s: outbound without a tag: %v", policy, ob)
+					continue
 				}
-				if !seen["direct"] {
-					t.Errorf("%s/%s: direct outbound missing", core, policy)
+				if seen[tag] {
+					t.Errorf("%s: duplicate outbound tag %q", policy, tag)
 				}
+				seen[tag] = true
+			}
+			if !seen["direct"] {
+				t.Errorf("%s: direct outbound missing", policy)
 			}
 		})
 	}
 }
 
-// Xray 没有 route.final，第一个出站即默认出口；必须与选定节点一致。
-func TestXrayFirstOutboundIsTheSelectedNode(t *testing.T) {
+// 选定的节点必须成为默认出口。
+//
+// 原先这条契约是用「第一个出站即默认出口」来断言的（那是另一个内核的规则）。
+// sing-box 用 route.final 指定默认出口，出站顺序不影响行为，
+// 所以断言直接落在 route.final 上——意图不变，而且不再依赖出站顺序。
+func TestSelectedNodeBecomesRouteFinal(t *testing.T) {
 	a := trojanNode("A")
 	b := trojanNode("B")
 	// 让两个节点确实不同（Port 不同即可产生不同 ID）。
 	b.Port = 8443
 	b.ComputeID()
 
-	req := baseRequest(CoreXray, a, b)
+	req := baseRequest(a, b)
 	req.Policy = PolicyGlobal
 	req.SelectedNodeID = b.ID
 
-	out, _, err := CompileXray(req)
+	out, _, err := CompileSingBox(req)
 	if err != nil {
-		t.Fatalf("CompileXray: %v", err)
+		t.Fatalf("CompileSingBox: %v", err)
 	}
 
 	var cfg struct {
-		Outbounds []map[string]any `json:"outbounds"`
+		Route struct {
+			Final string `json:"final"`
+		} `json:"route"`
 	}
 	if err := json.Unmarshal(out, &cfg); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
-	firstTag, _ := cfg.Outbounds[0]["tag"].(string)
-	if firstTag != outboundTag(b) {
-		t.Errorf("first outbound = %q, want the selected node %q", firstTag, outboundTag(b))
-	}
-}
-
-// direct 策略下，默认出口必须是 direct 而不是代理节点。
-func TestXrayDirectPolicyPutsDirectFirst(t *testing.T) {
-	req := baseRequest(CoreXray, trojanNode("A"))
-	req.Policy = PolicyDirect
-
-	out, _, err := CompileXray(req)
-	if err != nil {
-		t.Fatalf("CompileXray: %v", err)
-	}
-
-	var cfg struct {
-		Outbounds []map[string]any `json:"outbounds"`
-	}
-	_ = json.Unmarshal(out, &cfg)
-
-	if tag, _ := cfg.Outbounds[0]["tag"].(string); tag != "direct" {
-		t.Errorf("first outbound = %q, want direct", tag)
+	if cfg.Route.Final != outboundTag(b) {
+		t.Errorf("route.final = %q, want the selected node %q", cfg.Route.Final, outboundTag(b))
 	}
 }

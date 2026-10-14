@@ -26,7 +26,7 @@ has actually been checked, see [verification.md](verification.md).
            │ start / stop                  │
 ┌──────────▼──────────┐        ┌───────────▼──────────┐
 │  Core (external)    │        │  Core (external)     │
-│  Xray or sing-box   │        │  Xray or sing-box    │
+│  sing-box (external)│        │  sing-box (external) │
 └─────────────────────┘        └──────────────────────┘
 ```
 
@@ -64,7 +64,7 @@ src/versions/0.1.0/
     │   ├── panel/          panel API adapter (sign-in, subscription link)
     │   ├── subscription/   subscription fetch and node parsing
     │   ├── domain/         canonical node model
-    │   ├── compiler/       dual-core config compiler
+    │   ├── compiler/       sing-box config compiler
     │   ├── secrets/        credential store abstraction and scrubbing
     │   └── i18n/           catalog loading, negotiation, formatting
     ├── runtime/            runtime orchestration
@@ -156,17 +156,33 @@ Cores are **never compiled**; only official prebuilt binaries are downloaded:
 
 ---
 
-## 6. Two cores and the capability table
+## 6. One core and the capability table
 
-One client can use Xray or sing-box. Their formats and capabilities differ:
+The client uses **sing-box only**. That was not the original design — the
+first version let the user choose between two cores, and
+[ADR-0005](../../../design/adr/ADR-0005-单内核-sing-box.md) collapsed it to one.
 
-| | Xray | sing-box |
-|---|---|---|
-| `transport.type` values | per core docs | only `http, ws, quic, grpc, httpupgrade` |
-| xhttp / splitHTTP | supported | **not supported** |
-| h2 / http | supported | mapped to `http` |
-| TCP header obfuscation | supported | not supported |
-| REALITY | supported | supported |
+**Why**, in one sentence: the options this client needs to offer
+(rule-based routing, rule sets, DNS overrides, TUN, sniffing, per-app proxying)
+are **first-class in sing-box's configuration** — each maps straight to a field.
+Two cores instead means two capability tables (both marked unverified, so
+together *less* trustworthy than one), a node that disappears when the core is
+switched, and a package twice the size of what anyone uses.
+
+One boundary is still worth remembering:
+
+| | sing-box |
+|---|---|
+| `transport.type` values | only `http, ws, quic, grpc, httpupgrade` |
+| xhttp / splitHTTP | **not supported**; the node is rejected with a stated reason |
+| h2 / http | mapped to `http` |
+| TCP header obfuscation | not supported |
+| REALITY | supported, with uTLS fingerprints |
+
+**"Not supported" does not mean "silently dropped".** A node that cannot be
+compiled is reported with the specific capability that is missing, rather than
+producing a config the core rejects — the latter only surfaces at runtime, with
+the error coming from deep inside the core.
 
 The table lives in `shared/compiler/capability.go` and is marked
 `verifiedAgainst: "unverified"`: it comes from reading core sources, not
@@ -176,6 +192,9 @@ can quietly reclassify it as verified.
 If a table were wrongly marked verified, a user would see an option marked
 "supported", the core would refuse to start, and the error would come from
 deep inside the core, far from the real cause.
+
+The full mapping from interface options to core fields is in
+[design/architecture/ui-options.md](../../../design/architecture/ui-options.md).
 
 ---
 

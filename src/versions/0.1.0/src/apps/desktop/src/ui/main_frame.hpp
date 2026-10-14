@@ -43,7 +43,6 @@ private:
     void RequestRefresh();
     void RequestSwitchNode(const std::string& node_id);
     void RequestNetworkMode(const std::string& mode);
-    void RequestCore(const std::string& core);
     void RequestRoutingPolicy(const std::string& policy);
     void OpenPanelWebsite();
     void ShowAbout();

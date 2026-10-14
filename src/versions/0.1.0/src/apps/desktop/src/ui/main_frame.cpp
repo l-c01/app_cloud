@@ -42,7 +42,6 @@ MainFrame::MainFrame(app::AppContext& context)
     pro_panel_->SetRefreshHandler([this] { RequestRefresh(); });
     pro_panel_->SetSwitchNodeHandler([this](const std::string& id) { RequestSwitchNode(id); });
     pro_panel_->SetNetworkModeHandler([this](const std::string& mode) { RequestNetworkMode(mode); });
-    pro_panel_->SetCoreHandler([this](const std::string& core) { RequestCore(core); });
     pro_panel_->SetRoutingPolicyHandler([this](const std::string& policy) {
         RequestRoutingPolicy(policy);
     });
@@ -266,22 +265,6 @@ void MainFrame::RequestNetworkMode(const std::string& mode) {
     }
     // 接入方式是用户偏好，立刻记住。
     context_.preferences.traffic_entry = mode;
-    RequestRefresh();
-}
-
-void MainFrame::RequestCore(const std::string& core) {
-    // 核心切换需要重建配置，因此走一次完整的重连（断开再用新核心连接）。
-    std::string error;
-    const bool was_connected = context_.runtime_state.IsConnected();
-    if (was_connected && !context_.ipc.Stop(kConnectTimeout, &error)) {
-        ShowError(error);
-        return;
-    }
-    context_.preferences.core = core;
-    if (was_connected && !context_.ipc.Start(kConnectTimeout, &error)) {
-        ShowError(error);
-        return;
-    }
     RequestRefresh();
 }
 

@@ -22,7 +22,8 @@ import (
 
 // CompileSingBox 生成 sing-box 配置。
 //
-// 语义与 CompileXray 保持一致：能力校验、字段级错误、报告、默认出口选择规则相同。
+// 本构建唯一的内核（ADR-0005）：能力校验、字段级错误、报告与
+// 默认出口选择规则都在这里实现，不再有第二套语义需要对齐。
 func CompileSingBox(req *Request) ([]byte, *Report, error) {
 	if req == nil {
 		return nil, nil, fmt.Errorf("nil request")
@@ -45,11 +46,11 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 			report.Errorf(n, "", "compiler.node_invalid", "%v", err)
 			continue
 		}
-		if checkNode(CoreSingBox, n, report) {
+		if checkNode(n, report) {
 			usable = append(usable, n)
 		}
 	}
-	// 去掉会产生重复出站 tag 的节点：与 Xray 同理，
+	// 去掉会产生重复出站 tag 的节点：
 	// sing-box 也不接受重复的 outbound tag。
 	usable = dedupeByOutboundTag(usable, report)
 

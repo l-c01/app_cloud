@@ -17,8 +17,7 @@ func configureProcess(cmd *exec.Cmd) {
 
 // terminate 请求进程优雅退出（SIGTERM）。
 //
-// 两个核心都响应 SIGTERM 并自行清理：
-// Xray 见 src/references/Xray-core-main/main/run.go:104-108。
+// sing-box 响应 SIGTERM 并自行清理（关闭监听端口、恢复资源）。
 // 若进程组不可用，则退回对单进程发送信号。
 func terminate(cmd *exec.Cmd) error {
 	if cmd.Process == nil {

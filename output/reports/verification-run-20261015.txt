@@ -1,6 +1,6 @@
 ﻿Verification run
   repository : D:\workai\xbaord
-  started    : 2026-10-15 04:05:09 +08:00
+  started    : 2026-10-15 04:12:22 +08:00
   powershell : 5.1.26100.9444 (Desktop)
 
 ================================================================
@@ -19,7 +19,7 @@ Go unused imports
   script: tools/scripts/check-go-imports.ps1
 ================================================================
 
-Checked 38 Go file(s) with imports out of 39 file(s).
+Checked 37 Go file(s) with imports out of 38 file(s).
 RESULT: PASS - no unused imports detected.
 exit code: 0
 
@@ -29,7 +29,7 @@ Go cross-package symbols
 ================================================================
 Indexed 14 internal package(s).
 
-Checked 308 internal reference(s).
+Checked 277 internal reference(s).
 RESULT: PASS - all internal package references resolve.
 exit code: 0
 
@@ -77,16 +77,20 @@ i18n message keys
 ================================================================
 
 Catalogs : en, zh-CN
-Go files : 27
-Keys used: 64
+Go files : 26
+Keys used: 63
 
-UI files : 34 (50 key(s), 2 dynamic prefix(es))
+UI files : 34 (49 key(s), 2 dynamic prefix(es))
 
 note: keys with prefix 'ui.entry.' are built at runtime and cannot be checked individually
 note: keys with prefix 'ui.policy.' are built at runtime and cannot be checked individually
 
 
-RESULT: PASS - 110 referenced key(s) are present in all catalogs with matching placeholders.
+Note: 2 catalog key(s) are not referenced from Go source yet (informational):
+  compiler.unknown_core
+  ui.label.not_installed
+
+RESULT: PASS - 108 referenced key(s) are present in all catalogs with matching placeholders.
 exit code: 0
 
 ================================================================
@@ -94,16 +98,16 @@ Documentation links
   script: tools/scripts/check-doc-links.ps1
 ================================================================
 DIR LINK  docs\en\README.md:38  ../../design/adr/
-DIR LINK  docs\en\dev\architecture.md:266  ../../../design/adr/
+DIR LINK  docs\en\dev\architecture.md:285  ../../../design/adr/
 DIR LINK  docs\zh-CN\README.md:36  ../../design/adr/
-DIR LINK  docs\zh-CN\dev\architecture.md:247  ../../../design/adr/
+DIR LINK  docs\zh-CN\dev\architecture.md:265  ../../../design/adr/
 DIR LINK  README.md:13  design/
 DIR LINK  README.md:14  src/
 DIR LINK  README.md:15  output/
 DIR LINK  README.md:85  design/contracts/
 
 documents : 47
-links     : 125 relative link(s) checked
+links     : 129 relative link(s) checked
 
 RESULT: PASS - no broken relative links (8 directory link(s) noted).
 exit code: 0

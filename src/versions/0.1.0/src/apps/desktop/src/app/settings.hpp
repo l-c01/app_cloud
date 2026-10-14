@@ -137,8 +137,10 @@ struct Preferences {
     // language 是用户选择的语言；"system" 表示跟随系统。
     std::string language = "system";
 
-    // 上次使用的核心与接入方式，便于用户下次打开时保持一致性。
-    std::string core;
+    // 上次使用的接入方式与路由策略，便于用户下次打开时保持一致性。
+    //
+    // 这里不再存「上次用的内核」：本构建只发布 sing-box（ADR-0005），
+    // 存一个只有一个取值的偏好，只会让用户以为存在别的选择。
     std::string traffic_entry;
     std::string routing_policy;
 

@@ -4,15 +4,15 @@ import (
 	"proxyclient/shared/domain"
 )
 
-// 本文件定义核心能力矩阵。
+// 本文件定义内核能力边界。
 //
 // 重要说明（务必遵守）：
 //   下表描述的是**依据参考源码与官方文档推断**的能力边界，
 //   尚未针对锁定版本逐项实测。G4 必须用固定版本的官方二进制复核每一项，
-//   并把结论回写到本文件与设计文档。在此之前，任何「某核心不支持 X」的判断
+//   并把结论回写到本文件与设计文档。在此之前，任何「sing-box 不支持 X」的判断
 //   都必须在报告里以 error 呈现（宁可拒绝，也不静默产出可能是错的配置）。
 
-// capability 描述单个核心的能力边界。
+// capability 描述内核的能力边界。
 type capability struct {
 	core Core
 	// protocols 是支持的协议集合。
@@ -31,68 +31,52 @@ type capability struct {
 	verifiedAgainst string
 }
 
-// capabilities 是当前能力表。
+// capabilityTable 是当前唯一内核的能力表。
 //
-// 差异要点：
-//   - xhttp 传输仅 Xray 提供；sing-box 无对应实现。
-//   - TCP 的 HTTP 伪装头是 Xray 的 tcpSettings 特性，sing-box 不支持。
-var capabilities = map[Core]capability{
-	CoreXray: {
-		core: CoreXray,
-		protocols: map[domain.Protocol]bool{
-			domain.ProtocolShadowsocks: true,
-			domain.ProtocolVMess:       true,
-			domain.ProtocolVLESS:       true,
-			domain.ProtocolTrojan:      true,
-		},
-		transports: map[domain.Transport]bool{
-			domain.TransportTCP:         true,
-			domain.TransportWS:          true,
-			domain.TransportGRPC:        true,
-			domain.TransportHTTP:        true,
-			domain.TransportH2:          true,
-			domain.TransportHTTPUpgrade: true,
-			domain.TransportXHTTP:       true,
-		},
-		tcpHeaderObfs:   true,
-		reality:         true,
-		utls:            true,
-		flow:            true,
-		verifiedAgainst: "unverified",
+// 单内核（ADR-0005）：原先是「两个核心各一张表」，现在只剩 sing-box 一张。
+// 这不是简化文档，而是取消了一整类缺陷——两张都标记为 unverified 的表
+// 比一张更不可信，而且它会让同一个订阅在不同内核下编出不同数量的节点，
+// 界面必须为此向用户解释，用户却无法自己判断该信哪一个。
+var capabilityTable = capability{
+	core: CoreSingBox,
+	protocols: map[domain.Protocol]bool{
+		domain.ProtocolShadowsocks: true,
+		domain.ProtocolVMess:       true,
+		domain.ProtocolVLESS:       true,
+		domain.ProtocolTrojan:      true,
 	},
-	CoreSingBox: {
-		core: CoreSingBox,
-		protocols: map[domain.Protocol]bool{
-			domain.ProtocolShadowsocks: true,
-			domain.ProtocolVMess:       true,
-			domain.ProtocolVLESS:       true,
-			domain.ProtocolTrojan:      true,
-		},
-		transports: map[domain.Transport]bool{
-			domain.TransportTCP:         true,
-			domain.TransportWS:          true,
-			domain.TransportGRPC:        true,
-			domain.TransportHTTP:        true,
-			domain.TransportH2:          true,
-			domain.TransportHTTPUpgrade: true,
-			// 明确不支持：xhttp 在 sing-box 中无对应传输。
-			domain.TransportXHTTP: false,
-		},
-		tcpHeaderObfs:   false,
-		reality:         true,
-		utls:            true,
-		flow:            true,
-		verifiedAgainst: "unverified",
+	transports: map[domain.Transport]bool{
+		domain.TransportTCP:         true,
+		domain.TransportWS:          true,
+		domain.TransportGRPC:        true,
+		domain.TransportHTTP:        true,
+		domain.TransportH2:          true,
+		domain.TransportHTTPUpgrade: true,
+		// 明确不支持：xhttp 在 sing-box 中无对应传输。
+		// 面板只提供 xhttp 的节点会在编译时被拒绝并写进报告，
+		// 而不是产出一份核心根本不认的配置。
+		domain.TransportXHTTP: false,
 	},
+	// TCP 上的 HTTP 伪装头（headerType）是 sing-box 没有的字段。
+	tcpHeaderObfs: false,
+	reality:       true,
+	utls:          true,
+	flow:          true,
+	// verifiedAgainst 是刻意保留的标记：本表**尚未**针对锁定版本实测，
+	// 因此所有结论都要在报告里如实呈现。只有 G4 用固定版本的官方二进制
+	// 逐项复核之后，才允许把它改成已验证。
+	verifiedAgainst: "unverified",
 }
 
-// Supports 返回某核心是否支持指定协议。
+// Supports 返回目标核心是否支持指定协议。
 func Supports(core Core, p domain.Protocol) bool {
-	c, ok := capabilities[core]
-	if !ok {
+	if core != CoreSingBox {
+		// 单内核下没有第二张表可查：其它核心名一律回答「不支持」，
+		// 而不是回退到 sing-box 的表——那会把「问错了核心」变成一个
+		// 看起来很正常的答案。
 		return false
 	}
-	return c.protocols[p]
+	return capabilityTable.protocols[p]
 }
 
 // CapabilitySummary 是给 UI 用的能力摘要（用于专业模式的能力矩阵展示）。
@@ -107,12 +91,12 @@ type CapabilitySummary struct {
 	VerifiedAgainst string
 }
 
-// Describe 返回某核心的能力摘要。
+// Describe 返回目标核心的能力摘要。
 func Describe(core Core) (CapabilitySummary, bool) {
-	c, ok := capabilities[core]
-	if !ok {
+	if core != CoreSingBox {
 		return CapabilitySummary{}, false
 	}
+	c := capabilityTable
 	s := CapabilitySummary{
 		Core:            c.core,
 		TCPHeaderObfs:   c.tcpHeaderObfs,
@@ -136,14 +120,17 @@ func Describe(core Core) (CapabilitySummary, bool) {
 
 // checkNode 依据能力表校验单个节点。
 //
+// 不再接收核心参数：单内核构建里只有一张表（ADR-0005），
+// 「未知核心」也就不是一个可能的状态——Compile 与 CompileSingBox
+// 已经先把别的取值拒掉了。
+//
 // 返回 false 表示该节点不可编译，必须排除在产物之外。
 // 所有不兼容项都会以 error 级条目写入报告，携带字段路径，便于 UI 精确定位。
-func checkNode(core Core, n *domain.Node, report *Report) bool {
-	c, ok := capabilities[core]
-	if !ok {
-		report.Errorf(n, "core", "compiler.unknown_core", "未知核心：%s", core)
-		return false
-	}
+func checkNode(n *domain.Node, report *Report) bool {
+	c := capabilityTable
+	// 消息里仍然带上核心名：用户要拿它去对照版本与文档。
+	core := c.core
+
 	if c.verifiedAgainst == "unverified" {
 		// 只提示一次，避免每个节点重复刷屏。
 		if !hasIssue(report, "capability", "compiler.capability_unverified") {
@@ -152,7 +139,7 @@ func checkNode(core Core, n *domain.Node, report *Report) bool {
 		}
 	}
 
-	ok = true
+	ok := true
 
 	if !c.protocols[n.Protocol] {
 		report.Errorf(n, "protocol", "compiler.protocol_unsupported",
@@ -166,7 +153,7 @@ func checkNode(core Core, n *domain.Node, report *Report) bool {
 		ok = false
 	}
 
-	// TCP 上的 HTTP 伪装头：仅 Xray 支持。
+	// TCP 上的 HTTP 伪装头：sing-box 没有对应字段。
 	if n.Transport == domain.TransportTCP && n.TransportOptions.HeaderType != "" && !c.tcpHeaderObfs {
 		report.Errorf(n, "transport.headerType", "compiler.tcp_header_obfs_unsupported",
 			"%s 不支持 TCP 上的 HTTP 伪装头（headerType=%s）", core, n.TransportOptions.HeaderType)

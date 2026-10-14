@@ -1,12 +1,13 @@
-// Package compiler 把规范节点模型编译为具体核心的配置。
+// Package compiler 把规范节点模型编译为 sing-box 配置。
 //
 // 核心原则（设计基线 §5.2、§7.1）：
-//   - 两个核心各有一套独立生成器，互不依赖对方的配置结构；
+//   - 只有一个生成器：本构建只发布 sing-box（ADR-0005），
+//     因此不再需要在多种配置格式之间做选择或转换；
 //   - 不支持的参数必须产生**字段级错误**，绝不静默丢弃；
 //   - 编译产物附带报告：能力校验结果、被拒绝的字段、被隔离的字段。
 //
 // 本包不启动进程、不读文件、不做网络请求；它只产出配置字节与报告。
-// 原生配置检查（xray run -test / sing-box check）由 runtime 层负责调用。
+// 原生配置检查（sing-box check）由 runtime 层负责调用。
 package compiler
 
 import (
@@ -21,13 +22,17 @@ import (
 type Core string
 
 const (
-	CoreXray    Core = "xray"
+	// CoreSingBox 是本构建唯一发布的内核（ADR-0005）。
 	CoreSingBox Core = "sing-box"
 )
 
 // Valid 判断核心标识是否受支持。
+//
+// 单内核下只有一个合法取值。保留 Core 类型与这道校验，是为了让
+// 「调用方传了别的核心」在编译层就**显式失败**，而不是被静默当成
+// sing-box 去生成一份与请求不符的配置。
 func (c Core) Valid() bool {
-	return c == CoreXray || c == CoreSingBox
+	return c == CoreSingBox
 }
 
 // IssueLevel 是报告条目的严重程度。
@@ -74,22 +79,20 @@ func (i Issue) String() string {
 	return fmt.Sprintf("[%s] %s (%s): %s", i.Level, loc, name, i.Message)
 }
 
-// Compile 按请求中的核心选择对应生成器。
+// Compile 编译请求中的节点。
 //
-// 这是调用方通常使用的入口；两个生成器的语义完全一致，
-// 因此上层无需为不同核心写两套流程。
+// 这是调用方通常使用的入口。单内核构建里不再按核心分派，
+// 但 Request.Core 仍然保留（IPC 契约里有它）：传进来别的核心必须
+// **明确报错**，而不是悄悄改用 sing-box 编出一份与请求不符的配置——
+// 那会让「界面选的东西」和「实际生效的东西」不一致，而用户无从发现。
 func Compile(req *Request) ([]byte, *Report, error) {
 	if req == nil {
 		return nil, nil, fmt.Errorf("nil request")
 	}
-	switch req.Core {
-	case CoreXray:
-		return CompileXray(req)
-	case CoreSingBox:
-		return CompileSingBox(req)
-	default:
-		return nil, nil, fmt.Errorf("unsupported core: %q", req.Core)
+	if req.Core != CoreSingBox {
+		return nil, nil, fmt.Errorf("unsupported core %q; this build only ships sing-box (see ADR-0005)", req.Core)
 	}
+	return CompileSingBox(req)
 }
 
 // Report 是一次编译的完整报告。
@@ -236,16 +239,31 @@ func (r *Request) logLevel() string {
 	return strings.TrimSpace(r.LogLevel)
 }
 
-// selectNode 选出默认出口节点。
+// outboundTag 由节点 ID 派生，保证同一节点在多次编译中得到相同的 tag，
+// 便于运行期热切换与日志对照。
 //
-// 选择规则：优先用用户显式选定的 ID；找不到则退回第一个可编译节点。
-// 绝不「静默连到任意节点」——退回时必须产生警告级条目（设计基线 §6.3）。
+// 它留在 compile.go 而不是具体生成器里：出站 tag 的约定与「用哪个内核
+// 生成配置」无关，而 singbox.go 与去重逻辑都要用到它。
+func outboundTag(n *domain.Node) string {
+	if n == nil {
+		return "proxy"
+	}
+	id := n.ID
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	if id == "" {
+		return "proxy"
+	}
+	return "proxy-" + id
+}
+
 // dedupeByOutboundTag 移除会产生重复出站 tag 的节点。
 //
 // 为什么必须做：outboundTag 由节点 ID 派生，而 ID 只覆盖**连接参数**——
 // 订阅里「服务器/端口/密码完全相同、只有名字不同」的两条节点很常见
 // （同一个入口的不同倍率、不同备注），它们会得到同一个 tag。
-// 而 Xray 遇到重复 tag 会直接拒绝启动，用户看到的错误与真正的原因
+// 而 sing-box 遇到重复 tag 会直接拒绝启动，用户看到的错误与真正的原因
 // （订阅里有两条重复节点）相距很远，几乎不可能自己定位。
 //
 // 保留第一个，其余记为**警告**而不是静默丢弃：

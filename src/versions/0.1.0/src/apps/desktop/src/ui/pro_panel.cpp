@@ -47,7 +47,7 @@ int IndexOf(const std::vector<std::string>& values, const std::string& wanted) {
         }
     }
     // -1 表示未找到：调用方据此保持原选择，而不是跳到第 0 项。
-    // 跳到第 0 项会让「服务端报了一个我不认识的核心」变成静默切换核心。
+    // 跳到第 0 项会让「服务端报了一个我不认识的取值」变成静默改用别的接入方式。
     return -1;
 }
 
@@ -95,22 +95,19 @@ void ProPanel::BuildLayout() {
 
     root->Add(new wxStaticLine(this), 0, wxEXPAND | wxALL, 8);
 
-    // ---- 中部：三个选择项 ----
+    // ---- 中部：两个选择项 ----
+    //
+    // 内核选择器已经删除（ADR-0005：本构建只发布 sing-box）。
+    // 它不是一个「暂时隐藏」的选项：留下它，用户就会以为换个内核能解决
+    // 某些节点连不上的问题，而那个内核并不存在。
     auto* options = new wxFlexGridSizer(2, 2, 8, 12);
 
-    options->Add(new wxStaticText(this, wxID_ANY, wxEmptyString), 0,
-                 wxALIGN_CENTER_VERTICAL);   // 占位，文本在 ApplyTexts 里统一设置
-
-    // 为三组标签各建一个静态文本并保存，便于语言切换时更新。
-    auto* core_label = new wxStaticText(this, wxID_ANY, wxEmptyString);
-    core_choice_ = new wxChoice(this, wxID_ANY);
+    // 为两组标签各建一个静态文本并保存，便于语言切换时更新。
     auto* mode_label = new wxStaticText(this, wxID_ANY, wxEmptyString);
     mode_choice_ = new wxChoice(this, wxID_ANY);
     auto* policy_label = new wxStaticText(this, wxID_ANY, wxEmptyString);
     policy_choice_ = new wxChoice(this, wxID_ANY);
 
-    options->Add(core_label, 0, wxALIGN_CENTER_VERTICAL);
-    options->Add(core_choice_, 1, wxEXPAND);
     options->Add(mode_label, 0, wxALIGN_CENTER_VERTICAL);
     options->Add(mode_choice_, 1, wxEXPAND);
     options->Add(policy_label, 0, wxALIGN_CENTER_VERTICAL);
@@ -118,10 +115,9 @@ void ProPanel::BuildLayout() {
 
     // 记录标签控件，供 Update 时按当前语言刷新。
     //
-    // 这里存**完整的文案键**而不是 "label.core" 这样的片段：
+    // 这里存**完整的文案键**而不是 "label.mode" 这样的片段：
     // 片段需要在别处拼上 "ui." 前缀，那样的拼接让自动校验无法确认
     // 这些键真的存在——任何 ui.* 键都会显得「被引用了」。
-    core_label->SetName("ui.label.core");
     mode_label->SetName("ui.label.network_mode");
     policy_label->SetName("ui.label.routing_policy");
 
@@ -181,17 +177,6 @@ void ProPanel::BuildLayout() {
             return;
         }
         switch_node_handler_(node_ids_[static_cast<std::size_t>(index)]);
-    });
-
-    core_choice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent& event) {
-        if (suppress_events_ || core_handler_ == nullptr) {
-            return;
-        }
-        const int index = event.GetSelection();
-        if (index < 0 || static_cast<std::size_t>(index) >= core_values_.size()) {
-            return;
-        }
-        core_handler_(core_values_[static_cast<std::size_t>(index)]);
     });
 
     mode_choice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent& event) {
@@ -258,10 +243,6 @@ void ProPanel::SetSwitchNodeHandler(std::function<void(const std::string&)> hand
 
 void ProPanel::SetNetworkModeHandler(std::function<void(const std::string&)> handler) {
     network_mode_handler_ = std::move(handler);
-}
-
-void ProPanel::SetCoreHandler(std::function<void(const std::string&)> handler) {
-    core_handler_ = std::move(handler);
 }
 
 void ProPanel::SetRoutingPolicyHandler(std::function<void(const std::string&)> handler) {
@@ -356,34 +337,9 @@ void ProPanel::Update() {
         }
     }
 
-    // ---- 核心选择：来自服务端能力 ----
+    // 程序化设置选择项时必须抑制事件：否则 SetSelection 会被当成用户操作，
+    // 再发一次「切换接入方式 / 路由策略」的请求。
     suppress_events_ = true;
-    if (context_.has_capabilities && !context_.capabilities.cores.empty()) {
-        std::vector<std::string> values;
-        wxArrayString labels;
-        for (const auto& core : context_.capabilities.cores) {
-            values.push_back(core.name);
-            std::string label = core.name;
-            if (!core.installed) {
-                // 未安装的核心标明状态，而不是让它看起来可用。
-                label += context_.T("ui.label.not_installed");
-            }
-            labels.Add(wxString::FromUTF8(label));
-        }
-        if (values != core_values_) {
-            core_values_ = values;
-            core_choice_->Clear();
-            core_choice_->Append(labels);
-        }
-        const int index = IndexOf(core_values_, state.core.empty() ? core_values_.front()
-                                                                  : state.core);
-        if (index >= 0) {
-            core_choice_->SetSelection(index);
-        }
-        core_choice_->Enable(true);
-    } else {
-        core_choice_->Enable(false);
-    }
 
     // ---- 接入方式：只启用服务端声明支持的 ----
     if (context_.has_capabilities) {

@@ -209,13 +209,11 @@ PCX_TEST(PreferencesDefaultFromConfig) {
     config.default_ui_mode = UiMode::Professional;
     config.default_remember_ui_mode = true;
     config.default_language = "zh-CN";
-    config.default_core = "xray";
 
     const Preferences prefs = Preferences::Defaults(config);
     PCX_CHECK(prefs.ui_mode == UiMode::Professional);
     PCX_CHECK(prefs.remember_ui_mode);
     PCX_CHECK_EQ(prefs.language, std::string("zh-CN"));
-    PCX_CHECK_EQ(prefs.core, std::string("xray"));
 }
 
 PCX_TEST(PreferencesRoundTripThroughJson) {
@@ -223,7 +221,6 @@ PCX_TEST(PreferencesRoundTripThroughJson) {
     original.ui_mode = UiMode::Professional;
     original.remember_ui_mode = true;
     original.language = "zh-CN";
-    original.core = "xray";
     original.traffic_entry = "tun";
     original.routing_policy = "global";
 
@@ -233,7 +230,6 @@ PCX_TEST(PreferencesRoundTripThroughJson) {
     PCX_CHECK(restored.ui_mode == UiMode::Professional);
     PCX_CHECK(restored.remember_ui_mode);
     PCX_CHECK_EQ(restored.language, std::string("zh-CN"));
-    PCX_CHECK_EQ(restored.core, std::string("xray"));
     PCX_CHECK_EQ(restored.traffic_entry, std::string("tun"));
     PCX_CHECK_EQ(restored.routing_policy, std::string("global"));
 }
@@ -241,24 +237,26 @@ PCX_TEST(PreferencesRoundTripThroughJson) {
 PCX_TEST(ParsePreferencesKeepsDefaultsForMissingFields) {
     // 从出厂默认值出发再用文件覆盖：缺字段时行为可预期，而不是变成零值。
     Config config;
-    config.default_core = "sing-box";
+    config.default_traffic_entry = "tun";
     config.default_routing_policy = "rule";
 
     const Preferences prefs = ParsePreferences(nlohmann::json::object(), config);
-    PCX_CHECK_EQ(prefs.core, std::string("sing-box"));
+    PCX_CHECK_EQ(prefs.traffic_entry, std::string("tun"));
     PCX_CHECK_EQ(prefs.routing_policy, std::string("rule"));
     PCX_CHECK(prefs.ui_mode == config.default_ui_mode);
 }
 
 PCX_TEST(ParsePreferencesIgnoresEmptyStrings) {
+    // 原先这条用 "core" 做样本；内核选择已删除（ADR-0005），
+    // 改用另一个字符串偏好，契约本身不变：空串表示「未设置」，
+    // 不得把默认值覆盖成空。
     Config config;
-    config.default_core = "sing-box";
+    config.default_traffic_entry = "tun";
 
     nlohmann::json source = nlohmann::json::object();
-    source["core"] = "";
-    // 空串表示「未设置」，不应把默认值覆盖成空。
+    source["trafficEntry"] = "";
     const Preferences prefs = ParsePreferences(source, config);
-    PCX_CHECK_EQ(prefs.core, std::string("sing-box"));
+    PCX_CHECK_EQ(prefs.traffic_entry, std::string("tun"));
 }
 
 PCX_TEST(LoadPreferencesWithoutAFileIsNotAnError) {
@@ -281,7 +279,7 @@ PCX_TEST(SavePreferencesWritesAtomicallyAndLeavesNoTempFile) {
 
     Preferences prefs;
     prefs.ui_mode = UiMode::Professional;
-    prefs.core = "xray";
+    prefs.traffic_entry = "tun";
 
     std::string error;
     PCX_CHECK(SavePreferences(path, prefs, &error));
@@ -293,7 +291,7 @@ PCX_TEST(SavePreferencesWritesAtomicallyAndLeavesNoTempFile) {
     Config config;
     const Preferences loaded = LoadPreferences(path, config, &error);
     PCX_CHECK(loaded.ui_mode == UiMode::Professional);
-    PCX_CHECK_EQ(loaded.core, std::string("xray"));
+    PCX_CHECK_EQ(loaded.traffic_entry, std::string("tun"));
 
     std::filesystem::remove_all(dir, ec);
 }

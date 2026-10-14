@@ -86,23 +86,23 @@ func TestManifestValidateRejectsIncompleteEntries(t *testing.T) {
 		t.Error("unknown core must be rejected")
 	}
 
-	noAssets := Manifest{Releases: map[Core]Release{CoreXray: {Version: "1"}}}
+	noAssets := Manifest{Releases: map[Core]Release{CoreSingBox: {Version: "1"}}}
 	if err := noAssets.Validate(); err == nil {
 		t.Error("release without assets must be rejected")
 	}
 }
 
 func TestInstallDownloadsVerifiesAndPlacesBinary(t *testing.T) {
-	content := fakeBinary("xray 1.2.3")
+	content := fakeBinary("sing-box 1.2.3")
 	srv, asset := newAssetServer(t, content)
 	_ = srv
 
 	inst := newInstaller(t)
 	manifest := Manifest{Releases: map[Core]Release{
-		CoreXray: {Version: asset.Version, Assets: []Asset{asset}},
+		CoreSingBox: {Version: asset.Version, Assets: []Asset{asset}},
 	}}
 
-	got, err := inst.Install(context.Background(), manifest, CoreXray)
+	got, err := inst.Install(context.Background(), manifest, CoreSingBox)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestInstallDownloadsVerifiesAndPlacesBinary(t *testing.T) {
 		t.Errorf("installed version = %q", got.Version)
 	}
 
-	path, _ := inst.Path(CoreXray)
+	path, _ := inst.Path(CoreSingBox)
 	onDisk, readErr := os.ReadFile(path)
 	if readErr != nil {
 		t.Fatalf("installed binary unreadable: %v", readErr)
@@ -124,7 +124,7 @@ func TestInstallDownloadsVerifiesAndPlacesBinary(t *testing.T) {
 		t.Error("download temp file was left behind")
 	}
 
-	ok, err := inst.Installed(CoreXray)
+	ok, err := inst.Installed(CoreSingBox)
 	if err != nil || !ok {
 		t.Errorf("Installed = %v, %v", ok, err)
 	}
@@ -136,9 +136,9 @@ func TestInstallRejectsSHA256MismatchAndKeepsExistingVersion(t *testing.T) {
 	srv, goodAsset := newAssetServer(t, good)
 	inst := newInstaller(t)
 	manifest := Manifest{Releases: map[Core]Release{
-		CoreXray: {Version: goodAsset.Version, Assets: []Asset{goodAsset}},
+		CoreSingBox: {Version: goodAsset.Version, Assets: []Asset{goodAsset}},
 	}}
-	if _, err := inst.Install(context.Background(), manifest, CoreXray); err != nil {
+	if _, err := inst.Install(context.Background(), manifest, CoreSingBox); err != nil {
 		t.Fatalf("initial Install: %v", err)
 	}
 	srv.Close()
@@ -150,17 +150,17 @@ func TestInstallRejectsSHA256MismatchAndKeepsExistingVersion(t *testing.T) {
 	badAsset.SHA256 = strings.Repeat("0", 64) // 故意写错
 
 	tampered := Manifest{Releases: map[Core]Release{
-		CoreXray: {Version: "9.9.9", Assets: []Asset{badAsset}},
+		CoreSingBox: {Version: "9.9.9", Assets: []Asset{badAsset}},
 	}}
 
-	if _, err := inst.Install(context.Background(), tampered, CoreXray); err == nil {
+	if _, err := inst.Install(context.Background(), tampered, CoreSingBox); err == nil {
 		t.Fatal("install must fail on sha256 mismatch")
 	} else if !strings.Contains(err.Error(), "sha256 mismatch") {
 		t.Errorf("error should mention sha256, got: %v", err)
 	}
 
 	// 关键：现有版本必须完好，不能被半成品覆盖。
-	path, _ := inst.Path(CoreXray)
+	path, _ := inst.Path(CoreSingBox)
 	onDisk, _ := os.ReadFile(path)
 	if string(onDisk) != string(good) {
 		t.Error("existing working core was damaged by a failed update")
@@ -175,9 +175,9 @@ func TestInstallRejectsWrongSize(t *testing.T) {
 
 	inst := newInstaller(t)
 	manifest := Manifest{Releases: map[Core]Release{
-		CoreXray: {Version: asset.Version, Assets: []Asset{asset}},
+		CoreSingBox: {Version: asset.Version, Assets: []Asset{asset}},
 	}}
-	if _, err := inst.Install(context.Background(), manifest, CoreXray); err == nil {
+	if _, err := inst.Install(context.Background(), manifest, CoreSingBox); err == nil {
 		t.Fatal("size mismatch must be rejected")
 	}
 }
@@ -191,9 +191,9 @@ func TestInstallReportsMissingAssetForPlatform(t *testing.T) {
 	inst.GOARCH = "arm64" // 清单里只有 amd64
 
 	manifest := Manifest{Releases: map[Core]Release{
-		CoreXray: {Version: asset.Version, Assets: []Asset{asset}},
+		CoreSingBox: {Version: asset.Version, Assets: []Asset{asset}},
 	}}
-	_, err := inst.Install(context.Background(), manifest, CoreXray)
+	_, err := inst.Install(context.Background(), manifest, CoreSingBox)
 	if err == nil {
 		t.Fatal("expected an error for a platform with no matching asset")
 	}
@@ -214,10 +214,10 @@ func TestInstallRejectsHTTPError(t *testing.T) {
 	}
 	inst := newInstaller(t)
 	manifest := Manifest{Releases: map[Core]Release{
-		CoreXray: {Version: asset.Version, Assets: []Asset{asset}},
+		CoreSingBox: {Version: asset.Version, Assets: []Asset{asset}},
 	}}
 
-	if _, err := inst.Install(context.Background(), manifest, CoreXray); err == nil {
+	if _, err := inst.Install(context.Background(), manifest, CoreSingBox); err == nil {
 		t.Fatal("expected failure on http 404")
 	}
 }
@@ -229,9 +229,9 @@ func TestRollbackRestoresPreviousVersion(t *testing.T) {
 	v1 := fakeBinary("v1")
 	srv1, a1 := newAssetServer(t, v1)
 	manifest1 := Manifest{Releases: map[Core]Release{
-		CoreXray: {Version: "1.0.0", Assets: []Asset{a1}},
+		CoreSingBox: {Version: "1.0.0", Assets: []Asset{a1}},
 	}}
-	if _, err := inst.Install(context.Background(), manifest1, CoreXray); err != nil {
+	if _, err := inst.Install(context.Background(), manifest1, CoreSingBox); err != nil {
 		t.Fatalf("install v1: %v", err)
 	}
 	srv1.Close()
@@ -241,22 +241,22 @@ func TestRollbackRestoresPreviousVersion(t *testing.T) {
 	srv2, a2 := newAssetServer(t, v2)
 	defer srv2.Close()
 	manifest2 := Manifest{Releases: map[Core]Release{
-		CoreXray: {Version: "2.0.0", Assets: []Asset{a2}},
+		CoreSingBox: {Version: "2.0.0", Assets: []Asset{a2}},
 	}}
-	if _, err := inst.Install(context.Background(), manifest2, CoreXray); err != nil {
+	if _, err := inst.Install(context.Background(), manifest2, CoreSingBox); err != nil {
 		t.Fatalf("install v2: %v", err)
 	}
 
-	if !inst.HasRollback(CoreXray) {
+	if !inst.HasRollback(CoreSingBox) {
 		t.Fatal("a previous version should be available for rollback")
 	}
 
-	path, _ := inst.Path(CoreXray)
+	path, _ := inst.Path(CoreSingBox)
 	if onDisk, _ := os.ReadFile(path); string(onDisk) != string(v2) {
 		t.Fatal("expected v2 to be active after the update")
 	}
 
-	if err := inst.Rollback(CoreXray); err != nil {
+	if err := inst.Rollback(CoreSingBox); err != nil {
 		t.Fatalf("Rollback: %v", err)
 	}
 	if onDisk, _ := os.ReadFile(path); string(onDisk) != string(v1) {
@@ -266,10 +266,10 @@ func TestRollbackRestoresPreviousVersion(t *testing.T) {
 
 func TestRollbackWithoutTarget(t *testing.T) {
 	inst := newInstaller(t)
-	if err := inst.Rollback(CoreXray); !errors.Is(err, ErrNoRollbackTarget) {
+	if err := inst.Rollback(CoreSingBox); !errors.Is(err, ErrNoRollbackTarget) {
 		t.Errorf("error = %v, want ErrNoRollbackTarget", err)
 	}
-	if inst.HasRollback(CoreXray) {
+	if inst.HasRollback(CoreSingBox) {
 		t.Error("HasRollback should be false on a fresh install dir")
 	}
 }
@@ -294,7 +294,7 @@ func TestPathRejectsUnknownCoreAndEmptyDir(t *testing.T) {
 		t.Error("unknown core must be rejected")
 	}
 	empty := &Installer{}
-	if _, err := empty.Path(CoreXray); err == nil {
+	if _, err := empty.Path(CoreSingBox); err == nil {
 		t.Error("empty install dir must be rejected")
 	}
 }

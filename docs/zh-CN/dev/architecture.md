@@ -25,7 +25,7 @@
            │ 启动 / 停止                   │
 ┌──────────▼──────────┐        ┌───────────▼──────────┐
 │  核心（外部二进制）  │        │  核心（外部二进制）    │
-│  Xray 或 sing-box   │        │  Xray 或 sing-box    │
+│  sing-box (external)│        │  sing-box (external) │
 └─────────────────────┘        └──────────────────────┘
 ```
 
@@ -60,7 +60,7 @@ src/versions/0.1.0/
     │   ├── panel/          面板 API 适配（登录、取订阅链接）
     │   ├── subscription/   订阅拉取与节点解析
     │   ├── domain/         标准节点模型
-    │   ├── compiler/       双核心配置编译器
+    │   ├── compiler/       sing-box 配置编译器
     │   ├── secrets/        凭据存储抽象与脱敏
     │   └── i18n/           文案加载、协商与格式化
     ├── runtime/            运行期编排
@@ -146,17 +146,32 @@ running             完成
 
 ---
 
-## 6. 双核心与能力表
+## 6. 单内核与能力表
 
-同一个客户端可选用 Xray 或 sing-box。两者的配置格式与能力**不同**：
+客户端**只使用 sing-box** 一个内核。这不是一开始的设计——
+最初让用户在内核之间二选一，后来按
+[ADR-0005](../../../design/adr/ADR-0005-单内核-sing-box.md) 收敛为单内核。
 
-| | Xray | sing-box |
-|---|---|---|
-| `transport.type` 取值 | 见核心文档 | 只有 `http, ws, quic, grpc, httpupgrade` |
-| xhttp / splitHTTP | 支持 | **不支持** |
-| h2 / http | 支持 | 映射为 `http` |
-| TCP 上的 HTTP 伪装头 | 支持 | 不支持 |
-| REALITY | 支持 | 支持 |
+**为什么收敛**，一句话说清：要提供的选项（规则分流、规则集、DNS 覆写、
+TUN、嗅探、分应用代理）在 sing-box 的配置里**都是一等公民**，
+逐项都有直接对应的字段；而双内核意味着维护两张能力表
+（**都**标记为未实测，因此比一张更不可信）、
+同一条节点换内核可能消失、打包体积翻倍而用户只用其中一个。
+
+sing-box 仍有一个需要记住的边界：
+
+| | sing-box |
+|---|---|
+| `transport.type` 取值 | 只有 `http, ws, quic, grpc, httpupgrade` |
+| xhttp / splitHTTP | **不支持**；按能力表拒绝该节点并说明原因 |
+| h2 / http | 映射为 `http` |
+| TCP 上的 HTTP 伪装头 | 不支持 |
+| REALITY | 支持，且同时支持 uTLS 指纹 |
+
+**「不支持」不等于「静默丢弃」。** 遇到编不出来的节点，
+编译器在报告里写明是哪一项能力缺失，
+而不是产出一个核心不认的配置——后者要到运行时才暴露，
+而错误信息来自核心深处。
 
 能力表在 `shared/compiler/capability.go` 里，并且**标记为
 `verifiedAgainst: "unverified"`**——它来自对核心源码的阅读，不是对
@@ -164,6 +179,9 @@ running             完成
 
 如果一个能力表被误标为已验证，用户会看到一个「支持」的选项、
 选中后核心拒绝启动，而错误信息来自核心深处，与真正的原因相距很远。
+
+界面选项与内核字段的完整对应关系见
+[design/architecture/ui-options.md](../../../design/architecture/ui-options.md)。
 
 ---
 

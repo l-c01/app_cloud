@@ -297,7 +297,7 @@ PCX_TEST(RuntimeStateParsesConflicts) {
     Json source = Json::object();
     source["state"] = "recovery_required";
     source["generation"] = 7;
-    source["core"] = "xray";
+    source["core"] = "sing-box";
     source["activeNode"] = "node-3";
     source["mode"] = "system_proxy";
     source["lastError"] = "network recovery failed";

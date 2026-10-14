@@ -179,7 +179,7 @@ func newFixture(t *testing.T) *fixture {
 func systemProxyRequest() ConnectRequest {
 	return ConnectRequest{
 		Compile: &compiler.Request{
-			Core:           compiler.CoreXray,
+			Core:           compiler.CoreSingBox,
 			SelectedNodeID: "node-1",
 			Inbound: compiler.InboundOptions{
 				Listen:    "127.0.0.1",
@@ -246,7 +246,7 @@ func TestConnectSuccessReachesRunning(t *testing.T) {
 	if st.State != StateRunning {
 		t.Errorf("state = %q, want running", st.State)
 	}
-	if st.Core != compiler.CoreXray {
+	if st.Core != compiler.CoreSingBox {
 		t.Errorf("core = %q", st.Core)
 	}
 	if st.ActiveNode != "node-1" {

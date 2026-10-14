@@ -248,7 +248,6 @@ Preferences Preferences::Defaults(const Config& config) {
     prefs.ui_mode = config.default_ui_mode;
     prefs.remember_ui_mode = config.default_remember_ui_mode;
     prefs.language = config.default_language;
-    prefs.core = config.default_core;
     prefs.traffic_entry = config.default_traffic_entry;
     prefs.routing_policy = config.default_routing_policy;
     return prefs;
@@ -291,7 +290,6 @@ Preferences ParsePreferences(const Json& source, const Config& config) {
             target = value;
         }
     };
-    keep_if_set(GetString(source, "core"), prefs.core);
     keep_if_set(GetString(source, "trafficEntry"), prefs.traffic_entry);
     keep_if_set(GetString(source, "routingPolicy"), prefs.routing_policy);
 
@@ -328,9 +326,6 @@ Json SerialisePreferences(const Preferences& prefs) {
     out["uiMode"] = UiModeToString(prefs.ui_mode);
     out["rememberUiMode"] = prefs.remember_ui_mode;
     out["language"] = prefs.language;
-    if (!prefs.core.empty()) {
-        out["core"] = prefs.core;
-    }
     if (!prefs.traffic_entry.empty()) {
         out["trafficEntry"] = prefs.traffic_entry;
     }

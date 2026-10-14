@@ -31,12 +31,15 @@ import (
 type Core string
 
 const (
-	CoreXray    Core = "xray"
+	// CoreSingBox 是本构建唯一发布的内核（ADR-0005）。
 	CoreSingBox Core = "sing-box"
 )
 
 // Valid 判断核心标识是否受支持。
-func (c Core) Valid() bool { return c == CoreXray || c == CoreSingBox }
+//
+// 单内核下只有一个合法取值：这道校验挡住的是「清单或调用方写了一个
+// 本构建不认识的标识」，那时必须显式失败，而不是去更新一个不存在的二进制。
+func (c Core) Valid() bool { return c == CoreSingBox }
 
 // 文件名约定（在安装目录内）。
 const (
@@ -51,7 +54,7 @@ const maxAssetBytes = 256 << 20 // 256 MiB
 
 // Asset 描述一个可下载的核心产物。
 type Asset struct {
-	// Version 是核心版本号（例如 "25.9.11" 或 "1.12.0"）。
+	// Version 是核心版本号（例如 "1.12.0"）。
 	Version string
 	// OS 与 Arch 使用 Go 的 runtime 命名（windows/linux、amd64/386/arm64）。
 	OS   string
@@ -428,13 +431,14 @@ func (i *Installer) HasRollback(core Core) bool {
 	return statErr == nil
 }
 
-// versionPattern 匹配版本号，例如 "Xray 25.9.11" 或 "sing-box version 1.12.0"。
+// versionPattern 匹配版本号，例如 "sing-box version 1.12.0"。
 var versionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
 
 // ProbeVersion 运行核心的版本命令并解析出版本号。
 //
-// Xray 使用 `xray version`，sing-box 使用 `sing-box version`，两者输出格式不同，
-// 因此这里只做宽松提取：取输出中第一个形如 x.y 或 x.y.z 的片段。
+// 这里刻意做宽松提取：只取输出中第一个形如 x.y 或 x.y.z 的片段，
+// 而不依赖某个核心特定的输出格式——版本字符串的排版会随发行版变化，
+// 把它写死会让「核心换了构建方式」变成版本读不出来。
 // 解析失败时返回空字符串与错误，调用方应把它显示为"版本未知"，而不是猜测。
 func ProbeVersion(ctx context.Context, core Core, binaryPath string) (string, error) {
 	if !core.Valid() {
