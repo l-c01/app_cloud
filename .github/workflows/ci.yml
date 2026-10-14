@@ -86,6 +86,15 @@ jobs:
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           ./tools/scripts/check-cpp-structure.ps1
 
+      - name: Verify the Go <-> C++ IPC contract
+        shell: pwsh
+        run: |
+          # IPC 协议在 Go 与 C++ 各实现一次，两侧必须逐字一致。
+          # 漂移不会响亮地失败，典型表现是「服务端说成功但界面没反应」，
+          # 两种语言的编译器都抓不到，只能这样直接对比定义。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/check-ipc-contract.ps1
+
       - name: Verify PowerShell scripts are ASCII-only
         shell: bash
         run: |

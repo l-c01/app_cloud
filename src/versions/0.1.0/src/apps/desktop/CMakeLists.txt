@@ -83,7 +83,8 @@ endif()
 # -----------------------------------------------------------------------------
 add_library(pcx_core STATIC
     src/core/json_util.cpp
-    src/core/i18n.cpp)
+    src/core/i18n.cpp
+    src/core/ipc_protocol.cpp)
 target_include_directories(pcx_core PUBLIC src)
 target_link_libraries(pcx_core PUBLIC nlohmann_json::nlohmann_json PRIVATE pcx_warnings)
 
@@ -154,7 +155,8 @@ if(PCX_BUILD_TESTS)
     add_executable(pcx_tests
         tests/test_main.cpp
         tests/test_json_util.cpp
-        tests/test_i18n.cpp)
+        tests/test_i18n.cpp
+        tests/test_ipc_protocol.cpp)
     target_link_libraries(pcx_tests PRIVATE pcx_core pcx_warnings)
 
     add_test(NAME pcx_tests COMMAND pcx_tests)
