@@ -3,6 +3,7 @@ package compiler
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"proxyclient/shared/domain"
 )
@@ -62,7 +63,8 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 
 	listen := req.listenAddress()
 	cfg := singboxConfig{
-		Log: map[string]any{"level": req.logLevel()},
+		Log:       map[string]any{"level": req.logLevel()},
+		DNS:       singboxDNSSection(req.dnsOptions()),
 		Inbounds: []map[string]any{
 			{
 				"type":        "http",
@@ -118,9 +120,120 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 
 type singboxConfig struct {
 	Log       map[string]any   `json:"log"`
+	DNS       *singboxDNS      `json:"dns,omitempty"`
 	Inbounds  []map[string]any `json:"inbounds"`
 	Outbounds []map[string]any `json:"outbounds"`
 	Route     *singboxRoute    `json:"route,omitempty"`
+}
+
+// singboxDNS 是 sing-box 的 dns 段。
+//
+// 字段顺序与 sing-box 文档一致，便于人工比对生成的配置。
+type singboxDNS struct {
+	Servers []map[string]any `json:"servers,omitempty"`
+	Rules   []map[string]any `json:"rules,omitempty"`
+	// Final 指定兜底的名称服务器标签。
+	Final string `json:"final,omitempty"`
+	// Strategy 取 prefer_ipv4 / prefer_ipv6 / ipv4_only / ipv6_only。
+	Strategy string `json:"strategy,omitempty"`
+	// IndependentCache 让不同的名称服务器各用独立的缓存。
+	IndependentCache bool `json:"independent_cache,omitempty"`
+}
+
+// dnsServerTag 是默认名称服务器的标签前缀。
+//
+// 给名称服务器起稳定的标签而不是依赖下标，是因为分流规则要按标签引用它
+// （国内域名走国内 DNS）。用下标的话，用户调整服务器顺序会让所有规则
+// 静默指向别的服务器——而症状只是「解析变慢了」，很难追到顺序上。
+const (
+	dnsTagDefault = "default"
+	dnsTagFakeIP  = "fakeip"
+)
+
+// singboxDNSSection 依据选项构造 dns 段。
+//
+// **关闭时不返回任何东西**（调用方不写 dns 键），而不是返回一个空段。
+// 空段会让核心按自己的默认值解析，而用户以为自己关掉了覆写——
+// 「关了但行为变了」比「关不了」更难排查。
+//
+// opts 为 nil 时同样不生成：这样尚未接入选项的调用方
+// （以及大量既有测试）行为完全不变。
+func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
+	if opts == nil || !opts.Enabled {
+		return nil
+	}
+
+	section := &singboxDNS{
+		IndependentCache: true,
+		// 默认只解析 IPv4。多数代理链路对 IPv6 支持不完整，
+		// 开着会表现为「某些网站慢或超时」，而用户很难联想到 IPv6。
+		Strategy: "prefer_ipv4",
+	}
+	if opts.IPv6 {
+		section.Strategy = ""
+	}
+
+	// fake-ip 服务器排在最前：命中过滤列表的域名会落到后面的常规服务器。
+	if opts.FakeIP {
+		fakeip := map[string]any{
+			"type":  "fakeip",
+			"tag":   dnsTagFakeIP,
+		}
+		if opts.FakeIPRange != "" {
+			fakeip["inet4_range"] = opts.FakeIPRange
+		}
+		section.Servers = append(section.Servers, fakeip)
+		section.Final = dnsTagFakeIP
+	}
+
+	for i, ns := range opts.Nameservers {
+		if ns == "" {
+			continue
+		}
+		tag := dnsTagDefault
+		if i > 0 {
+			// 首个之外的需要各自的标签，否则同名标签会被核心拒绝。
+			tag = fmt.Sprintf("%s-%d", dnsTagDefault, i)
+		}
+		srv := map[string]any{"tag": tag}
+		switch {
+		case ns == "system":
+			srv["type"] = "local"
+		case strings.HasPrefix(ns, "https://"):
+			srv["type"] = "https"
+			srv["server"] = strings.TrimPrefix(ns, "https://")
+		case strings.HasPrefix(ns, "tls://"):
+			srv["type"] = "tls"
+			srv["server"] = strings.TrimPrefix(ns, "tls://")
+		default:
+			srv["type"] = "udp"
+			srv["server"] = ns
+		}
+		section.Servers = append(section.Servers, srv)
+	}
+
+	// 非 fake-ip 模式下没有 fakeip 服务器，兜底指向第一个常规服务器；
+	// 一个都没有时留空，让核心用它自己的默认值，而不是我们编一个。
+	if section.Final == "" && len(section.Servers) > 0 {
+		if tag, ok := section.Servers[0]["tag"].(string); ok {
+			section.Final = tag
+		}
+	}
+
+	// 不使用 fake-ip 的域名。
+	//
+	// 局域网设备发现、时间同步、以及微信与 QQ 的回调域名必须在这里：
+	// 它们拿到假地址就再也连不上，而症状是「某些应用莫名其妙打不开」，
+	// 与 DNS 的关系很难联想。
+	if opts.FakeIP && len(opts.FakeIPFilter) > 0 {
+		section.Rules = append(section.Rules, map[string]any{
+			"domain":   opts.FakeIPFilter,
+			"server":   dnsTagDefault,
+			"strategy": "prefer_ipv4",
+		})
+	}
+
+	return section
 }
 
 type singboxRoute struct {

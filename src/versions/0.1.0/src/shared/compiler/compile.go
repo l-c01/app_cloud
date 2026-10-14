@@ -194,6 +194,25 @@ type Request struct {
 	Policy         OutboundPolicy
 	// LogLevel 传给核心的日志级别（如 warning / info / debug）。
 	LogLevel string
+	// Options 是界面上的完整选项模型（路由模式、DNS、TUN、分应用等）。
+	//
+	// 用指针且**允许为 nil**是刻意的：nil 表示「调用方尚未接入选项」，
+	// 此时生成的配置与接入之前逐字节一致。这让整套选项可以逐块接入，
+	// 而不必一次性改完所有调用方与既有测试。
+	//
+	// 非 nil 时，其中某些值与上面的显式字段语义重叠
+	// （例如 RouteMode 与 Policy）。重叠处以**显式字段优先**：
+	// 它们来自更早的调用约定，而 Options 负责补上显式字段覆盖不到的部分。
+	Options *domain.Options
+}
+
+// dnsOptions 返回要生成的 DNS 设置；未接入选项时为 nil，
+// 此时不会生成 dns 段。
+func (r *Request) dnsOptions() *domain.DNSSettings {
+	if r.Options == nil {
+		return nil
+	}
+	return &r.Options.DNS
 }
 
 // validate 做与核心无关的请求级校验。
