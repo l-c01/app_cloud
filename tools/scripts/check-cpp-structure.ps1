@@ -106,6 +106,39 @@ foreach ($line in $cmakeLines) {
 }
 
 # ---------------------------------------------------------------------------
+# 1b) Every ${CMAKE_CURRENT_SOURCE_DIR}/<relative path> must resolve.
+#
+# This is a distinct bug class from the source list above, and it has already
+# shipped once: the test environment pointed at
+#   ${CMAKE_CURRENT_SOURCE_DIR}/../../../../locales
+# From apps/desktop the repository root is SIX levels up, not four, so the path
+# resolved to a directory that does not exist. The symptom was two test cases
+# failing with a bare "error.empty()" -- nothing in that message suggests a
+# wrong directory depth, so the cause took a full CI round trip to find.
+#
+# Nothing else checks these: they are neither C++ includes nor tracked files,
+# and a wrong number of "../" is invisible until something reads through it.
+# ---------------------------------------------------------------------------
+$depthProblems = 0
+foreach ($line in $cmakeLines) {
+    # The captured part must be a literal path fragment. CMake variables
+    # (${gui_source}) and the ';'-separated list in an ENVIRONMENT property are
+    # not paths, so '$' and ';' are excluded from the capture.
+    foreach ($m in [regex]::Matches($line, '\$\{CMAKE_CURRENT_SOURCE_DIR\}/([^"''\s\);$]+)')) {
+        $rel = $m.Groups[1].Value
+        $full = Join-Path $desktopPath $rel
+        $exists = $false
+        try { $exists = Test-Path -LiteralPath $full -ErrorAction Stop } catch { $exists = $false }
+        if ($exists) { continue }
+        $depthProblems++
+        Write-Host ("UNRESOLVED PATH  {0}" -f $rel)
+        Write-Host ("                 resolves to {0}, which does not exist" -f $full)
+        Write-Host '                 check the number of "../" segments'
+    }
+}
+if ($depthProblems -gt 0) { $problems += $depthProblems }
+
+# ---------------------------------------------------------------------------
 # 2) to 4) Per-file checks
 # ---------------------------------------------------------------------------
 $sources = @()

@@ -388,7 +388,10 @@ var ErrNoRollbackTarget = errors.New("coreupdater: no previous version to roll b
 //
 // 单列一类的原因：界面必须把「下载损坏或被篡改」与其它安装失败区分开——
 // 前者是安全事件，用户需要知道，而不是看到笼统的「安装失败」。
-var ErrChecksumMismatch = errors.New("coreupdater: download checksum mismatch")
+//
+// 文案里点明 sha256：只说「校验和不匹配」的话，读者无从判断用的是哪种算法，
+// 也就无法自己去复核这个值。校验算法是这条错误的信息的一部分。
+var ErrChecksumMismatch = errors.New("coreupdater: download sha256 mismatch")
 
 // MessageKeyFor 把本包的错误映射到界面文案键。
 //

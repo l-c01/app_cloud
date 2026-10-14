@@ -308,9 +308,11 @@ void MainFrame::ShowAbout() {
     info.SetName(wxString::FromUTF8(context_.config.application_name));
     info.SetVersion(wxString::FromUTF8(PCX_VERSION));
     if (!context_.config.publisher.empty()) {
-        // wx 3.2 的 API 是 SetDevelopers（复数）：它接受一组开发者，
-        // 传入单个字符串会隐式构造一个元素的数组。
-        info.SetDevelopers(wxString::FromUTF8(context_.config.publisher));
+        // SetDevelopers 收的是 wxArrayString（一组开发者），不是单个 wxString，
+        // 而且 wxString -> wxArrayString 没有隐式转换。
+        wxArrayString developers;
+        developers.Add(wxString::FromUTF8(context_.config.publisher));
+        info.SetDevelopers(developers);
     }
     if (!context_.config.homepage_url.empty()) {
         info.SetWebSite(wxString::FromUTF8(context_.config.homepage_url));

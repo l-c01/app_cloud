@@ -29,11 +29,21 @@ type fakeRunning struct {
 	readyErr  error
 	stopErr   error
 	stopCalls int
+	// order 非空时，Stop 会把自己的动作追加进去。
+	// 有了它就不需要再定义第二个 RunningCore 实现来记录调用顺序：
+	// fakeCoreRunner.running 的类型是固定的，换一种实现就没法赋值。
+	order *[]string
 }
 
 func (f *fakeRunning) Ready(context.Context) error { return f.readyErr }
-func (f *fakeRunning) Stop(context.Context) error  { f.stopCalls++; return f.stopErr }
-func (f *fakeRunning) Logs() []string              { return nil }
+func (f *fakeRunning) Stop(context.Context) error {
+	f.stopCalls++
+	if f.order != nil {
+		*f.order = append(*f.order, "stop-core")
+	}
+	return f.stopErr
+}
+func (f *fakeRunning) Logs() []string { return nil }
 
 type fakeCoreRunner struct {
 	checkErr   error
@@ -524,7 +534,7 @@ func TestDisconnectStopsCoreBeforeRestoringNetwork(t *testing.T) {
 
 	// 必须让 Start 直接返回这个可记录顺序的核心，这样 Connect 与 Disconnect
 	// 操作的是同一个实例。若在 Connect 之后再替换，Disconnect 用的仍是旧实例。
-	f.core.running = &orderingRunning{order: &order}
+	f.core.running = &fakeRunning{order: &order}
 	net := &orderTrackingNetwork{inner: f.network, order: &order}
 
 	c, err := New(Options{
@@ -572,17 +582,6 @@ func (o *orderTrackingNetwork) Restore(ctx context.Context, original, applied Ne
 	*o.order = append(*o.order, "restore-network")
 	return o.inner.Restore(ctx, original, applied)
 }
-
-type orderingRunning struct {
-	order *[]string
-}
-
-func (o *orderingRunning) Ready(context.Context) error { return nil }
-func (o *orderingRunning) Stop(context.Context) error {
-	*o.order = append(*o.order, "stop-core")
-	return nil
-}
-func (o *orderingRunning) Logs() []string { return nil }
 
 func TestRecoverWithoutJournalIsNoop(t *testing.T) {
 	f := newFixture(t)

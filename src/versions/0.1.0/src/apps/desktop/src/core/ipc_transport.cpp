@@ -346,12 +346,31 @@ std::unique_ptr<Transport> Connect(const std::string& network,
 // ---------------------------------------------------------------------------
 
 bool IsLoopbackAddress(const std::string& address) {
-    const auto colon = address.rfind(':');
-    std::string host = (colon == std::string::npos) ? address : address.substr(0, colon);
+    std::string host;
 
-    // 去掉 IPv6 的方括号。
-    if (host.size() >= 2 && host.front() == '[' && host.back() == ']') {
-        host = host.substr(1, host.size() - 2);
+    if (!address.empty() && address.front() == '[') {
+        // 方括号形式：[IPv6] 后面可以再跟 ":port"。
+        const auto close = address.find(']');
+        if (close == std::string::npos) {
+            return false;  // 方括号不闭合，按不安全处理。
+        }
+        host = address.substr(1, close - 1);
+    } else {
+        // 只有**一个**冒号时才按 host:port 切分。
+        //
+        // 按最后一个冒号切分对 IPv6 是错的："::1" 会被切成 ":"，
+        // "::ffff:127.0.0.1" 会被切成 "::ffff"，两者都被漏判为「非环回」。
+        // 而这个判定的作用正是拒绝把管理接口暴露给同网络的其他人，
+        // 漏判的代价是任何人都能控制本进程。
+        const auto first = address.find(':');
+        const auto last = address.rfind(':');
+        if (first != std::string::npos && first == last) {
+            host = address.substr(0, first);
+        } else {
+            // 没有冒号（纯主机名 / IPv4），或含多个冒号（裸 IPv6）：
+            // 整串就是主机部分，没有端口。
+            host = address;
+        }
     }
 
     if (host.empty()) {
@@ -361,14 +380,18 @@ bool IsLoopbackAddress(const std::string& address) {
     if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
         return true;
     }
+    if (host == "0:0:0:0:0:0:0:1") {
+        return true;  // ::1 的完整写法
+    }
     // 127.0.0.0/8 全部属于环回。
     if (host.rfind("127.", 0) == 0) {
         return true;
     }
-    // IPv4-mapped IPv6 形式的环回。
-    if (host == "::ffff:127.0.0.1") {
+    // IPv4-mapped IPv6：::ffff:127.x.y.z。
+    if (host.rfind("::ffff:127.", 0) == 0) {
         return true;
     }
+    // 注意 "::"（未指定地址）**不**在此列：它表示监听所有接口。
     return false;
 }
 

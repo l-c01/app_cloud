@@ -195,7 +195,7 @@ if(PCX_BUILD_GUI)
         endif()
 
         install(TARGETS proxyclient-desktop RUNTIME DESTINATION bin)
-        install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../../../locales/
+        install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../locales/
                 DESTINATION share/proxyclient/locales
                 FILES_MATCHING PATTERN "*.json")
     endif()
@@ -224,8 +224,12 @@ if(PCX_BUILD_TESTS)
     #
     # 直接加载真实的 client-config.json 是有意的：它是打包时分发的文件，
     # 解析不了的话用户看到的是「软件名变成 default、端口全错」，且没有任何报错。
+    # 层数必须数准：从 apps/desktop 到仓库根是 6 层。
+    # 写成 4 层会解析到 src/versions/ 下面一个不存在的路径，
+    # 表现是测试报「读不到语言资源 / 读不到出厂配置」，
+    # 而错误信息里只有一句 error.empty()，看不出是路径问题。
     set_tests_properties(pcx_tests PROPERTIES
-        ENVIRONMENT "PCX_LOCALES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../../../locales;PCX_CONFIG_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../../../design")
+        ENVIRONMENT "PCX_LOCALES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../locales;PCX_CONFIG_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../design")
 
     message(STATUS "tests enabled; run them with: ctest --output-on-failure")
 endif()

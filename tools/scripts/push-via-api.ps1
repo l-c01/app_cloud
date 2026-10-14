@@ -47,6 +47,8 @@ param(
     [string]$Remote = 'origin',
     [string]$Branch = '',
     [string]$From = '',
+    [string]$Base = '',
+    [string[]]$Repair = @(),
     [switch]$IncludeTags
 )
 
@@ -69,6 +71,45 @@ while ($repoRoot -and -not (Test-Path (Join-Path $repoRoot '.git'))) {
     $repoRoot = $parent
 }
 if (-not $repoRoot) { throw 'Cannot locate repository root (no .git found).' }
+
+function Get-BlobBytes {
+    param([string]$Rev, [string]$Path)
+    # Read the blob straight from the object database.
+    #
+    # Reading from a worktree checkout would be wrong: checking out applies the
+    # .gitattributes filters, so a file declared `text eol=crlf` (which is what
+    # this repository says about *.ps1) comes back with CRLF even though the
+    # stored blob has LF. Uploading those bytes silently rewrites the file's
+    # line endings in the repository.
+    #
+    # `git cat-file blob` bypasses every filter, and Start-Process's
+    # -RedirectStandardOutput writes the bytes without going through
+    # PowerShell's text pipeline.
+    $ls = (& $git -C $repoRoot ls-tree $Rev -- $Path) -join ''
+    if ($ls -notmatch '^\d+ blob ([0-9a-f]+)') { throw "no blob for $Path at $Rev" }
+    $blob = $Matches[1]
+
+    $tmp = Join-Path $repoRoot 'output/_push-api-blob.bin'
+    try {
+        $proc = Start-Process -FilePath $git `
+            -ArgumentList @('-C', $repoRoot, 'cat-file', 'blob', $blob) `
+            -RedirectStandardOutput $tmp -NoNewWindow -Wait -PassThru
+        if ($proc.ExitCode -ne 0) { throw "git cat-file failed for $Path at $Rev" }
+        return [System.IO.File]::ReadAllBytes($tmp)
+    } finally {
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function New-BlobEntry {
+    param([string]$Rev, [string]$Path)
+    $bytes = Get-BlobBytes -Rev $Rev -Path $Path
+    $b64 = [Convert]::ToBase64String($bytes)
+    $blob = Invoke-Api -Method POST -Path '/git/blobs' -Body @{ content = $b64; encoding = 'base64' }
+    return @{ path = $Path; mode = '100644'; type = 'blob'; sha = $blob.sha }
+}
+
+$repoRoot = $repoRoot
 
 function Git {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
@@ -162,41 +203,55 @@ if ([string]::IsNullOrEmpty($From)) {
     $From = $remoteTip
 }
 
-if ($From -eq $localTip) {
+# -Base lets the new commits build on a remote commit that does not exist in the
+# local object database. That happens whenever a previous run of this script
+# created the remote commits: their SHAs differ from the local ones, so the
+# local branch and the remote branch hold the same content under different ids.
+# Without -Base the ancestry check below would refuse to push anything ever
+# again, which is safe but useless.
+$newBase = $From
+$skipAncestry = $false
+if (-not [string]::IsNullOrEmpty($Base)) {
+    $newBase = $Base
+    $skipAncestry = $true
+    Write-Host ("base       : {0} (building on a remote commit)" -f $Base.Substring(0, 7))
+}
+
+if ($From -eq $localTip -and -not $skipAncestry) {
     Write-Host 'nothing to push: the remote tip already matches the local tip'
     exit 0
 }
 
-# The remote tip must be an ancestor of the local tip, otherwise this script
-# would silently drop remote commits.
-$ancestor = & $git -C $repoRoot merge-base --is-ancestor $From $localTip 2>&1
-if ($LASTEXITCODE -ne 0) {
-    throw "the remote tip ($From) is not an ancestor of $localTip; refusing to replay (would drop remote commits)"
+# The base used for the first replayed commit must be an ancestor of the local
+# tip unless it was supplied explicitly, otherwise this script would silently
+# drop remote commits.
+if (-not $skipAncestry) {
+    & $git -C $repoRoot merge-base --is-ancestor $From $localTip 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "the remote tip ($From) is not an ancestor of $localTip; refusing to replay (would drop remote commits). Pass -Base if the remote was written by an earlier run of this script."
+    }
 }
 
 # Oldest first.
 $commits = @(Git rev-list --reverse "$From..$localTip")
 if ($commits.Count -eq 0) {
-    Write-Host 'nothing to push'
-    exit 0
+    if ($Repair.Count -eq 0) {
+        Write-Host 'nothing to push'
+        exit 0
+    }
+    # A repair-only push still needs one commit to carry the corrected blobs.
+    $commits = @($localTip)
 }
 Write-Host ("commits    : {0} to replay" -f $commits.Count)
 Write-Host ''
 
 # ---------------------------------------------------------------------------
-# A detached worktree gives byte-exact file content for any commit.
-# Reading through `git show` would go through PowerShell's text pipeline and
-# could alter line endings or a missing trailing newline.
+# File content is read from the object database by Get-BlobBytes, not from a
+# worktree: checking out a worktree applies the .gitattributes filters and would
+# rewrite line endings on the way into the repository.
 # ---------------------------------------------------------------------------
-$worktree = Join-Path $repoRoot 'output/_push-api-worktree'
-if (Test-Path $worktree) {
-    & $git -C $repoRoot worktree remove --force $worktree 2>&1 | Out-Null
-    if (Test-Path $worktree) { Remove-Item $worktree -Recurse -Force }
-}
-$null = Git worktree add --detach $worktree $From
-
 try {
-    $parentSha = $From
+    $parentSha = $newBase
     $pushed = 0
 
     foreach ($commit in $commits) {
@@ -221,10 +276,8 @@ try {
             Write-Host ("  {0}  {1}" -f $short, $subject)
         }
 
-        # Check the commit out so file bytes can be read straight from disk.
-        $null = Git -C $worktree checkout --force --quiet $sha
-
         $entries = @()
+        $seen = @{}
         foreach ($line in $nameStatus) {
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
             $fields = $line -split "`t"
@@ -236,17 +289,24 @@ try {
 
             if ($status -eq 'D') {
                 $entries += @{ path = $path; mode = '100644'; type = 'blob'; sha = $null }
+                $seen[$path] = $true
                 continue
             }
 
-            $full = Join-Path $worktree $path
-            if (-not (Test-Path -LiteralPath $full)) {
-                throw "expected $path in the worktree at $sha but it is not there"
-            }
-            $bytes = [System.IO.File]::ReadAllBytes($full)
-            $b64 = [Convert]::ToBase64String($bytes)
-            $blob = Invoke-Api -Method POST -Path '/git/blobs' -Body @{ content = $b64; encoding = 'base64' }
-            $entries += @{ path = $path; mode = '100644'; type = 'blob'; sha = $blob.sha }
+            $entries += (New-BlobEntry -Rev $sha -Path $path)
+            $seen[$path] = $true
+        }
+
+        # Repair paths are re-uploaded from the commit being replayed even when
+        # that commit does not touch them. Used to correct content that a
+        # previous push wrote incorrectly (for example line endings rewritten by
+        # a checkout filter), where the local file is right but unchanged.
+        foreach ($rp in $Repair) {
+            if ([string]::IsNullOrWhiteSpace($rp)) { continue }
+            if ($seen.ContainsKey($rp)) { continue }
+            Write-Host ("             repairing {0}" -f $rp)
+            $entries += (New-BlobEntry -Rev $sha -Path $rp)
+            $seen[$rp] = $true
         }
 
         # The new tree is layered on the parent's tree, so unchanged files are
@@ -316,9 +376,10 @@ try {
             Write-Host ("tag        : {0} -> {1}" -f $t, $target.Substring(0, 7))
         }
     }
-} finally {
-    & $git -C $repoRoot worktree remove --force $worktree 2>&1 | Out-Null
-    if (Test-Path $worktree) { Remove-Item $worktree -Recurse -Force -ErrorAction SilentlyContinue }
+} catch {
+    Write-Host ''
+    Write-Host ("FAILED: {0}" -f $_.Exception.Message)
+    throw
 }
 
 Write-Host ''
