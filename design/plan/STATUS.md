@@ -83,10 +83,12 @@
 | 23 | 凭据存储与脱敏 | `shared/secrets`（Store 契约、命名空间隔离、Redact、Scrubber + 测试） | **完成（未编译）** |
 | 24 | 核心安装与自动更新 | `runtime/coreupdater`（ADR-0003 落地：校验/原子替换/回滚 + 测试） | **完成（未编译）** |
 | 25 | 运行期：核心适配器 | `runtime/core`（配置检查、进程生命周期、日志转发 + 测试） | **完成（未编译）** |
-| 26 | 连接协调器与网络恢复 | `runtime/coordinator` + `platform` | 待办（G3/G4） |
+| 26 | 连接协调器 | `runtime/coordinator`（状态机、代次、恢复日志、所有权校验 + 25 组测试） | **完成（未编译）** |
+| 26b | 平台网络接管实现 | `platform/`（系统代理 / TUN / PAC / VPN） | 待办（G4） |
 | 27 | 平台安全存储实现 | Windows DPAPI / Linux Secret Service / Android Keystore | 待办（G4） |
-| 28 | 桌面 UI（C++/wxWidgets） | `apps/desktop` | 待办（G3） |
-| 29 | 中英文开发与使用文档 | `docs/zh-CN/`、`docs/en/` | 待办（G6） |
+| 28 | UI ⇄ 服务 IPC | `runtime/ipc`（版本化 JSON RPC + ACL） | 待办（G3） |
+| 29 | 桌面 UI（C++/wxWidgets） | `apps/desktop` | 待办（G3） |
+| 30 | 中英文开发与使用文档 | `docs/zh-CN/`、`docs/en/` | 待办（G6） |
 | 19 | CI 检查落地 | `gofmt` / `go vet` / `go test` 工作流 | 待办（G1） |
 
 ---
