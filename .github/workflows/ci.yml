@@ -68,14 +68,14 @@ jobs:
         shell: pwsh
         run: |
           # Go 拒绝编译引用了却未使用的包，这是新代码最常见的编译错误。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/check-go-imports.ps1
 
       - name: Verify internal package references resolve
         shell: pwsh
         run: |
           # 跨包符号引用写错（改名、拼错）也会直接编译失败。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/check-go-symbols.ps1
 
       - name: Verify C++ structural consistency
@@ -83,7 +83,7 @@ jobs:
         run: |
           # 本机没有 C++ 工具链，无法编译桌面端；这个脚本检查的是
           # CMake 引用的文件是否存在、include 是否可解析、括号是否配平。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/check-cpp-structure.ps1
 
       - name: Verify the Go <-> C++ IPC contract
@@ -92,7 +92,7 @@ jobs:
           # IPC 协议在 Go 与 C++ 各实现一次，两侧必须逐字一致。
           # 漂移不会响亮地失败，典型表现是「服务端说成功但界面没反应」，
           # 两种语言的编译器都抓不到，只能这样直接对比定义。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/check-ipc-contract.ps1
 
       - name: Verify authored files are tracked by git
@@ -102,7 +102,7 @@ jobs:
           # 这个缺口已经造成过实际事故：.gitignore 里的 `secrets/`
           # 匹配任意层级的同名目录，导致 shared/secrets 整个包从未被提交，
           # 本机全绿而 CI 报 `package proxyclient/shared/secrets is not in std`。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/check-tracked-files.ps1
 
       - name: Verify workflow files are structurally consistent
@@ -113,7 +113,7 @@ jobs:
           # 其中最有价值的一项是：本地复用的工作流路径是否真的存在——
           # 路径写错只在工作流运行时才失败，报的是 invalid workflow file，
           # 而不是 file not found。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/check-workflows.ps1
 
       - name: Verify documentation links
@@ -122,7 +122,7 @@ jobs:
           # 文档互相引用很多，而相对链接是按「包含它的文件所在目录」解析的。
           # ../ 的层数差一层，编辑器里看起来正常，点下去是 404。
           # 断链是读者在最需要那条指引时才会发现的缺陷。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/check-doc-links.ps1
 
       - name: Verify PowerShell scripts are ASCII-only
@@ -417,11 +417,11 @@ jobs:
         shell: pwsh
         run: |
           # 复用仓库内校验器：本机与 CI 使用同一套规则，避免两套真相。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/validate-client-config.ps1
 
       - name: Cross-check i18n keys against locale catalogs
         shell: pwsh
         run: |
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/check-i18n-keys.ps1

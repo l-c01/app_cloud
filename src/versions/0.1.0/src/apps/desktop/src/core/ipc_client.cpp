@@ -74,7 +74,13 @@ bool IpcClient::Connect(const Handle& handle, std::string* error) {
     }
 
     std::string connect_error;
-    auto transport = Connect(handle.network, handle.address, &connect_error);
+    // 这里必须写全名 pcx::ipc::Connect。
+    //
+    // 成员函数 IpcClient::Connect 会遮蔽命名空间里同名的自由函数 Connect：
+    // 不加限定的 `Connect(...)` 只会去找成员，然后因为参数个数不符而编译失败。
+    // 两者名字相同但职责不同——成员负责整条连接的生命周期，
+    // 自由函数只负责按 network/address 建出一条通道。
+    auto transport = pcx::ipc::Connect(handle.network, handle.address, &connect_error);
     if (!transport) {
         return fail(connect_error.empty() ? "cannot reach the local service" : connect_error);
     }

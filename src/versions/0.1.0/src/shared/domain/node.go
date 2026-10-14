@@ -53,8 +53,8 @@ const (
 type Security string
 
 const (
-	SecurityNone   Security = "none"
-	SecurityTLS    Security = "tls"
+	SecurityNone    Security = "none"
+	SecurityTLS     Security = "tls"
 	SecurityReality Security = "reality"
 )
 
@@ -124,11 +124,11 @@ type Node struct {
 	// AlterID 用于 vmess。
 	AlterID int
 
-	Transport Transport
+	Transport        Transport
 	TransportOptions TransportOptions
-	Security Security
-	TLS      TLSOptions
-	Mux      *Multiplex
+	Security         Security
+	TLS              TLSOptions
+	Mux              *Multiplex
 
 	// Quarantine 保存本模型不认识但来源提供的字段，避免静默丢弃。
 	// 键为原始字段名，值为原始值。

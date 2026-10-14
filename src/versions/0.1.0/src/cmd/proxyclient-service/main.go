@@ -10,11 +10,11 @@
 //     因此网络恢复必须由**独立于界面生命周期**的一方负责。
 //
 // 本进程的启动顺序刻意如此：
-//   1. 解析参数与日志
-//   2. 组装协调器（编译器 / 核心运行器 / 网络接管 / 恢复日志）
-//   3. **先做一次恢复**：上次进程可能被强杀，网络设置还指着已停止的代理
-//   4. 启动 IPC 服务
-//   5. 等待信号，优雅退出
+//  1. 解析参数与日志
+//  2. 组装协调器（编译器 / 核心运行器 / 网络接管 / 恢复日志）
+//  3. **先做一次恢复**：上次进程可能被强杀，网络设置还指着已停止的代理
+//  4. 启动 IPC 服务
+//  5. 等待信号，优雅退出
 //
 // 第 3 步必须在第 4 步之前：否则界面一连上就会看到一份「已连接」的
 // 陈旧状态，而系统网络其实还指着早已退出的核心。
@@ -349,8 +349,8 @@ func (h *serviceHandler) capabilities() ipc.Capabilities {
 			coreVersion = h.runner.probeVersion(kind)
 		}
 		cores = append(cores, ipc.CoreCapability{
-			Name:    string(kind),
-			Version: coreVersion,
+			Name:      string(kind),
+			Version:   coreVersion,
 			Installed: installed,
 			// 能力表尚未针对锁定版本实测（G4 的待办）。
 			// 界面据此如实提示，而不是假装这些选项一定可用。

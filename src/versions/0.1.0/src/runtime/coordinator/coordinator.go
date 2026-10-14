@@ -100,7 +100,7 @@ func MessageKeyFor(err error) string {
 type CompiledConfig struct {
 	Core compiler.Core
 	// Path 是配置文件在磁盘上的位置。
-	Path string
+	Path   string
 	Report *compiler.Report
 }
 

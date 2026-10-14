@@ -29,11 +29,11 @@ type Session struct {
 
 // Account 是账户信息（GET /api/v1/user/info）。
 type Account struct {
-	Email           string  `json:"email"`
-	UUID            string  `json:"uuid"`
-	TransferEnable  int64   `json:"transfer_enable"`
-	UploadedBytes   int64   `json:"u"`
-	DownloadedBytes int64   `json:"d"`
+	Email           string `json:"email"`
+	UUID            string `json:"uuid"`
+	TransferEnable  int64  `json:"transfer_enable"`
+	UploadedBytes   int64  `json:"u"`
+	DownloadedBytes int64  `json:"d"`
 	// ExpiredAt 为 unix 秒；0 或缺失表示长期有效。
 	ExpiredAt *int64 `json:"expired_at"`
 	// Banned 服务端为数值，0 表示未封禁。

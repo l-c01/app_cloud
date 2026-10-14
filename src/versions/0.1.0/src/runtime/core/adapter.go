@@ -54,8 +54,8 @@ type commandSpec struct {
 var commandTable = map[Kind]commandSpec{
 	KindXray: {
 		// -test 只检查配置并退出；配置错误时退出码为 23。
-		checkArgs: func(p string) []string { return []string{"run", "-test", "-c", p} },
-		runArgs:   func(p string) []string { return []string{"run", "-c", p} },
+		checkArgs:            func(p string) []string { return []string{"run", "-test", "-c", p} },
+		runArgs:              func(p string) []string { return []string{"run", "-c", p} },
 		configErrorExitCodes: []int{23},
 	},
 	KindSingBox: {
@@ -135,22 +135,22 @@ func (a *Adapter) CheckConfig(ctx context.Context, configPath string) error {
 			for _, special := range spec.configErrorExitCodes {
 				if code == special {
 					return &ConfigError{
-						Core:       a.kind,
-						ExitCode:   code,
-						Output:     text,
-						MessageKey: "core.config_rejected",
+						Core:        a.kind,
+						ExitCode:    code,
+						Output:      text,
+						MessageKey:  "core.config_rejected",
 						MessageArgs: []any{code},
-						Message:    fmt.Sprintf("%s rejected the configuration (exit %d)", a.kind, code),
+						Message:     fmt.Sprintf("%s rejected the configuration (exit %d)", a.kind, code),
 					}
 				}
 			}
 			return &ConfigError{
-				Core:       a.kind,
-				ExitCode:   code,
-				Output:     text,
-				MessageKey: "core.config_rejected",
+				Core:        a.kind,
+				ExitCode:    code,
+				Output:      text,
+				MessageKey:  "core.config_rejected",
 				MessageArgs: []any{code},
-				Message:    fmt.Sprintf("%s config check failed (exit %d)", a.kind, code),
+				Message:     fmt.Sprintf("%s config check failed (exit %d)", a.kind, code),
 			}
 		}
 		return fmt.Errorf("core: run %s config check: %w", a.kind, err)
@@ -411,7 +411,8 @@ func (a *Adapter) scrub(text string) string {
 //
 // 用途：判断核心是否真正就绪。**仅凭进程存在或端口打开都不能代表代理可用**，
 // 因此这个函数只作为「可以进入下一步健康检查」的信号，不是连通性证明。
-func WaitForListen(ctx context.Context, address string, timeout time.Duration) error {	if timeout <= 0 {
+func WaitForListen(ctx context.Context, address string, timeout time.Duration) error {
+	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
 	deadline := time.Now().Add(timeout)

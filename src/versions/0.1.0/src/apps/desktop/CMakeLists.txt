@@ -38,6 +38,7 @@ endif()
 option(PCX_BUILD_GUI    "Build the wxWidgets GUI executable" ON)
 option(PCX_BUILD_TESTS  "Build unit tests"                   ON)
 option(PCX_WERROR       "Treat warnings as errors"           OFF)
+option(PCX_STRICT_CONVERSION "Also treat -Wconversion/-Wsign-conversion as errors" OFF)
 
 # 警告选项：不开 -Werror 作为默认，因为首次编译时把警告当错误
 # 会让「能跑起来」这件事变得遥不可及；CI 里用 PCX_WERROR=ON 收紧。
@@ -51,9 +52,29 @@ else()
     target_compile_options(pcx_warnings INTERFACE
         -Wall -Wextra -Wpedantic
         -Wshadow -Wnon-virtual-dtor -Wcast-align
-        -Wunused -Woverloaded-virtual -Wconversion -Wsign-conversion)
+        -Wunused -Woverloaded-virtual)
+
+    # -Wconversion / -Wsign-conversion 单独成一个开关，默认只报告、不致命。
+    #
+    # 理由：它们**不属于** -Wall -Wextra，正是因为对正常的写法噪音极大
+    # （几乎每个 int/size_t 混用处都会报警）。在代码从未编译过的情况下
+    # 把它们并入 -Werror，得到的是「改一处、推一次、再报一处」的长循环，
+    # 而不是更安全的代码——每轮都要消耗一次 CI 构建。
+    #
+    # 因此保留告警（能看见问题），但不让它挡住第一次成功编译；
+    # 等功能验证过、有真实运行证据之后，再打开 PCX_STRICT_CONVERSION 收口。
+    target_compile_options(pcx_warnings INTERFACE -Wconversion -Wsign-conversion)
+
     if(PCX_WERROR)
         target_compile_options(pcx_warnings INTERFACE -Werror)
+
+        # 注意顺序与位置：-Werror 会把上面**所有**告警都变成错误，
+        # 包括刚说的那两个高噪音的。必须在这之后显式把它们排除，
+        # 否则前面的豁免完全不起作用（-Wno-error=X 只影响 X 这一项）。
+        if(NOT PCX_STRICT_CONVERSION)
+            target_compile_options(pcx_warnings INTERFACE
+                -Wno-error=conversion -Wno-error=sign-conversion)
+        endif()
     endif()
 endif()
 

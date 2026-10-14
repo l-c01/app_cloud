@@ -280,10 +280,10 @@ func TestLoadJSONRejectsMalformedCatalog(t *testing.T) {
 
 func TestNormalize(t *testing.T) {
 	cases := map[string]string{
-		"zh_CN":    "zh-cn",
+		"zh_CN":   "zh-cn",
 		" ZH-CN ": "zh-cn",
-		"en":       "en",
-		"EN_us":    "en-us",
+		"en":      "en",
+		"EN_us":   "en-us",
 	}
 	for input, want := range cases {
 		if got := Normalize(input); got != want {

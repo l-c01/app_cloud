@@ -20,15 +20,15 @@ type gsettingsRunner struct {
 
 func newGsettingsRunner() *gsettingsRunner {
 	return &gsettingsRunner{values: map[string]string{
-		"org.gnome.system.proxy mode":            "none",
-		"org.gnome.system.proxy autoconfig-url":  "",
-		"org.gnome.system.proxy ignore-hosts":    "localhost",
-		"org.gnome.system.proxy.http host":       "",
-		"org.gnome.system.proxy.http port":       "0",
-		"org.gnome.system.proxy.https host":      "",
-		"org.gnome.system.proxy.https port":      "0",
-		"org.gnome.system.proxy.socks host":      "",
-		"org.gnome.system.proxy.socks port":      "0",
+		"org.gnome.system.proxy mode":           "none",
+		"org.gnome.system.proxy autoconfig-url": "",
+		"org.gnome.system.proxy ignore-hosts":   "localhost",
+		"org.gnome.system.proxy.http host":      "",
+		"org.gnome.system.proxy.http port":      "0",
+		"org.gnome.system.proxy.https host":     "",
+		"org.gnome.system.proxy.https port":     "0",
+		"org.gnome.system.proxy.socks host":     "",
+		"org.gnome.system.proxy.socks port":     "0",
 	}}
 }
 

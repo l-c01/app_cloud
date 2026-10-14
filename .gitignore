@@ -22,6 +22,9 @@ output/**
 !output/.gitkeep
 !output/reports/
 !output/reports/**
+# CI 原始日志：体积大、可随时从 GitHub 重新拉取，不入库。
+#其中的结论已经写进 output/reports/ 的验证报告。
+output/reports/ci-logs/
 
 # --- 构建产物 / 中间文件 ---
 build/

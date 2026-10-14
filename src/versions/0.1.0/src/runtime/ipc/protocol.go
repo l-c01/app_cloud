@@ -85,11 +85,11 @@ type Request struct {
 
 // Response 是一次调用响应，或一条事件推送。
 type Response struct {
-	ID        string          `json:"id,omitempty"`
-	OK        bool            `json:"ok"`
-	Result    json.RawMessage `json:"result,omitempty"`
-	Error     *RPCError       `json:"error,omitempty"`
-	Event     *Event          `json:"event,omitempty"`
+	ID     string          `json:"id,omitempty"`
+	OK     bool            `json:"ok"`
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  *RPCError       `json:"error,omitempty"`
+	Event  *Event          `json:"event,omitempty"`
 	// 服务端把自己的版本回填，便于客户端诊断不匹配问题。
 	ProtocolVersion int    `json:"protocolVersion"`
 	SchemaVersion   string `json:"schemaVersion"`

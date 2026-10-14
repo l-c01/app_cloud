@@ -33,12 +33,12 @@ const (
 // 用统一键而不是让上层理解每个平台，是为了让「所有权比较」与「冲突报告」
 // 能在平台无关的代码里完成。
 const (
-	KeySystemProxyEnabled  = "system_proxy.enabled"
-	KeySystemProxyServer   = "system_proxy.server"
-	KeySystemProxyBypass   = "system_proxy.bypass"
-	KeySystemProxyPAC      = "system_proxy.pac"
-	KeyTUNEnabled          = "tun.enabled"
-	KeyTUNDevice           = "tun.device"
+	KeySystemProxyEnabled = "system_proxy.enabled"
+	KeySystemProxyServer  = "system_proxy.server"
+	KeySystemProxyBypass  = "system_proxy.bypass"
+	KeySystemProxyPAC     = "system_proxy.pac"
+	KeyTUNEnabled         = "tun.enabled"
+	KeyTUNDevice          = "tun.device"
 )
 
 // NoteKind 是适配层给出的提示类别。
