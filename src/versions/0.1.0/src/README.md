@@ -60,7 +60,7 @@
 | `xhttp` 传输 | **不支持** | `option/v2ray_transport.go:15` 枚举无 xhttp |
 | TCP 上的 HTTP 伪装头 | **不支持** | 无 `tcpSettings` 对应字段 |
 | HTTP/2 | 映射为 `transport.type: http` | 枚举只有 `http`；没有 `h2` 这个名字 |
-| REALITY serverName 位置 | `tls.server_name` + `tls.reality` | 与面板常用的 xray 结构不同 |
+| REALITY serverName 位置 | `tls.server_name` + `tls.reality` | sing-box 把 REALITY 放在 TLS 之内，不另开一层 |
 
 ### 重要声明
 

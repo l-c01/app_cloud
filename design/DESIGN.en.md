@@ -1,10 +1,10 @@
-# Dual-core Xboard Client: Workflow and Acceptance Baseline
+# Xboard Client: Workflow and Acceptance Baseline
 
 Version 0.1.0 · 2026-10-14 · Design proposal, not implemented.
 
 ## 1. Outcome and delivery boundary
 
-Build a lightweight client for Xboard user operations, independent third-party subscriptions and manually configured nodes. Windows and Android may use separate native interfaces. Linux remains a required desktop target. Xray and sing-box are selectable through separate adapters.
+Build a lightweight client for Xboard user operations, independent third-party subscriptions and manually configured nodes. Windows and Android may use separate native interfaces. Linux remains a required desktop target. The core is sing-box only (ADR-0005).
 
 This delivery is a planning package. The implementation delivery must contain application source, locked dependencies, manually triggered GitHub build workflows, packaging/uninstall integration, detailed development and user documentation in Chinese and English, and durable AI context/change records. Nothing in this package establishes successful application builds or runtime compatibility.
 
@@ -17,7 +17,7 @@ Optional Docker means a headless HTTP/SOCKS client service, optionally with cont
 | R01 | Simple/professional UI and remember-mode option | Restart and transition tests; preserve advanced settings |
 | R02 | Empty default API/brand URLs; editable test settings | No default outbound calls; independent profiles remain usable |
 | R03 | Xboard login/account/usage/plan/announcements/tickets | Pinned server contract and test-account verification |
-| R04 | Selectable Xray/sing-box with explicit capabilities | Both connect; unsupported parameters have field errors |
+| R04 | sing-box only, with explicit capabilities | The core connects; unsupported parameters have field errors |
 | R05 | Windows system proxy/TUN/PAC | OS state, traffic path and restoration evidence |
 | R06 | Android VPN and all/include/exclude app scope | Real app traffic, transitions and permission revocation |
 | R07 | Third-party subscriptions, URIs, native configs and manual nodes | Import/connect without Xboard login |
@@ -39,19 +39,19 @@ Keep four dimensions distinct: UI mode (`simple/professional`), traffic entry (`
 
 First launch defaults to simple. With `rememberUiMode=true`, reuse the selected mode. Disabling remembrance retains the current session mode but starts the next session in simple. Both interfaces share one repository. Returning to simple must preserve advanced settings and indicate when advanced overrides remain active; reset requires a backup.
 
-Simple UI uses Connection, Account, Tickets and Settings. Connection exposes connect/disconnect, committed runtime state, core/node selection and essential entry settings. Account provides login/logout, authoritative quota/usage/expiry/plan and announcements. Tickets support list/detail/create/reply/close only where the pinned backend provides them. Settings expose API testing, language, UI preference and platform options. Empty API configuration offers both setup and independent profiles. Registration/password recovery/purchase can initially open a separately configured panel web URL; never infer it from the API URL or put credentials in URLs.
+Simple UI uses Connection, Account, Tickets and Settings. Connection exposes connect/disconnect, committed runtime state, node selection and essential entry settings. Account provides login/logout, authoritative quota/usage/expiry/plan and announcements. Tickets support list/detail/create/reply/close only where the pinned backend provides them. Settings expose API testing, language, UI preference and platform options. Empty API configuration offers both setup and independent profiles. Registration/password recovery/purchase can initially open a separately configured panel web URL; never infer it from the API URL or put credentials in URLs.
 
 Professional UI adds Profiles/Subscriptions, Nodes/Groups, Routing, DNS, Connections, Logs, Rule Resources and Diagnostics. Expose transport/TLS, DNS, listener ports, routing order, selectors/testing, TUN MTU/IPv6/exclusions, PAC domains and native configuration. Every field is capability/version/platform aware. Missing connection-list or hot-switch APIs are reported as unavailable rather than fabricated from logs.
 
-Native profiles belong to one core. A core switch cannot silently convert them; copy-and-convert must produce a loss report. Preserve unsupported import fields in quarantine, not active verified configuration. Do not execute subscription scripts or remote code.
+Native profiles are sing-box profiles; copy-and-convert must produce a loss report. Preserve unsupported import fields in quarantine, not active verified configuration. Do not execute subscription scripts or remote code.
 
 ## 4. Candidate architecture
 
-Desktop candidate: C++20/wxWidgets native UI and CMake, shared Go business service, pinned Xray/sing-box sidecar processes. Android candidate: Kotlin/Compose, VpnService and Go/AAR bindings. These are engineering proposals intended to retain x86 and avoid a bundled browser runtime, not proven platform coverage. wxWidgets documents a native cross-platform UI approach [S6]. Every target still needs G1 probes.
+Desktop candidate: C++20/wxWidgets native UI and CMake, shared Go business service, a pinned sing-box sidecar process. Android candidate: Kotlin/Compose, VpnService and Go/AAR bindings. These are engineering proposals intended to retain x86 and avoid a bundled browser runtime, not proven platform coverage. wxWidgets documents a native cross-platform UI approach [S6]. Every target still needs G1 probes.
 
-Use Clash Verge as a reference for profile/tray/log/connection UX, not as a configuration backend for different cores [S2]. The specified Clash for Android repository was unreadable during this review; require a verifiable source snapshot rather than substituting an arbitrary similarly named fork [S8]. Qt remains an alternative, but its current official support list does not establish Windows/Linux x86 support [S7].
+Use Clash Verge as a reference for profile/tray/log/connection UX, not as a configuration backend for another core [S2]. The specified Clash for Android repository was unreadable during this review; require a verifiable source snapshot rather than substituting an arbitrary similarly named fork [S8]. Qt remains an alternative, but its current official support list does not establish Windows/Linux x86 support [S7].
 
-Android should first probe one AAR containing common wrappers and both cores, avoiding multiple independent Go runtimes. Dependency coexistence, JNI ABIs, Go bindings and native libraries must be verified. Conflicts require a compatible locked combination or an ADR evaluating other integration routes, not silently dropping a core.
+Android should first probe one AAR containing common wrappers and sing-box, avoiding multiple independent Go runtimes. Dependency coexistence, JNI ABIs, Go bindings and native libraries must be verified. Conflicts require a compatible locked combination or an ADR evaluating other integration routes.
 
 | Module | Responsibility |
 |---|---|
@@ -59,7 +59,7 @@ Android should first probe one AAR containing common wrappers and both cores, av
 | PanelAdapter | Versioned user API authentication, usage and tickets |
 | SubscriptionService | Fetch/decode/update/source attribution and reports |
 | ProfileRepository | Versioned profiles, overrides, secret references and migrations |
-| ConfigCompiler | Independent Xray/sing-box emitters and loss validation |
+| ConfigCompiler | A sing-box emitter with loss validation |
 | RuleResourceService | Geo parsing, canonical rules and PAC subset generation |
 | CoreAdapter | Config checks, lifecycle, capabilities and available statistics |
 | ConnectionCoordinator | One cancellable connection transaction and committed generation |
@@ -105,9 +105,7 @@ Support URI lists, Base64 lists, Clash-compatible YAML, Xray JSON and sing-box J
 
 ## 6. Core and network behavior
 
-Run one selected core. Each compiler calls the pinned core's own config check. Versioned capabilities cover protocols, TUN, statistics, routing and hot reload. Restrict management interfaces to local endpoints with authentication where supported and detect port conflicts.
-
-Current Xray documentation includes TUN support, so an unconditional claim that Xray lacks TUN is obsolete. Native TUN, routing/DNS and Android FD handling require pinned-version tests [S3]. If a required target cannot use native TUN, evaluate a named TUN-to-SOCKS bridge and test UDP/DNS/IPv6 independently; never secretly route through the other core while presenting pure Xray.
+Run sing-box only (ADR-0005). The compiler calls the pinned core's own config check. Versioned capabilities cover protocols, TUN, statistics, routing and hot reload. Restrict management interfaces to local endpoints with authentication where supported and detect port conflicts.
 
 Android supplies VPN FD, protected sockets and network callbacks. Test consent refusal/revocation, foreground lifecycle and network transitions. Android provides one active VPN per user/profile; app allow/disallow lists are mutually exclusive. It does not provide equivalent Windows-wide one-click system-proxy/PAC ownership. Local proxies/PAC export are optional for individually supporting apps [S4].
 
@@ -119,9 +117,9 @@ Windows scope: current-user proxy settings; WinHTTP is separate and initially un
 
 ## 7. PAC and Geo resources
 
-Treat `geodomain:gfw` as a user alias for a verified dataset/category, not a literal field accepted by every core. Verify category availability. Xray Geo and sing-box rule sets have different formats. Official sing-box documentation states legacy geosite was removed in 1.12.0; new adapters must use rule sets [S5].
+Treat `geodomain:gfw` as a user alias for a verified dataset/category, not a literal field accepted by every core. Verify category availability. Official sing-box documentation states legacy geosite was removed in 1.12.0; new adapters must use rule sets [S5].
 
-Resource import → hash/format/category checks → canonical rules → Xray rules/sing-box rules/PAC domain subset. Record resource source/version/license/hash, category counts and excluded entries. PAC supports exact/suffix domains; wildcard/keyword/regex semantics require explicit treatment. IP/process/port/compound rules cannot be silently approximated. Default reject lossy conversion; permit only an explicitly acknowledged supported subset. Priority: user direct exceptions, user proxy domains, imported domains, default action. PAC is proxy selection for participating applications, not whole-device packet routing.
+Resource import → hash/format/category checks → canonical rules → sing-box rule sets and the PAC domain subset. Record resource source/version/license/hash, category counts and excluded entries. PAC supports exact/suffix domains; wildcard/keyword/regex semantics require explicit treatment. IP/process/port/compound rules cannot be silently approximated. Default reject lossy conversion; permit only an explicitly acknowledged supported subset. Priority: user direct exceptions, user proxy domains, imported domains, default action. PAC is proxy selection for participating applications, not whole-device packet routing.
 
 Escape inputs, prohibit JS injection, avoid blocking DNS queries by default, bind PAC serving to loopback, use version/hash-aware script URLs and restore OS ownership on shutdown. Benchmark 1k/10k/50k domains and lazy-load large resources.
 
@@ -131,7 +129,7 @@ Language priority: user override, mapped system preference, English fallback. Sh
 
 Use SQLite/versioned JSON for ordinary data and secret references. Use Windows DPAPI/Credential Manager, Android Keystore-protected keys and Linux Secret Service. Without a keyring, default to session-only secrets or an explicitly chosen encrypted vault, never plaintext fallback. Atomic backups/migrations carry versions and checksums.
 
-No bundled Chromium; only the chosen core runs; cap default logs at 20 MiB, bound latency-test concurrency and avoid idle polling. ABI-split Android packaging and lazy Geo loading reduce waste. Freeze measured G1 budgets for archive size, idle/connected RSS, startup and connect latency. Provisional optimization goals: desktop UI+business idle RSS ≤120 MiB and compressed dual-core desktop package ≤100 MiB excluding optional Geo resources. These are unmeasured goals, not reported performance. Exceptions require evidence and ADRs, not deleted targets/features.
+No bundled Chromium; only sing-box runs; cap default logs at 20 MiB, bound latency-test concurrency and avoid idle polling. ABI-split Android packaging and lazy Geo loading reduce waste. Freeze measured G1 budgets for archive size, idle/connected RSS, startup and connect latency. Provisional optimization goals: desktop UI+business idle RSS ≤120 MiB and compressed single-core desktop package ≤100 MiB excluding optional Geo resources. These are unmeasured goals, not reported performance. Exceptions require evidence and ADRs, not deleted targets/features.
 
 ## 9. Build targets and manual workflows
 
@@ -164,7 +162,7 @@ For build-arch, Android mapping is amd64→optional x86_64, 386→x86, arm64→v
 
 Wrappers call reusable desktop/android/docker workflows driven by one target manifest. Uploading source must not automatically build/release installers. Lightweight source checks may be automatic. Default output is Actions artifacts; releases and registry pushes require explicit publish inputs. GitHub documents manual workflow triggering [S9].
 
-Inputs: source ref, preset/architecture, Docker inclusion, build type, artifact-only/publish and release tag. Resolve a single source SHA and lock snapshot for all jobs. Lock the Xray/sing-box target versions and official checksums, Go/CMake/wxWidgets/compiler/JDK/Gradle/AGP/Kotlin/NDK/SDK, resource hashes, Actions SHAs and image digests. No per-job latest downloads or unresolved placeholders in release builds.
+Inputs: source ref, preset/architecture, Docker inclusion, build type, artifact-only/publish and release tag. Resolve a single source SHA and lock snapshot for all jobs. Lock the sing-box target version and official checksum, Go/CMake/wxWidgets/compiler/JDK/Gradle/AGP/Kotlin/NDK/SDK, resource hashes, Actions SHAs and image digests. No per-job latest downloads or unresolved placeholders in release builds.
 
 Cores ship as **official prebuilt binaries** (see [ADR-0003](adr/ADR-0003-核心官方预构建与自动更新.md)): this project does not compile cores. The client provides in-app core auto-update driven by locked versions with SHA256 verification, atomic replacement and rollback of the previous version; blindly tracking `latest` is forbidden. Application source builds in GitHub without locally supplied prebuilts.
 
@@ -172,16 +170,16 @@ Pipeline: dependency/architecture preflight, fixed checkout, compile, unit/contr
 
 Without user Android signing secrets, produce explicitly labeled debug/test APKs only; release signing requires a stable supplied keystore and otherwise fails. Do not generate random replacement release keys. Unsigned Windows test packages are allowed with clear signing status. Publishing permissions belong only to publish jobs; secrets never enter source. Cache keys include lock hash/architecture.
 
-Docker defaults to a non-root headless manager and loopback host bindings, with mounted configuration/secrets. No baked credentials; one chosen core runs. Optional TUN requires minimal capabilities/device access and is limited to the container namespace. Host routing is a separate deployment design.
+Docker defaults to a non-root headless manager and loopback host bindings, with mounted configuration/secrets. No baked credentials; sing-box runs. Optional TUN requires minimal capabilities/device access and is limited to the container namespace. Host routing is a separate deployment design.
 
 ## 10. Stage gates
 
 | Gate | Work and output | Exit condition |
 |---|---|---|
 | G0 | Pinned sources/API/license/OS/toolchain audit | Source register, API map, target routes and decisions |
-| G1 | GUI/core/ABI/AAR probes; Windows/Android dual-core network tests | Candidate compiles and connects; blockers have credible routes |
+| G1 | GUI/core/ABI/AAR probes; Windows/Android single-core network tests | Candidate compiles and connects; blockers have credible routes |
 | G2 | Models/secrets/API/parser/i18n/UI shell | Independent import, safe empty API and contract/migration tests |
-| G3 | Windows/Android simple operation and business flows | Representative targets connect through both cores and restore network |
+| G3 | Windows/Android simple operation and business flows | Representative targets connect and restore network |
 | G4 | Windows TUN/PAC, Android app scope, advanced customization | Real functionality, loss reports and non-destructive UI transitions |
 | G5 | Linux/all architecture packaging/manual presets; optional Docker | Required target evidence and accurate build summaries |
 | G6 | Bilingual manuals/AI context/update/recovery closure | Definition of Done satisfied |
@@ -190,15 +188,15 @@ Loop within each gate: objective → contract/design → bounded implementation 
 
 ## 11. Verification and convergence
 
-Stable tests T01–T17 cover mode memory; empty API/independent subscriptions; auth/server isolation; usage/tickets; both cores/capabilities; Windows entry modes; Android scopes; crash/revoke/kill/uninstall/reboot recovery; network/sleep transitions; all import formats/update rollback; Geo/PAC injection/loss; preset expansion; machine types/native runtime; i18n/accessibility; atomic migrations/native edits; resource budgets; optional Docker.
+Stable tests T01–T17 cover mode memory; empty API/independent subscriptions; auth/server isolation; usage/tickets; the core and its capabilities; Windows entry modes; Android scopes; crash/revoke/kill/uninstall/reboot recovery; network/sleep transitions; all import formats/update rollback; Geo/PAC injection/loss; preset expansion; machine types/native runtime; i18n/accessibility; atomic migrations/native edits; resource budgets; optional Docker.
 
 Use controlled proxy and destination endpoints to verify each leg and egress, with redacted evidence. A public website opening is insufficient to prove correct core/routing. Non-privileged CI tests cannot replace privileged OS/VPN tests. Block releases for secret exposure, unrecoverable takeover, wrong exits, silent field loss, fabricated business data, unusable required targets or destructive mode changes.
 
-Core v1.0 requires build and runtime verification across all required Windows/Android/Linux targets, dual-core connection tests per platform family, and evidence for architecture-specific driver/binding paths. All mandatory features and manual build presets must work with no open P0/P1 defects. If a required target is build-only, deliver a clearly labeled source-only/pre-release package, not a completed v1.0. Changing mandatory scope requires a requirement/matrix/ADR update. Deferred Docker does not block core v1.0; its completion requires R13/T17 separately.
+Core v1.0 requires build and runtime verification across all required Windows/Android/Linux targets, single-core connection tests per platform family, and evidence for architecture-specific driver/binding paths. All mandatory features and manual build presets must work with no open P0/P1 defects. If a required target is build-only, deliver a clearly labeled source-only/pre-release package, not a completed v1.0. Changing mandatory scope requires a requirement/matrix/ADR update. Deferred Docker does not block core v1.0; its completion requires R13/T17 separately.
 
 A clean checkout must build through documented GitHub manual workflows and locked dependencies. Artifacts identify source SHA, versions, architecture, test/signature status, SBOM and SHA256. Updates preserve settings and uninstall restores owned network state.
 
-Final development manuals in zh-CN/en must cover architecture/directories, contracts/DTOs/errors, schemas/migrations, compilers/capabilities/rules, platform permissions/restoration, i18n, toolchains/presets/signing/images, tests/performance/diagnostics and AI maintenance. User manuals must cover architecture selection/install/uninstall, API/login/usage/tickets, UI memory, cores/nodes/subscriptions, platform modes, PAC/Geo, advanced settings, manual builds/artifacts, updates/recovery and limitations. Generate these from implemented UI and verified commands; this plan is not an existing product manual.
+Final development manuals in zh-CN/en must cover architecture/directories, contracts/DTOs/errors, schemas/migrations, compilers/capabilities/rules, platform permissions/restoration, i18n, toolchains/presets/signing/images, tests/performance/diagnostics and AI maintenance. User manuals must cover architecture selection/install/uninstall, API/login/usage/tickets, UI memory, core/nodes/subscriptions, platform modes, PAC/Geo, advanced settings, manual builds/artifacts, updates/recovery and limitations. Generate these from implemented UI and verified commands; this plan is not an existing product manual.
 
 ## 12. AI maintenance and unresolved work
 
