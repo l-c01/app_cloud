@@ -141,6 +141,27 @@ jobs:
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           ./tools/scripts/validate-client-config.ps1
 
+      - name: Validate JSON syntax for locale catalogs
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r -d '' f; do
+            if jq empty "$f" >/dev/null 2>&1; then
+              echo "  OK    $f"
+            else
+              echo "::error file=$f::invalid JSON"
+              failed=1
+            fi
+          done < <(find locales -name '*.json' -type f -print0)
+          exit $failed
+
+      - name: Cross-check i18n keys against locale catalogs
+        shell: pwsh
+        run: |
+          # 校验：代码引用的文案键存在于所有语言表，且占位符个数一致。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/check-i18n-keys.ps1
+
   # Windows 作业存在的理由：
   #   带 //go:build windows 的文件在 Linux 上根本不会被编译，
   #   这类代码若只靠 Linux 作业验证，等于长期处于「未编译」状态。

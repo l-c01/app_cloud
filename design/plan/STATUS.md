@@ -87,6 +87,12 @@
 | 26b | 平台网络接管实现 | `platform/`（系统代理 / TUN / PAC / VPN） | 待办（G4） |
 | 27 | 平台安全存储实现 | Windows DPAPI / Linux Secret Service / Android Keystore | 待办（G4） |
 | 28 | UI ⇄ 服务 IPC | `runtime/ipc`（版本化本地 JSON RPC + 令牌 + 背压 + 20 组测试） | **完成（未编译）** |
+| 29 | 多语言资源与 i18n 包 | `locales/zh-CN.json`、`locales/en.json`（各 62 键）、`shared/i18n` | **部分完成** |
+| 29b | i18n 约定与自动校验 | `design/architecture/i18n-convention.md`、`tools/scripts/check-i18n-keys.ps1`（已接入 CI） | **完成** |
+| 29c | ⚠️ 关闭 i18n 缺口 | 35 个语言表键尚未被代码引用（6 个包仍用硬编码中文） | **待办（阻塞 R10 达标）** |
+| 30 | 平台网络接管适配层 | `platform/netmgr`（Backend + Manager + GNOME 后端 + 40 组测试） | **完成（未编译）** |
+| 31 | 持久化恢复日志 | `platform/journalfile`（原子写入 + 权限收紧 + 测试） | **完成（未编译）** |
+| 32 | Windows 系统代理 | `platform/winproxy`（reg.exe + 注入防护 + 所有权校验；InternetSetOption TODO） | **部分完成** |
 | 29 | 桌面 UI（C++/wxWidgets） | `apps/desktop` | 待办（G3） |
 | 30 | 中英文开发与使用文档 | `docs/zh-CN/`、`docs/en/` | 待办（G6） |
 | 19 | CI 检查落地 | `gofmt` / `go vet` / `go test` 工作流 | 待办（G1） |
