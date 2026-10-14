@@ -357,9 +357,23 @@ jobs:
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-          $exe = Get-ChildItem -Path "$env:VERSION_DIR/src/apps/desktop/build" -Recurse -File |
-                 Where-Object { $_.Name -like 'proxyclient-desktop*' } |
+          # 精确匹配可执行文件，不要用 'proxyclient-desktop*' 这样的通配符。
+          #
+          # 用通配符时的实际后果：构建目录里同时存在
+          #   proxyclient-desktop.slnx   （Visual Studio 解决方案文件）
+          #   proxyclient-desktop.exe    （真正要打包的程序）
+          # 两者都匹配 'proxyclient-desktop*'，而 Select-Object -First 1
+          # 挑中了 .slnx。于是包"构建成功"、里面的文件名前缀也对，
+          # 但装上去打不开——用户拿到的是一个解决方案文件。
+          #
+          # 这类错误之所以危险，是因为每一步都报 success。
+          # 因此这里既收窄匹配，又在找不到 .exe 时明确失败。
+          $exe = Get-ChildItem -Path "$env:VERSION_DIR/src/apps/desktop/build" -Recurse -File -Filter 'proxyclient-desktop.exe' |
                  Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "proxyclient-desktop.exe was not found under the build directory; refusing to produce a package without the GUI"
+            exit 1
+          }
           if (-not $exe) {
             Write-Error "the built executable was not found; refusing to produce an empty package"
             exit 1
@@ -367,8 +381,9 @@ jobs:
           Copy-Item $exe.FullName (Join-Path $stage $exe.Name)
 
           # 后台服务：GUI 的必备组件，缺了它界面能打开但什么都做不了。
-          $service = Get-ChildItem -Path "$env:GITHUB_WORKSPACE/service-dist" -Recurse -File |
-                     Where-Object { $_.Name -like 'proxyclient-service*' } |
+          # 同样精确匹配：理由见上面 exe 那段。
+          # 服务二进制在 Windows 上是 proxyclient-service.exe。
+          $service = Get-ChildItem -Path "$env:GITHUB_WORKSPACE/service-dist" -Recurse -File -Filter 'proxyclient-service.exe' |
                      Select-Object -First 1
           if (-not $service) {
             Write-Error "the background service binary was not built; the package would be unusable"
