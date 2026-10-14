@@ -126,9 +126,18 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        // 把警告当错误：Android 构建的警告里有一类是真问题
-        // （例如使用了即将移除的 API），不该被淹没。
-        allWarningsAsErrors = true
+        // 警告是否当错误，由 pcx.strictWarnings 控制，默认关闭。
+        //
+        // 与桌面端 CMakeLists 里的 PCX_STRICT_CONVERSION 是同一条理由：
+        // 在代码从未编译过的情况下把全部警告当错误，得到的是
+        // 「改一处、推一次、再报一处」的长循环，而不是更干净的代码——
+        // 每轮都要消耗一次 CI 构建。
+        //
+        // 警告仍然照常输出（看得见问题），只是不挡住第一次构建成功。
+        // 等功能验证过之后，用 -Ppcx.strictWarnings=true 收紧。
+        val strictWarnings = (project.findProperty("pcx.strictWarnings") as String?)
+            ?.toBooleanStrictOrNull() ?: false
+        allWarningsAsErrors = strictWarnings
     }
 
     packaging {

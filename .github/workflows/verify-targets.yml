@@ -55,8 +55,36 @@ jobs:
 
           # 每个目标映射到一组 Go 环境变量：
           #   windows/linux -> GOOS=windows|linux
-          #   android       -> GOOS=android（纯 Go 代码可用 CGO_ENABLED=0 交叉编译）
+          #   android       -> GOOS=android
+          #
+          # 注意：android 的**纯 Go** 交叉编译只对 arm64 成立。
+          # 32 位（arm、386）上 Go 会直接报错：
+          #   android/arm requires external (cgo) linking, but cgo is not enabled
+          # 因为它们要链接 Android 的 bionic libc，必须有 NDK 工具链。
+          # 这不是一个可以靠改配置绕过的限制。
+          #
+          # 因此这两个目标**不参与**这里的纯 Go 编译验证，而是被明确列出、
+          # 并写明原因——列出来而不是静默跳过，是为了让「没有验证」
+          # 与「验证通过」看起来不一样。
+          #
+          # 等核心绑定接入时反正要引入 NDK，那时再把它们打开并改成 cgo 构建。
+          #
           # 去重：多个目标可能映射到同一组环境变量（例如 docker-386 与 linux-386）。
+          deferred=$(jq -r '
+            [ .targets[]
+              | select(.goArch != null)
+              | select((if .family == "android" then "android" else "linux" end) == "android")
+              | select(.goArch != "arm64")
+              | "  \(.id)  GOOS=android GOARCH=\(.goArch)  -- 需要 cgo/NDK，纯 Go 交叉编译不可用"
+            ] | .[]
+          ' "$manifest")
+
+          if [ -n "$deferred" ]; then
+            echo "Not cross-compiled here (documented limitation):"
+            echo "$deferred"
+            echo ""
+          fi
+
           matrix=$(jq -c '
             [ .targets[]
               | {
@@ -72,6 +100,7 @@ jobs:
                   required: .required
                 }
               | select(.goarch != null)
+              | select(.goos != "android" or .goarch == "arm64")
             ]
             | unique_by(.goos + "/" + .goarch + "/" + (.goarm|tostring))
             | sort_by(.goos, .goarch, .goarm)
@@ -114,6 +143,8 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm }}
           # 共享模块是纯 Go 代码（不含 cgo），因此可以完全静态交叉编译。
+          # 唯一的例外是 android 的 32 位目标——它们需要 cgo，
+          # 已在 resolve 步骤里被排除并列出原因。
           CGO_ENABLED: '0'
         run: |
           set -euo pipefail
@@ -164,6 +195,11 @@ jobs:
           fi
 
           echo ""
-          echo "结论：共享 Go module 已为全部目标架构编译通过。"
-          echo "注意：本工作流不产出安装包；桌面 GUI 与 Android 源码尚未实现。"
-          echo "可交付安装包的构建入口见 build-all.yml 等，它们在实现完成前会明确失败。"
+          echo "结论：共享 Go module 已为全部**可纯 Go 编译的**目标架构编译通过。"
+          echo ""
+          echo "不在本次验证范围内的目标（见 resolve 步骤的输出）："
+          echo "  android/arm 与 android/386 —— 需要 cgo 与 NDK，不是配置问题。"
+          echo "  这两个目标在核心绑定接入时会一并处理。"
+          echo ""
+          echo "本工作流不产出安装包，只产出编译结论。"
+          echo "产出安装包的入口见 build-windows.yml / build-linux.yml / build-android.yml。"
