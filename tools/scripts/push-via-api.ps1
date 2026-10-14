@@ -176,6 +176,17 @@ function Invoke-Api {
     return Invoke-RestMethod @params
 }
 
+# Git Data API endpoints require a full 40-character SHA: passing an
+# abbreviated one returns 404 rather than resolving it. The REST commits
+# endpoint does accept abbreviations and branch names, so resolve through it.
+function Resolve-FullSha {
+    param([string]$Sha)
+    if ([string]::IsNullOrEmpty($Sha)) { return $Sha }
+    if ($Sha.Length -ge 40) { return $Sha }
+    $c = Invoke-Api -Method GET -Path "/commits/$Sha"
+    return $c.sha
+}
+
 # Confirm the API is actually reachable before doing anything.
 try {
     $null = Invoke-Api -Method GET -Path ''
@@ -212,9 +223,9 @@ if ([string]::IsNullOrEmpty($From)) {
 $newBase = $From
 $skipAncestry = $false
 if (-not [string]::IsNullOrEmpty($Base)) {
-    $newBase = $Base
+    $newBase = Resolve-FullSha -Sha $Base
     $skipAncestry = $true
-    Write-Host ("base       : {0} (building on a remote commit)" -f $Base.Substring(0, 7))
+    Write-Host ("base       : {0} (building on a remote commit)" -f $newBase.Substring(0, 7))
 }
 
 if ($From -eq $localTip -and -not $skipAncestry) {

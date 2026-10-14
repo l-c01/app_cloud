@@ -563,6 +563,14 @@ func (c *Coordinator) Disconnect(ctx context.Context) error {
 	// --- 2) restoring：按恢复日志还原网络 ---
 	if _, err := c.restoreFromJournal(ctx); err != nil {
 		_ = c.setState(gen, StateRecoveryRequired)
+		// 必须在 setState **之后**写：setState 会清空 lastError。
+		//
+		// 恢复失败意味着系统网络可能仍指向一个已经退出的代理，
+		// 用户的表现是「完全没网」。只给一个 recovery_required 状态
+		// 而不给原因，用户无从判断该改什么，界面上也只能显示一句空话。
+		c.mu.Lock()
+		c.lastError = err.Error()
+		c.mu.Unlock()
 		return fmt.Errorf("coordinator: restore network: %w", err)
 	}
 
