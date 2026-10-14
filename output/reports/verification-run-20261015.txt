@@ -1,18 +1,24 @@
 ﻿Verification run
   repository : D:\workai\xbaord
-  started    : 2026-10-15 03:46:16 +08:00
+  started    : 2026-10-15 03:59:43 +08:00
   powershell : 5.1.26100.9444 (Desktop)
 
 ================================================================
 Tracked source files
   script: tools/scripts/check-tracked-files.ps1
 ================================================================
+UNTRACKED - authored files never added to git:
+  design/adr/ADR-0005-单内核-sing-box.md
+  design/architecture/ui-options.md
+
+  These exist on this machine but would be missing from a clone.
+
 roots     : src/versions, design, docs, locales, tools, .github/workflows
 ignored   : 0
-untracked : 0
+untracked : 2
 
-RESULT: PASS - every authored file is tracked by git.
-exit code: 0
+RESULT: FAIL - 2 problem(s) found.
+exit code: 1
 
 ================================================================
 Go unused imports
@@ -102,8 +108,8 @@ DIR LINK  README.md:14  src/
 DIR LINK  README.md:15  output/
 DIR LINK  README.md:85  design/contracts/
 
-documents : 45
-links     : 120 relative link(s) checked
+documents : 47
+links     : 125 relative link(s) checked
 
 RESULT: PASS - no broken relative links (8 directory link(s) noted).
 exit code: 0
@@ -142,7 +148,7 @@ exit code: 0
 ================================================================
 SUMMARY
 ================================================================
-  Tracked source files             PASS
+  Tracked source files             FAIL (1)
   Go unused imports                PASS
   Go cross-package symbols         PASS
   C++ structural consistency       PASS
@@ -153,7 +159,7 @@ SUMMARY
   Design JSON syntax               PASS
   Config vs schema                 PASS
 
-  passed: 10 / 10
+  passed: 9 / 10
 
   NOTE: none of this compiles anything. The C++ and Go sources have
         never been through a compiler on this machine. Compilation and
