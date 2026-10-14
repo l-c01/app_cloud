@@ -140,3 +140,46 @@ jobs:
           # 复用仓库内校验器（本机与 CI 使用同一套规则，避免两套真相）。
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           ./tools/scripts/validate-client-config.ps1
+
+  # Windows 作业存在的理由：
+  #   带 //go:build windows 的文件在 Linux 上根本不会被编译，
+  #   这类代码若只靠 Linux 作业验证，等于长期处于「未编译」状态。
+  #   此作业确保 Windows 专属实现至少在编译与单元测试层面被覆盖。
+  go-checks-windows:
+    name: Go checks on Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Go version from the lock file
+        id: goversion
+        shell: pwsh
+        run: |
+          $lock = "${{ env.VERSION_DIR }}/deploy/targets/versions.lock.json"
+          if (-not (Test-Path $lock)) {
+            Write-Error "version lock file not found: $lock"
+            exit 1
+          }
+          $json = Get-Content $lock -Raw -Encoding UTF8 | ConvertFrom-Json
+          $pinned = $json.toolchains.go
+          if ([string]::IsNullOrWhiteSpace($pinned) -or $pinned -eq 'null') {
+            Write-Warning "toolchains.go is not pinned; falling back to 1.24"
+            $pinned = '1.24'
+          }
+          "version=$pinned" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Using Go $pinned"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.goversion.outputs.version }}
+          cache-dependency-path: ${{ env.GO_MODULE_DIR }}/go.sum
+
+      - name: Build all packages
+        working-directory: ${{ env.GO_MODULE_DIR }}
+        run: go build ./...
+
+      - name: Unit and contract tests
+        working-directory: ${{ env.GO_MODULE_DIR }}
+        run: go test ./... -count=1
