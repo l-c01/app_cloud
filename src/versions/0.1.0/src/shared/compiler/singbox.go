@@ -107,15 +107,40 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 	case PolicyDirect:
 		cfg.Route = &singboxRoute{Final: "direct"}
 	case PolicyRule:
-		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
-			"规则路由所需的规则集尚未接入，本次编译按『全部经代理』处理以避免流量泄漏；接入规则资源后此行为会改变")
-		cfg.Route = &singboxRoute{
-			Rules: []map[string]any{
-				// ip_is_private 是 sing-box 内建匹配器，不依赖任何外部数据文件。
-				{"ip_is_private": true, "outbound": "direct"},
-			},
-			Final: outboundTag(selected),
+		rules := []map[string]any{
+			// ip_is_private 是 sing-box 内建匹配器，不依赖任何外部数据文件。
+			{"ip_is_private": true, "outbound": "direct"},
 		}
+		final := outboundTag(selected)
+
+		// 用户配置的规则（仅当已接入选项模型）。
+		//
+		// **顺序即优先级，且内建规则一律在前。**
+		// 用户规则排在后面，这样很难用一条宽泛的规则意外绕开
+		// 「私有地址直连」——那条一旦被绕开，局域网设备会试图走代理，
+		// 症状是「打印机、投屏、NAS 忽然不能用了」，
+		// 而用户不会想到是自己加的一条域名规则导致的。
+		userRules := 0
+		if opts := req.Options; opts != nil {
+			for _, r := range opts.Rules {
+				if m := singboxRouteRule(r, selected, report); m != nil {
+					rules = append(rules, m)
+					userRules++
+				}
+			}
+			if f := singboxFinalOutbound(opts, selected, report); f != "" {
+				final = f
+			}
+		}
+
+		// 只有一条真实规则都没有时才提示规则资源缺失。
+		// 用户已经配了规则却仍报「尚未接入」，会让人以为自己的配置没生效。
+		if userRules == 0 {
+			report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+				"规则路由所需的规则集尚未接入，本次编译按『全部经代理』处理以避免流量泄漏；接入规则资源后此行为会改变")
+		}
+
+		cfg.Route = &singboxRoute{Rules: rules, Final: final}
 	}
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
@@ -248,6 +273,90 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 type singboxRoute struct {
 	Rules []map[string]any `json:"rules,omitempty"`
 	Final string           `json:"final,omitempty"`
+}
+
+// ruleMatcherKey 把领域里的规则类型映射到 sing-box 的匹配器字段名。
+//
+// 两者故意不共用同一套拼写：领域的取值是界面用的（domain_suffix），
+// sing-box 用的是它自己的（domain_suffix 恰好相同，但 ip_cidr 与
+// process_name 在别处写法不同）。做成显式映射而不是字符串拼接，
+// 是为了让「某个类型没有对应匹配器」这件事在编译期就看得见。
+var ruleMatcherKey = map[domain.RuleType]string{
+	domain.RuleDomain:        "domain",
+	domain.RuleDomainSuffix:  "domain_suffix",
+	domain.RuleDomainKeyword: "domain_keyword",
+	domain.RuleIPCIDR:        "ip_cidr",
+	domain.RuleProcessName:   "process_name",
+	domain.RulePort:          "port",
+}
+
+// singboxRouteRule 把一条领域规则转成 sing-box 的路由规则。
+//
+// 返回 nil 表示这条规则**无法生成**，调用方应当跳过它。
+// 无法生成的原因会写进报告——静默丢弃一条用户亲手写的规则，
+// 会让「我明明加了规则却没生效」变成一个查不出来的问题。
+func singboxRouteRule(r domain.Rule, selected *domain.Node, report *Report) map[string]any {
+	key, ok := ruleMatcherKey[r.Type]
+	if !ok {
+		// rule_set 不在上面的映射里：它需要规则集资源，而资源尚未接入。
+		// 这正是 rule_resources_missing 那条警告描述的缺口。
+		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+			"规则类型 %q 所需的资源尚未接入，该条规则已跳过", string(r.Type))
+		return nil
+	}
+	if r.Value == "" {
+		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+			"规则类型 %q 的值为空，该条规则已跳过", string(r.Type))
+		return nil
+	}
+
+	rule := map[string]any{key: r.Value}
+
+	switch r.Action {
+	case domain.ActionDirect:
+		rule["outbound"] = "direct"
+	case domain.ActionReject:
+		rule["action"] = "reject"
+	case domain.ActionProxy:
+		rule["outbound"] = outboundTag(selected)
+	case domain.ActionGroup:
+		// 代理组尚未接入生成器。指向一个不存在的出站标签，
+		// 核心会拒绝启动，而错误信息与「组还没做」相距很远。
+		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+			"规则动作 %q 请指定代理组，但代理组尚未接入，该条规则已跳过", string(r.Action))
+		return nil
+	default:
+		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+			"未知的规则动作 %q，该条规则已跳过", string(r.Action))
+		return nil
+	}
+
+	return rule
+}
+
+// singboxFinalOutbound 依据选项决定兜底出口。
+//
+// 返回空串表示「不要改兜底」，调用方保留原值。
+//
+// **兜底默认走代理而不是直连**：回落直连会在规则没覆盖时
+// **静默泄漏真实流量**——用户以为在走代理，实际上没有。
+// 拒绝与代理组做兜底都没有意义（一个会断掉全部未匹配流量，
+// 一个是尚未接入的资源），两者都明确报告并保留原值，而不是静默采用。
+func singboxFinalOutbound(opts *domain.Options, selected *domain.Node, report *Report) string {
+	switch opts.FinalAction {
+	case domain.ActionDirect:
+		return "direct"
+	case domain.ActionProxy, "":
+		return outboundTag(selected)
+	case domain.ActionReject, domain.ActionGroup:
+		report.Warnf(nil, "route.final", "compiler.rule_resources_missing",
+			"兜底动作 %q 不可用，已按『全部经代理』处理以避免流量泄漏", string(opts.FinalAction))
+		return outboundTag(selected)
+	default:
+		report.Warnf(nil, "route.final", "compiler.rule_resources_missing",
+			"未知的兜底动作 %q，已按『全部经代理』处理以避免流量泄漏", string(opts.FinalAction))
+		return outboundTag(selected)
+	}
 }
 
 // singboxTUNInbound 依据选项构造 TUN 入站；未启用时返回 nil
