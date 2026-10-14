@@ -13,9 +13,9 @@
       message namespaces below is treated as a message key. No line-context
       heuristics are needed, which is precisely the point of the namespace rule:
 
-        文案键   <package>.<topic>     e.g. panel.unauthorized, netmgr.scope.tun
-        字段路径 <field>...            e.g. tls.reality, transport.type
-        凭据键   cred.<...>            e.g. cred.panel.session
+         message key   <package>.<topic>   e.g. panel.unauthorized, netmgr.scope.tun
+         field path    <field>...          e.g. tls.reality, transport.type
+         credential    cred.<...>          e.g. cred.panel.session
 
       None of the latter two use a message namespace, so they can never be
       mistaken for a message key. That is why credential keys were renamed from

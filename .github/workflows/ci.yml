@@ -78,6 +78,31 @@ jobs:
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           ./tools/scripts/check-go-symbols.ps1
 
+      - name: Verify C++ structural consistency
+        shell: pwsh
+        run: |
+          # 本机没有 C++ 工具链，无法编译桌面端；这个脚本检查的是
+          # CMake 引用的文件是否存在、include 是否可解析、括号是否配平。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/check-cpp-structure.ps1
+
+      - name: Verify PowerShell scripts are ASCII-only
+        shell: bash
+        run: |
+          # Windows PowerShell 5.1 按 ANSI 代码页读取无 BOM 的 .ps1，
+          # 非 ASCII 内容会被错误解码并导致解析失败。
+          # 这类失败只在 Windows 上出现，因此必须显式拦住。
+          # 见 design/plan/environment-constraints.md 5.2。
+          failed=0
+          while IFS= read -r -d '' f; do
+            if LC_ALL=C grep -qP '[^\x00-\x7F]' "$f"; then
+              echo "::error file=$f::this .ps1 contains non-ASCII bytes, which Windows PowerShell 5.1 mis-decodes"
+              LC_ALL=C grep -nP '[^\x00-\x7F]' "$f" | head -5
+              failed=1
+            fi
+          done < <(find tools -name '*.ps1' -type f -print0)
+          exit $failed
+
   # ---------------------------------------------------------------------------
   # 1) 格式检查：独立作业，失败信息可一键应用
   # ---------------------------------------------------------------------------
@@ -239,7 +264,43 @@ jobs:
         run: go test ./... -count=1
 
   # ---------------------------------------------------------------------------
-  # 4) 设计契约与多语言资源
+  # 4) 桌面端核心库与单元测试
+  #
+  # 只构建 pcx_core（JSON / i18n / IPC），**不构建 GUI**：
+  # 这样不需要 wxWidgets 与 GTK，作业更快也更不容易因为环境问题失败。
+  # GUI 的构建在可复用工作流里单独做。
+  # ---------------------------------------------------------------------------
+  desktop-core:
+    name: Desktop core library and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+
+      - name: Configure
+        working-directory: ${{ env.VERSION_DIR }}/src/apps/desktop
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPCX_BUILD_GUI=OFF \
+            -DPCX_BUILD_TESTS=ON \
+            -DPCX_WERROR=ON
+
+      - name: Build
+        working-directory: ${{ env.VERSION_DIR }}/src/apps/desktop
+        run: cmake --build build --parallel
+
+      - name: Run unit tests
+        working-directory: ${{ env.VERSION_DIR }}/src/apps/desktop
+        run: ctest --test-dir build --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # 5) 设计契约与多语言资源
   # ---------------------------------------------------------------------------
   design-checks:
     name: Design JSON, config schema and i18n
