@@ -1,0 +1,87 @@
+# =============================================================================
+# 手动入口 3/7：构建 Android / Manual entry: build Android
+#
+# 注意：Android 的 ABI 与 amd32 不是同一概念。
+#   386  -> x86（32 位 Intel）
+#   arm64 -> arm64-v8a
+#   armv7 -> armeabi-v7a（32 位 ARM）
+#   amd64 -> 可选 x86_64；请求但不可用时必须显式失败
+# =============================================================================
+
+name: Build Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_dir:
+        description: '版本目录'
+        required: true
+        default: 'src/versions/0.1.0'
+        type: string
+      abi:
+        description: '目标 ABI'
+        required: false
+        default: 'all'
+        type: choice
+        options: [all, arm64-v8a, armeabi-v7a, x86, x86_64]
+      include_universal:
+        description: '是否额外产出 universal APK（体积明显增大）'
+        required: false
+        default: false
+        type: boolean
+      build_type:
+        description: 'test 产出标注过的 debug APK；release 需要仓库签名 secrets'
+        required: false
+        default: 'test'
+        type: choice
+        options: [test, release]
+      publish:
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        required: false
+        default: ''
+        type: string
+      source_ref:
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  resolve_abi_filter:
+    runs-on: ubuntu-latest
+    outputs:
+      arch: ${{ steps.map.outputs.arch }}
+    steps:
+      - name: Map ABI to the manifest arch vocabulary
+        id: map
+        env:
+          ABI: ${{ inputs.abi }}
+        run: |
+          set -euo pipefail
+          case "$ABI" in
+            all)           echo "arch=all"        >> "$GITHUB_OUTPUT" ;;
+            arm64-v8a)     echo "arch=arm64"      >> "$GITHUB_OUTPUT" ;;
+            armeabi-v7a)   echo "arch=armv7"      >> "$GITHUB_OUTPUT" ;;
+            x86)           echo "arch=386"        >> "$GITHUB_OUTPUT" ;;
+            x86_64)
+              # 可选目标：清单里没有 x86_64 时必须显式失败，不能静默省略。
+              echo "::error::x86_64 is an optional target and is not present in the manifest yet"
+              exit 1
+              ;;
+            *) echo "::error::unknown abi: $ABI"; exit 1 ;;
+          esac
+
+  android:
+    needs: resolve_abi_filter
+    uses: ./.github/workflows/reusable-android.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: android
+      arch: ${{ needs.resolve_abi_filter.outputs.arch }}
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}

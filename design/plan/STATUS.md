@@ -69,7 +69,9 @@
 | 11 | 构建目标清单 | `src/versions/0.1.0/deploy/targets/targets.json`（12 目标，与既有设计包一致） | **完成** |
 | 12 | 修订设计基线范围与事实错误 | `DESIGN.zh-CN.md`、`DESIGN.en.md`（接口事实、范围收敛、核心分发） | **完成** |
 | 13 | G0 审计报告 | `output/reports/report-G0-0.1.0-all-20261014.md` | **完成** |
-| 14 | 工作流骨架设计 | `deploy/workflows/`（七入口 + 三可复用） | 待办（G1） |
+| 14 | 手动构建入口与可复用工作流 | `.github/workflows/`：7 入口 + 4 可复用 + 1 校验 = 12 个文件 | **完成（未运行）** |
+| 14b | CI 静态校验与单元测试 | `.github/workflows/ci.yml`（gofmt/vet/test/race + JSON 校验） | **完成（未运行）** |
+| 14c | 工作流位置的约定修正 | `design/architecture/repository-layout.md`（GitHub 只认仓库根 `.github/workflows/`） | **完成** |
 | 15 | `shared/panel` 面板适配实现 | `src/versions/0.1.0/src/shared/panel/`（4 接口 + 契约测试） | **完成（未编译）** |
 | 16 | Go module 骨架与说明 | `src/go.mod`、`src/README.md` | **完成** |
 | 17 | `shared/domain` 标准节点模型 | `src/versions/0.1.0/src/shared/domain/node.go` | **完成（未编译）** |

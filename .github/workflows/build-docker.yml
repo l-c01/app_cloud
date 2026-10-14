@@ -1,0 +1,46 @@
+# =============================================================================
+# 手动入口 6/7：构建 Docker / Manual entry: build Docker
+#
+# Docker 是可选目标（R13）。首轮默认后置；本入口保留构建契约：
+# 在实现之前启用会由 preflight 明确失败，而不是静默产出空结果。
+# =============================================================================
+
+name: Build Docker
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_dir:
+        description: '版本目录'
+        required: true
+        default: 'src/versions/0.1.0'
+        type: string
+      build_type:
+        required: false
+        default: 'test'
+        type: choice
+        options: [test, release]
+      publish:
+        description: '是否推送镜像；默认只产出 OCI artifacts'
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        required: false
+        default: ''
+        type: string
+      source_ref:
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    uses: ./.github/workflows/reusable-docker.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}

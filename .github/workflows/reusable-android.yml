@@ -1,0 +1,122 @@
+# =============================================================================
+# 可复用：Android 构建 / Reusable: Android build
+#
+# 设计约束：
+#   - Android 核心集成方式（AAR 内嵌 vs 预构建二进制）由 G1 绑定探针决定，见 ADR-0003 第 5 条。
+#   - 无用户签名密钥时只产出明确标注的 debug/test APK；缺少正式 keystore 时 release 必须失败。
+#   - 应用源码尚未实现时 preflight 明确失败。
+# =============================================================================
+
+name: reusable-android
+
+on:
+  workflow_call:
+    inputs:
+      version_dir:
+        required: true
+        type: string
+      preset:
+        required: true
+        type: string
+      arch:
+        required: false
+        type: string
+        default: 'all'
+      build_type:
+        required: false
+        type: string
+        default: 'test'
+      publish:
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    uses: ./.github/workflows/reusable-resolve-targets.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: ${{ inputs.preset }}
+      family: 'android'
+      arch: ${{ inputs.arch }}
+      include_docker: false
+
+  preflight:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Android source exists
+        env:
+          VERSION_DIR: ${{ inputs.version_dir }}
+        run: |
+          set -euo pipefail
+          android_dir="${VERSION_DIR}/src/apps/android"
+          if [ ! -f "${android_dir}/settings.gradle.kts" ] && [ ! -f "${android_dir}/settings.gradle" ]; then
+            echo "::error::Android source is not implemented yet: no settings.gradle(.kts) under ${android_dir}."
+            echo "This is expected before stage G3."
+            exit 1
+          fi
+          echo "Android source present"
+
+      - name: Refuse release build without a stable signing key
+        env:
+          BUILD_TYPE: ${{ inputs.build_type }}
+        run: |
+          set -euo pipefail
+          if [ "$BUILD_TYPE" != "release" ]; then
+            echo "test build: a debug APK will be produced and clearly labelled."
+            exit 0
+          fi
+          # 用户密钥必须放在仓库 Secrets 中；缺失时失败，绝不临时生成随机 release key。
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "::error::release build requires Android signing secrets; refusing to fabricate a key."
+            echo "Provide ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS in repository secrets."
+            exit 1
+          fi
+          echo "signing secrets present"
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+  build:
+    needs: [resolve, preflight]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    name: android-${{ matrix.id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Report resolved target
+        run: |
+          echo "target : ${{ matrix.id }}"
+          echo "abi    : ${{ matrix.abi }}"
+          echo "goarch : ${{ matrix.goArch }}${{ matrix.goarm }}"
+          echo "sdk    : ${{ matrix.osBaseline }}"
+
+      - name: TODO (G3) build Android app
+        run: |
+          echo "::notice::Android build steps land in stage G3 once apps/android exists."
+          echo "Planned: Gradle assemble for ABI ${{ matrix.abi }} -> sign (test or release) -> verify ABI -> package APK."
+
+  summary:
+    needs: [resolve, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate result
+        run: |
+          set -euo pipefail
+          echo "resolved targets: ${{ needs.resolve.outputs.count }}"
+          echo "build job result: ${{ needs.build.result }}"
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "::error::Android build failed for at least one required target"
+            exit 1
+          fi

@@ -1,0 +1,180 @@
+# =============================================================================
+# 手动入口 5/7：按架构构建 / Manual entry: build by architecture
+#
+# 契约（设计基线 §10.2）：
+#   - 平台开关默认 Windows + Linux；Android / Docker 必须显式选择加入。
+#   - 不能把 Android v7a 误判为 amd32；amd32 统一规范为 x86 / Go 386。
+#   - 请求了不可用的可选目标（如 Android x86_64）必须显式失败，不得静默省略。
+# =============================================================================
+
+name: Build by architecture
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_dir:
+        description: '版本目录'
+        required: true
+        default: 'src/versions/0.1.0'
+        type: string
+      arch:
+        description: '架构选择；armv7 仅适用于 Android'
+        required: true
+        default: 'amd64'
+        type: choice
+        options: [amd64, '386', arm64, all, armv7]
+      build_windows:
+        required: false
+        default: true
+        type: boolean
+      build_linux:
+        required: false
+        default: true
+        type: boolean
+      include_android:
+        required: false
+        default: false
+        type: boolean
+      include_docker:
+        required: false
+        default: false
+        type: boolean
+      build_type:
+        required: false
+        default: 'test'
+        type: choice
+        options: [test, release]
+      publish:
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        required: false
+        default: ''
+        type: string
+      source_ref:
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate the selection
+        env:
+          ARCH: ${{ inputs.arch }}
+          WINDOWS: ${{ inputs.build_windows }}
+          LINUX: ${{ inputs.build_linux }}
+          ANDROID: ${{ inputs.include_android }}
+          DOCKER: ${{ inputs.include_docker }}
+        run: |
+          set -euo pipefail
+          if [ "$WINDOWS" != "true" ] && [ "$LINUX" != "true" ] && [ "$ANDROID" != "true" ] && [ "$DOCKER" != "true" ]; then
+            echo "::error::no platform selected; enable at least one of windows/linux/android/docker"
+            exit 1
+          fi
+          # armv7 是 32 位 ARM，只对 Android 有意义；桌面/Linux 没有该目标。
+          if [ "$ARCH" = "armv7" ] && [ "$ANDROID" != "true" ]; then
+            echo "::error::arch=armv7 only applies to Android; enable include_android or pick another architecture"
+            exit 1
+          fi
+
+  windows:
+    needs: guard
+    if: ${{ inputs.build_windows }}
+    uses: ./.github/workflows/reusable-desktop.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: windows
+      arch: ${{ inputs.arch }}
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}
+
+  linux:
+    needs: guard
+    if: ${{ inputs.build_linux }}
+    uses: ./.github/workflows/reusable-desktop.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: linux
+      arch: ${{ inputs.arch }}
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}
+
+  map_android_arch:
+    needs: guard
+    if: ${{ inputs.include_android }}
+    runs-on: ubuntu-latest
+    outputs:
+      arch: ${{ steps.map.outputs.arch }}
+    steps:
+      - name: Map architecture to the Android vocabulary
+        id: map
+        env:
+          ARCH: ${{ inputs.arch }}
+        run: |
+          set -euo pipefail
+          case "$ARCH" in
+            all)    echo "arch=all"    >> "$GITHUB_OUTPUT" ;;
+            arm64)  echo "arch=arm64"  >> "$GITHUB_OUTPUT" ;;
+            armv7)  echo "arch=armv7"  >> "$GITHUB_OUTPUT" ;;
+            '386')  echo "arch=386"    >> "$GITHUB_OUTPUT" ;;
+            amd64)
+              # 设计基线：Android 侧 amd64 映射为可选 x86_64。
+              # 清单中尚无该目标时必须显式失败。
+              echo "::error::arch=amd64 maps to Android x86_64, which is not available in the manifest yet"
+              exit 1
+              ;;
+            *) echo "::error::unknown arch: $ARCH"; exit 1 ;;
+          esac
+
+  android:
+    needs: map_android_arch
+    if: ${{ inputs.include_android }}
+    uses: ./.github/workflows/reusable-android.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: android
+      arch: ${{ needs.map_android_arch.outputs.arch }}
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}
+
+  docker:
+    needs: guard
+    if: ${{ inputs.include_docker }}
+    uses: ./.github/workflows/reusable-docker.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}
+
+  aggregate:
+    needs: [guard, windows, linux, android, docker]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce the gate
+        run: |
+          set -euo pipefail
+          echo "guard  : ${{ needs.guard.result }}"
+          echo "windows: ${{ needs.windows.result }}"
+          echo "linux  : ${{ needs.linux.result }}"
+          echo "android: ${{ needs.android.result }}"
+          echo "docker : ${{ needs.docker.result }}"
+
+          if [ "${{ needs.guard.result }}" != "success" ]; then
+            echo "::error::selection guard failed"
+            exit 1
+          fi
+          # 被跳过的平台（skipped）不是失败；选中的平台失败才是失败。
+          for r in "${{ needs.windows.result }}" "${{ needs.linux.result }}" "${{ needs.android.result }}" "${{ needs.docker.result }}"; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::a selected platform failed: $r"
+              exit 1
+            fi
+          done
+          echo "all selected platforms succeeded"

@@ -83,12 +83,25 @@ src/versions/<version>/
 │   └── platform/              特权代理与平台桥接
 ├── deploy/
 │   ├── targets/               targets.json、versions.lock.json
-│   ├── workflows/             GitHub Actions 手动入口
 │   ├── packaging/             打包、安装、卸载、签名
 │   └── docker/                Dockerfile 与 compose
 ├── locales/                   中英文翻译源
 └── tests/                     契约测试、固件、端到端场景
 ```
+
+### GitHub Actions 工作流的位置（重要例外）
+
+**GitHub 只会在仓库根目录 `.github/workflows/` 下查找工作流**，放在版本目录里不会被触发。
+
+因此约定如下：
+
+| 内容 | 位置 | 说明 |
+|---|---|---|
+| 可运行的工作流定义 | `.github/workflows/`（仓库根） | GitHub 唯一识别的位置 |
+| 版本相关的构建清单 | `src/versions/<version>/deploy/targets/` | `targets.json`、`versions.lock.json` |
+| 打包与签名脚本 | `src/versions/<version>/deploy/packaging/` | 由工作流调用 |
+
+工作流通过相对路径**读取目标清单**，把「构建什么」与「怎么构建」分开：清单随版本走，工作流不硬编码目标矩阵。切换版本时只需改清单路径。
 
 ---
 

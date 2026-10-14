@@ -1,0 +1,98 @@
+# =============================================================================
+# 可复用：Docker 镜像构建 / Reusable: Docker image build
+#
+# 设计约束：
+#   - Docker 属可选目标（R13），deferred 不阻塞核心 v1.0。
+#   - 尚无实现时 preflight 明确失败，不允许静默跳过或伪造成功。
+#   - 运行用户默认非 root；凭据通过挂载或 secret 传入，不烘焙进镜像。
+#   - 两核心不会同时运行；TUN 能力只影响容器命名空间，不承诺接管宿主网络。
+# =============================================================================
+
+name: reusable-docker
+
+on:
+  workflow_call:
+    inputs:
+      version_dir:
+        required: true
+        type: string
+      build_type:
+        required: false
+        type: string
+        default: 'test'
+      publish:
+        description: '是否推送镜像；默认只产出 OCI artifacts'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    uses: ./.github/workflows/reusable-resolve-targets.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: 'docker'
+      family: 'docker'
+      arch: 'all'
+      include_docker: false
+
+  preflight:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Docker assets exist
+        env:
+          VERSION_DIR: ${{ inputs.version_dir }}
+        run: |
+          set -euo pipefail
+          dockerfile="${VERSION_DIR}/deploy/docker/Dockerfile"
+          if [ ! -f "$dockerfile" ]; then
+            echo "::error::Docker assets are not implemented: $dockerfile is missing."
+            echo "Docker is an optional target (R13) and may stay deferred; enabling it before implementation must fail, not silently skip."
+            exit 1
+          fi
+          echo "Docker assets present"
+
+  build:
+    needs: [resolve, preflight]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    name: docker-${{ matrix.id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify the base image manifest for this architecture
+        run: |
+          set -euo pipefail
+          echo "target: ${{ matrix.id }} (${{ matrix.os }})"
+          # 32 位基础镜像与依赖必须独立检查，不能假设与 64 位等价。
+          echo "::notice::base image manifest check for ${{ matrix.os }} is part of the G5 implementation."
+
+      - name: TODO (G5) build and export the OCI image
+        run: |
+          echo "::notice::Docker build steps land in stage G5."
+          echo "Planned: buildx build for ${{ matrix.os }} -> export OCI artifact -> architecture verification."
+
+  summary:
+    needs: [resolve, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate result
+        run: |
+          set -euo pipefail
+          echo "resolved targets: ${{ needs.resolve.outputs.count }}"
+          echo "build job result: ${{ needs.build.result }}"
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "::error::Docker build failed for at least one target"
+            exit 1
+          fi

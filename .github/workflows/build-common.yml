@@ -1,0 +1,73 @@
+# =============================================================================
+# 手动入口 7/7：一键构建常用组合 / Manual entry: build common
+#
+# 组合含义（设计基线 §10.2）：Windows x64 + x86、Linux x64 + x86、Android v8a + v7a。
+# 默认**不含** Docker，也不含各自平台的其余架构；如需完整矩阵请用 build-all。
+# =============================================================================
+
+name: Build common
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_dir:
+        description: '版本目录'
+        required: true
+        default: 'src/versions/0.1.0'
+        type: string
+      build_type:
+        required: false
+        default: 'test'
+        type: choice
+        options: [test, release]
+      publish:
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        required: false
+        default: ''
+        type: string
+      source_ref:
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    # common 预设含 windows 与 linux 的 x64/x86 目标。
+    uses: ./.github/workflows/reusable-desktop.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: common
+      arch: all
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}
+
+  android:
+    # common 预设含 Android arm64-v8a 与 armeabi-v7a。
+    uses: ./.github/workflows/reusable-android.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: common
+      arch: all
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}
+
+  aggregate:
+    needs: [desktop, android]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce the gate
+        run: |
+          set -euo pipefail
+          echo "desktop: ${{ needs.desktop.result }}"
+          echo "android: ${{ needs.android.result }}"
+          if [ "${{ needs.desktop.result }}" != "success" ] || [ "${{ needs.android.result }}" != "success" ]; then
+            echo "::error::a required target in the common preset failed"
+            exit 1
+          fi

@@ -1,0 +1,52 @@
+# =============================================================================
+# 手动入口 4/7：构建 Linux / Manual entry: build Linux
+#
+# 说明：本入口是为补齐原列表缺失的 Linux 入口而设。
+#   i386 依赖与最低 glibc 必须在构建容器中显式固定，不能假设所有发行版都完整支持。
+# =============================================================================
+
+name: Build Linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_dir:
+        description: '版本目录'
+        required: true
+        default: 'src/versions/0.1.0'
+        type: string
+      arch:
+        required: false
+        default: 'all'
+        type: choice
+        options: [all, amd64, '386', arm64]
+      build_type:
+        required: false
+        default: 'test'
+        type: choice
+        options: [test, release]
+      publish:
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        required: false
+        default: ''
+        type: string
+      source_ref:
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    uses: ./.github/workflows/reusable-desktop.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: linux
+      arch: ${{ inputs.arch }}
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}

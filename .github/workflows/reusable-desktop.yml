@@ -1,0 +1,137 @@
+# =============================================================================
+# 可复用：桌面端构建 / Reusable: desktop build
+#
+# 覆盖 Windows 与 Linux 目标。Android 见 reusable-android.yml，Docker 见 reusable-docker.yml。
+#
+# 设计约束：
+#   - 核心（Xray / sing-box）**不编译**，只下载官方预构建二进制并校验 SHA256（ADR-0003）。
+#   - 未冻结的核心版本会阻断 release 构建；test 构建允许跳过下载，但会在摘要中标注。
+#   - 应用源码尚未实现时 preflight 明确失败，不产出假的「构建成功」。
+# =============================================================================
+
+name: reusable-desktop
+
+on:
+  workflow_call:
+    inputs:
+      version_dir:
+        required: true
+        type: string
+      preset:
+        required: true
+        type: string
+      arch:
+        required: false
+        type: string
+        default: 'all'
+      build_type:
+        description: 'test 或 release'
+        required: false
+        type: string
+        default: 'test'
+      publish:
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    uses: ./.github/workflows/reusable-resolve-targets.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: ${{ inputs.preset }}
+      family: 'windows,linux'
+      arch: ${{ inputs.arch }}
+      include_docker: false
+
+  preflight:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify desktop source exists
+        env:
+          VERSION_DIR: ${{ inputs.version_dir }}
+        run: |
+          set -euo pipefail
+          desktop_dir="${VERSION_DIR}/src/apps/desktop"
+          if [ ! -f "${desktop_dir}/CMakeLists.txt" ]; then
+            echo "::error::desktop source is not implemented yet: ${desktop_dir}/CMakeLists.txt is missing."
+            echo "This is expected before stage G3. The build intentionally fails instead of producing a fake success."
+            echo "See design/plan/STATUS.md for the current stage and remaining work."
+            exit 1
+          fi
+          echo "desktop source present"
+
+      - name: Verify core pins for release builds
+        env:
+          VERSION_DIR: ${{ inputs.version_dir }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+        run: |
+          set -euo pipefail
+          lock="${VERSION_DIR}/deploy/targets/versions.lock.json"
+          if [ ! -f "$lock" ]; then
+            echo "::error::version lock file not found: $lock"
+            exit 1
+          fi
+
+          missing=$(jq -r '
+            [ .sources.xray_core, .sources.sing_box_core ]
+            | map(select((.version // null) == null or (.sha256 // null) == null))
+            | length' "$lock")
+
+          if [ "$BUILD_TYPE" = "release" ] && [ "$missing" -gt 0 ]; then
+            echo "::error::release build refused: $missing core pin(s) are unresolved in $lock"
+            echo "Release builds must not run with placeholder pins (design baseline §10.2)."
+            exit 1
+          fi
+
+          if [ "$missing" -gt 0 ]; then
+            echo "::warning::core pins are unresolved; a test build will proceed without bundled cores."
+          fi
+
+  build:
+    needs: [resolve, preflight]
+    strategy:
+      # 收集全部失败，发布成功标志前必须汇总（设计基线 §10.2）。
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    runs-on: ${{ startsWith(matrix.family, 'windows') && 'windows-latest' || 'ubuntu-latest' }}
+    name: desktop-${{ matrix.id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Report resolved target
+        run: |
+          echo "target : ${{ matrix.id }}"
+          echo "family : ${{ matrix.family }}"
+          echo "arch   : ${{ matrix.arch }}"
+          echo "cores  : xray=${{ matrix.xrayAssetArch }} sing-box=${{ matrix.singBoxAssetArch }}"
+          echo "route  : ${{ matrix.toolchainRoute }}"
+
+      - name: TODO (G3) configure and build desktop app
+        run: |
+          echo "::notice::desktop build steps land in stage G3 once apps/desktop exists."
+          echo "Planned: CMake configure for ${{ matrix.arch }} -> build -> bundle pinned cores -> package."
+
+  summary:
+    needs: [resolve, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate result
+        run: |
+          set -euo pipefail
+          echo "resolved targets: ${{ needs.resolve.outputs.count }}"
+          echo "build job result: ${{ needs.build.result }}"
+          # 必需目标失败即整体失败，不允许 continue-on-error 后宣称成功。
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "::error::desktop build failed for at least one required target"
+            exit 1
+          fi

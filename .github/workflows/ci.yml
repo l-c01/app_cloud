@@ -1,0 +1,142 @@
+# =============================================================================
+# 轻量校验工作流 / Lightweight CI checks
+#
+# 范围（严格遵守设计基线 §10.2）：
+#   - 本工作流**只做静态校验与单元测试**，不编译安装包、不发布产物。
+#   - 生产构建一律走手动触发的工作流（workflow_dispatch），见 build-*.yml。
+#
+# 为什么需要它：开发机上没有 Go 工具链（见 design/plan/environment-constraints.md），
+# 因此 gofmt / go vet / go test 只能在 CI 中执行，否则源码质量无从验证。
+# =============================================================================
+
+name: CI checks
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'src/versions/**'
+      - 'design/**'
+      - 'tools/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'src/versions/**'
+      - 'design/**'
+      - 'tools/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+# 同一分支的重复推送取消旧运行，节省额度。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # 当前在开发的版本目录。新增版本时改这里，或在手动触发时覆盖。
+  VERSION_DIR: src/versions/0.1.0
+  GO_MODULE_DIR: src/versions/0.1.0/src
+
+jobs:
+  go-checks:
+    name: Go format / vet / test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Go version from the lock file
+        id: goversion
+        run: |
+          set -euo pipefail
+          lock="${VERSION_DIR}/deploy/targets/versions.lock.json"
+          if [ ! -f "$lock" ]; then
+            echo "::error::version lock file not found: $lock"
+            exit 1
+          fi
+          # 未冻结时（值为 null）使用保守的默认值，并在日志中明确提示。
+          pinned=$(jq -r '.toolchains.go // empty' "$lock")
+          if [ -z "$pinned" ] || [ "$pinned" = "null" ]; then
+            echo "::warning::toolchains.go is not pinned in $lock; falling back to 1.24"
+            pinned="1.24"
+          fi
+          echo "version=$pinned" >> "$GITHUB_OUTPUT"
+          echo "Using Go $pinned"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.goversion.outputs.version }}
+          cache-dependency-path: ${{ env.GO_MODULE_DIR }}/go.sum
+
+      - name: Verify formatting (gofmt)
+        working-directory: ${{ env.GO_MODULE_DIR }}
+        run: |
+          set -euo pipefail
+          # gofmt -l 列出格式不合规的文件；有输出即失败。
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::the following files are not gofmt-formatted:"
+            echo "$unformatted"
+            echo "Run 'gofmt -w .' locally (or accept the patch from this job) and commit the result."
+            exit 1
+          fi
+          echo "gofmt: OK"
+
+      - name: Verify module metadata (go mod tidy)
+        working-directory: ${{ env.GO_MODULE_DIR }}
+        run: |
+          set -euo pipefail
+          cp go.mod go.mod.orig
+          if [ -f go.sum ]; then cp go.sum go.sum.orig; fi
+          go mod tidy
+          if ! diff -q go.mod go.mod.orig >/dev/null; then
+            echo "::error::go.mod is not tidy; run 'go mod tidy' and commit"
+            diff go.mod.orig go.mod || true
+            exit 1
+          fi
+          echo "go mod tidy: OK"
+
+      - name: Static analysis (go vet)
+        working-directory: ${{ env.GO_MODULE_DIR }}
+        run: go vet ./...
+
+      - name: Unit and contract tests
+        working-directory: ${{ env.GO_MODULE_DIR }}
+        run: go test ./... -count=1
+
+      - name: Race detector
+        working-directory: ${{ env.GO_MODULE_DIR }}
+        run: go test ./... -race -count=1
+
+  json-checks:
+    name: Design JSON syntax and config contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate JSON syntax with jq
+        run: |
+          set -euo pipefail
+          failed=0
+          # 只在受版本管理的设计目录内检查；src/references 为第三方快照，不入版本控制。
+          while IFS= read -r -d '' f; do
+            if jq empty "$f" >/dev/null 2>&1; then
+              echo "  OK    $f"
+            else
+              echo "::error file=$f::invalid JSON"
+              failed=1
+            fi
+          done < <(find design -name '*.json' -type f -print0)
+          exit $failed
+
+      - name: Validate client-config.json against its schema
+        shell: pwsh
+        run: |
+          # 复用仓库内校验器（本机与 CI 使用同一套规则，避免两套真相）。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/validate-client-config.ps1

@@ -1,0 +1,111 @@
+# =============================================================================
+# 可复用：解析目标清单 / Reusable: resolve the target matrix
+#
+# 目的：把「构建什么」集中在一处。七个手动入口与三个可复用工作流都调用本工作流，
+#       不得各自复制一份目标矩阵（设计基线 §10.2 的强制要求）。
+#
+# 输入 preset 的取值见 src/versions/<ver>/deploy/targets/targets.json 的 buildPresets。
+# =============================================================================
+
+name: reusable-resolve-targets
+
+on:
+  workflow_call:
+    inputs:
+      version_dir:
+        description: '版本目录，例如 src/versions/0.1.0'
+        required: true
+        type: string
+      preset:
+        description: '构建预设：all/windows/android/linux/docker/common'
+        required: true
+        type: string
+      family:
+        description: '只保留某些平台族，可逗号分隔（例如 windows,linux），留空表示不筛选'
+        required: false
+        type: string
+        default: ''
+      arch:
+        description: '按架构筛选：amd64/386/arm64/armv7/all'
+        required: false
+        type: string
+        default: 'all'
+      include_docker:
+        description: '是否把 Docker 目标并入（仅对 all/common 生效）'
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      matrix:
+        description: '目标矩阵（内含 target 对象数组）'
+        value: ${{ jobs.resolve.outputs.matrix }}
+      count:
+        description: '解析出的目标数量'
+        value: ${{ jobs.resolve.outputs.count }}
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      count: ${{ steps.resolve.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve targets from the manifest
+        id: resolve
+        env:
+          VERSION_DIR: ${{ inputs.version_dir }}
+          PRESET: ${{ inputs.preset }}
+          FAMILY: ${{ inputs.family }}
+          ARCH: ${{ inputs.arch }}
+          INCLUDE_DOCKER: ${{ inputs.include_docker }}
+        run: |
+          set -euo pipefail
+          manifest="${VERSION_DIR}/deploy/targets/targets.json"
+
+          if [ ! -f "$manifest" ]; then
+            echo "::error::target manifest not found: $manifest"
+            exit 1
+          fi
+
+          # 1) 取出预设定义的目标 id 列表（可选并入 Docker）。
+          ids=$(jq -c --arg p "$PRESET" --argjson dock "$INCLUDE_DOCKER" '
+            (.buildPresets[$p] // error("unknown preset: " + $p)) as $bp
+            | (($bp.requiredTargets // $bp.targets // []) + (if $dock then ($bp.optionalTargets // []) else [] end))
+            | unique' "$manifest")
+
+          if [ "$ids" = "[]" ] || [ -z "$ids" ]; then
+            echo "::error::preset '$PRESET' resolved to zero targets"
+            exit 1
+          fi
+
+          # 2) 用 id 列表从 targets 中筛出完整对象，并应用 family / arch 过滤。
+          #    family 支持逗号分隔的多个平台族，避免桌面构建误带 Android 目标。
+          matrix=$(jq -c --argjson ids "$ids" --arg fam "$FAMILY" --arg arch "$ARCH" '
+            [ .targets[]
+              | select(.id as $i | $ids | index($i))
+              | select(.family as $f | ($fam == "") or (($fam | split(",")) | index($f)))
+              | select(
+                  ($arch == "all")
+                  or (.arch == $arch)
+                  or (($arch == "armv7") and (.abi == "armeabi-v7a"))
+                )
+            ]' "$manifest")
+
+          count=$(jq 'length' <<< "$matrix")
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no target matched preset='$PRESET' family='$FAMILY' arch='$ARCH'"
+            exit 1
+          fi
+
+          echo "Resolved $count target(s):"
+          jq -r '.[].id' <<< "$matrix"
+
+          # 3) 输出给下游使用。include 必须是对象数组，故包一层。
+          echo "matrix={\"include\":$matrix}" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"

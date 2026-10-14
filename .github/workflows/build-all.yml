@@ -1,0 +1,97 @@
+# =============================================================================
+# 手动入口 1/7：一键构建全部 / Manual entry: build all
+#
+# 契约（设计基线 §10.2）：
+#   - 仅 workflow_dispatch 手动触发；上传源码不自动产出安装包。
+#   - 默认只上传 Actions artifacts，不自动发布 Release、不推送镜像。
+#   - 必需目标失败即整体失败；不得 continue-on-error 后宣称全平台成功。
+# =============================================================================
+
+name: Build all
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_dir:
+        description: '版本目录'
+        required: true
+        default: 'src/versions/0.1.0'
+        type: string
+      include_docker:
+        description: '是否包含 Docker 目标（可选目标，默认不含）'
+        required: false
+        default: false
+        type: boolean
+      build_type:
+        description: '构建类型：test 允许未冻结的核心版本，release 必须已冻结'
+        required: false
+        default: 'test'
+        type: choice
+        options: [test, release]
+      publish:
+        description: '是否发布（默认只上传 artifacts）'
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: '发布 tag（publish 为 true 时必填）'
+        required: false
+        default: ''
+        type: string
+      source_ref:
+        description: '源码 ref；留空使用触发时的 ref'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    uses: ./.github/workflows/reusable-desktop.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: all
+      arch: all
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}
+
+  android:
+    uses: ./.github/workflows/reusable-android.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      preset: all
+      arch: all
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}
+
+  docker:
+    # Docker 是可选目标；仅在显式勾选时加入。
+    if: ${{ inputs.include_docker }}
+    uses: ./.github/workflows/reusable-docker.yml
+    with:
+      version_dir: ${{ inputs.version_dir }}
+      build_type: ${{ inputs.build_type }}
+      publish: ${{ inputs.publish }}
+
+  aggregate:
+    needs: [desktop, android, docker]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarise and enforce the gate
+        run: |
+          set -euo pipefail
+          echo "desktop: ${{ needs.desktop.result }}"
+          echo "android: ${{ needs.android.result }}"
+          echo "docker : ${{ needs.docker.result }}"
+          # docker 被跳过（skipped）不算失败，但必需目标失败必须整体失败。
+          if [ "${{ needs.desktop.result }}" != "success" ] || [ "${{ needs.android.result }}" != "success" ]; then
+            echo "::error::at least one required target failed; refusing to report success"
+            exit 1
+          fi
+          if [ "${{ needs.docker.result }}" = "failure" ]; then
+            echo "::error::the optional Docker target was enabled and failed"
+            exit 1
+          fi
