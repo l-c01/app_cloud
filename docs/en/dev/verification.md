@@ -7,10 +7,15 @@ The second matters more. A report that only says "everything passed" carries
 no information, because it does not tell you which conclusions you *cannot*
 draw from it.
 
-> **The single most important sentence: none of the code has ever been
-> compiled.**
-> The development machine has no Go, C++, JDK or Android SDK toolchain.
-> Every compile and every unit test happens in GitHub Actions.
+> **The single most important sentence: the code compiles and every test
+> passes, but it has never been run on real hardware.**
+> The development machine has no Go, C++, JDK or Android SDK toolchain, so
+> every compile and every unit test happens in GitHub Actions.
+> **The 2026-10-15 CI run passed all 7 jobs** (Linux and Windows).
+>
+> "It compiles" is still some distance from "it works": no real panel has
+> been contacted, no core has been asked to accept a generated config, and
+> network takeover has never been exercised on real hardware.
 
 ---
 
