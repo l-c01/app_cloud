@@ -55,12 +55,39 @@ const (
 
 // Note 是一条能力提示，用于界面诚实说明接管范围。
 //
+// 本地化约定（见 design/architecture/i18n-convention.md）：
+//   - MessageKey 与 MessageArgs 是界面文案的唯一来源；
+//   - Message 只是内部诊断文本，**不得**直接显示给用户。
+//
 // 设计基线明确要求：桌面代理必须说明接管范围，
 // 不能让用户误以为「所有应用的流量都已进入代理」。
 type Note struct {
-	Kind    NoteKind
-	Mode    string
-	Message string
+	Kind        NoteKind
+	Mode        string
+	MessageKey  string
+	MessageArgs []any
+	Message     string
+	// Reason 是后端给出的「为何不可用」的额外说明（仅诊断用，非文案）。
+	Reason string
+}
+
+// noteReasonOrNone 返回提示里的原因说明，没有时给出占位。
+func noteReasonOrNone(n Note) string {
+	if n.Reason == "" {
+		return "no reason given"
+	}
+	return n.Reason
+}
+
+// newNote 构造一条带文案键的提示。
+func newNote(kind NoteKind, mode, messageKey string, args ...any) Note {
+	return Note{
+		Kind:        kind,
+		Mode:        mode,
+		MessageKey:  messageKey,
+		MessageArgs: args,
+		Message:     fmt.Sprintf("netmgr note: kind=%s mode=%s key=%s", kind, mode, messageKey),
+	}
 }
 
 // Result 是一次接管的返回值。
@@ -97,6 +124,15 @@ type Conflict struct {
 	Key      string
 	Expected string
 	Actual   string
+}
+
+// unsupportedReasoner 允许后端解释「为何不支持某个模式」。
+//
+// 存在理由：只告诉用户「不支持」没有可操作性。
+// NoopBackend 能说明「本平台尚未实现系统代理接管」，
+// 这对判断是自己配错了还是软件还没做完至关重要。
+type unsupportedReasoner interface {
+	UnsupportedReason(mode string) string
 }
 
 // Manager 实现 coordinator.NetworkManager。
@@ -147,23 +183,24 @@ func (m *Manager) Apply(ctx context.Context, plan coordinator.NetworkPlan) (coor
 
 	if !m.supports(mode) {
 		// 不支持时明确报错，并给出可展示的提示——绝不静默不做事。
-		note := Note{
-			Kind: NoteUnsupported,
-			Mode: mode,
-			Message: fmt.Sprintf("后端 %s 不支持接入方式 %s；系统网络未被改动",
-				m.backend.Name(), mode),
+		note := newNote(NoteUnsupported, mode, "netmgr.mode_unsupported", m.backend.Name(), mode)
+
+		// 后端若愿意解释原因，就把它带上：只说「不支持」没有可操作性。
+		// 注意顺序：必须在 append 之前填好 Reason，否则记录到的是不含原因的副本。
+		if r, ok := m.backend.(unsupportedReasoner); ok {
+			if reason := r.UnsupportedReason(mode); reason != "" {
+				note.Reason = reason
+			}
 		}
+
 		m.notes = append(m.notes, note)
-		return nil, fmt.Errorf("netmgr: %s", note.Message)
+		return nil, fmt.Errorf("netmgr: backend %s does not support mode %s; system networking was left unchanged (%s)",
+			m.backend.Name(), mode, noteReasonOrNone(note))
 	}
 
 	if mode == ModeLocalProxy {
 		// 本地代理只启动本地端口，不改动任何系统设置。
-		m.notes = append(m.notes, Note{
-			Kind:    NoteNoop,
-			Mode:    mode,
-			Message: "本地代理模式不改动系统网络设置",
-		})
+		m.notes = append(m.notes, newNote(NoteNoop, mode, "netmgr.local_proxy_noop"))
 		return coordinator.NetworkSettings{}, nil
 	}
 
@@ -220,28 +257,19 @@ func (m *Manager) supports(mode string) bool {
 }
 
 // takeoverNote 给出该模式的接管范围提示。
+//
+// 这些文案刻意直白地点出限制，因为「以为所有流量都走了代理」
+// 是这个类型软件最常见、也最危险的误解。
 func (m *Manager) takeoverNote(mode string) Note {
 	switch mode {
 	case ModeSystemProxy:
-		return Note{
-			Kind:    NotePartial,
-			Mode:    mode,
-			Message: "系统代理只影响读取系统代理设置的应用；不遵循该设置的应用不会经过代理",
-		}
+		return newNote(NotePartial, mode, "netmgr.scope.system_proxy")
 	case ModePAC:
-		return Note{
-			Kind:    NotePartial,
-			Mode:    mode,
-			Message: "PAC 只影响读取系统 PAC 设置的应用；规则由本地 PAC 服务提供",
-		}
+		return newNote(NotePartial, mode, "netmgr.scope.pac")
 	case ModeTUN:
-		return Note{
-			Kind:    NotePartial,
-			Mode:    mode,
-			Message: "TUN 接管虚拟网卡流量；是否需要管理员权限、以及哪些流量被排除取决于平台实现",
-		}
+		return newNote(NotePartial, mode, "netmgr.scope.tun")
 	default:
-		return Note{Kind: NoteNoop, Mode: mode, Message: "未改动系统网络设置"}
+		return newNote(NoteNoop, mode, "netmgr.scope.none")
 	}
 }
 

@@ -25,6 +25,16 @@ func (NoopBackend) Name() string { return "noop" }
 // SupportedModes 实现 Backend：不支持任何模式。
 func (NoopBackend) SupportedModes() []string { return nil }
 
+// UnsupportedReason 实现 unsupportedReasoner：说明为何不可用。
+//
+// 让用户能区分「我配错了」和「这个平台还没实现」。
+func (n NoopBackend) UnsupportedReason(string) string {
+	if n.Reason != "" {
+		return n.Reason
+	}
+	return "this platform has no system network takeover implementation"
+}
+
 // Snapshot 实现 Backend：返回空快照。
 func (NoopBackend) Snapshot(context.Context) (map[string]string, error) {
 	return map[string]string{}, nil

@@ -55,6 +55,7 @@
     "panel.not_xboard": "该地址不是有效的 Xboard 面板",
     "panel.invalid_credentials": "邮箱或密码不正确",
     "panel.subscription_unavailable": "订阅不可用（可能已到期或流量用尽）",
+    "panel.session_malformed": "登录凭据格式不正确（缺少 Bearer 前缀），请清除登录信息后重新登录",
     "panel.unknown": "面板操作失败",
 
     "core.config_rejected": "核心拒绝了该配置（退出码 {0}）",

@@ -272,19 +272,44 @@ func TestTakeoverNotesAreHonestAboutScope(t *testing.T) {
 		if n.Kind != NotePartial {
 			t.Errorf("mode %s should be reported as partial takeover, got %q", n.Mode, n.Kind)
 		}
-		if n.Message == "" {
-			t.Errorf("mode %s needs an explanatory message", n.Mode)
+		// 文案键必须存在：界面据此本地化，Message 只用于诊断，不能当文案用。
+		if n.MessageKey == "" {
+			t.Errorf("mode %s needs a message key for the UI to render", n.Mode)
 		}
 	}
-	// 系统代理的说明必须点出「不遵循该设置的应用不会经过代理」。
-	var sysProxyNote string
+	// 系统代理的提示必须是「部分接管」那一类。
+	var sysProxyKey string
 	for _, n := range notes {
 		if n.Mode == ModeSystemProxy {
-			sysProxyNote = n.Message
+			sysProxyKey = n.MessageKey
 		}
 	}
-	if !strings.Contains(sysProxyNote, "不会经过代理") {
-		t.Errorf("system proxy note should state the limitation: %q", sysProxyNote)
+	if sysProxyKey != "netmgr.scope.system_proxy" {
+		t.Errorf("system proxy note key = %q, want netmgr.scope.system_proxy", sysProxyKey)
+	}
+}
+
+func TestUnsupportedNoteCarriesTheArguments(t *testing.T) {
+	// 提示需要带上后端名与模式，界面才能拼出完整句子。
+	b := &staticBackend{name: "test-backend", modes: []string{ModeSystemProxy}}
+	m := New(b)
+	if _, err := m.Apply(context.Background(), coordinator.NetworkPlan{Mode: ModeTUN}); err == nil {
+		t.Fatal("expected an error for an unsupported mode")
+	}
+
+	notes := m.Notes()
+	if len(notes) != 1 {
+		t.Fatalf("expected one note, got %d", len(notes))
+	}
+	note := notes[0]
+	if note.MessageKey != "netmgr.mode_unsupported" {
+		t.Errorf("key = %q", note.MessageKey)
+	}
+	if len(note.MessageArgs) != 2 {
+		t.Fatalf("expected 2 arguments (backend, mode), got %v", note.MessageArgs)
+	}
+	if note.MessageArgs[0] != "test-backend" || note.MessageArgs[1] != ModeTUN {
+		t.Errorf("args = %v", note.MessageArgs)
 	}
 }
 

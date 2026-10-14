@@ -149,19 +149,24 @@ func (c *Client) endpoint(p string) string {
 //
 // authHeader 为空表示匿名请求；否则必须已是完整的 "Bearer xxx" 形式。
 // 返回值：成功时为解析后的信封，失败时为 *Error。
+//
+// 所有错误都经 newError 构造，保证一定带上 MessageKey：
+// 界面据此本地化，Message 只用于日志诊断。
 func (c *Client) do(ctx context.Context, op, method, p string, body any, authHeader string) (*envelope, *Error) {
 	var reader io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
 		if err != nil {
-			return nil, &Error{Op: op, Kind: KindUnknown, Message: "encode request failed: " + err.Error()}
+			return nil, newError(op, KindUnknown, 0, "").
+				withDetail("encode request failed: %v", err)
 		}
 		reader = bytes.NewReader(buf)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, c.endpoint(p), reader)
 	if err != nil {
-		return nil, &Error{Op: op, Kind: KindUnknown, Message: "build request failed: " + err.Error()}
+		return nil, newError(op, KindUnknown, 0, "").
+			withDetail("build request failed: %v", err)
 	}
 
 	req.Header.Set("Accept", "application/json")
@@ -173,12 +178,12 @@ func (c *Client) do(ctx context.Context, op, method, p string, body any, authHea
 	}
 	if authHeader != "" {
 		if !hasBearerPrefix(authHeader) {
-			// 明确报错而不是静默拼一个双前缀：这通常意味着配置被误改。
-			return nil, &Error{
-				Op:      op,
-				Kind:    KindUnauthorized,
-				Message: "session token must already include the 'Bearer ' prefix",
-			}
+			// 明确报错而不是静默拼一个双前缀：这通常意味着配置被手工改坏。
+			//
+			// 用 KindInvalidSession 而不是 KindUnauthorized：
+			// 否则用户会反复重新登录却始终无效。
+			return nil, newError(op, KindInvalidSession, 0, "").
+				withDetail("session token must already include the 'Bearer ' prefix")
 		}
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -187,15 +192,12 @@ func (c *Client) do(ctx context.Context, op, method, p string, body any, authHea
 	if err != nil {
 		// 调用方主动取消：不是故障，重试没有意义。
 		if errors.Is(err, context.Canceled) {
-			return nil, &Error{
-				Op:        op,
-				Kind:      KindUnknown,
-				Message:   "request canceled by caller",
-				Retryable: false,
-			}
+			e := newError(op, KindUnknown, 0, "").withDetail("request canceled by caller")
+			e.Retryable = false
+			return nil, e
 		}
-		kind := KindNetworkUnreachable
-		return nil, &Error{Op: op, Kind: kind, Message: "request failed: " + err.Error(), Retryable: retryableFor(kind)}
+		return nil, newError(op, KindNetworkUnreachable, 0, "").
+			withDetail("request failed: %v", err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -206,69 +208,44 @@ func (c *Client) do(ctx context.Context, op, method, p string, body any, authHea
 	limited := io.LimitReader(resp.Body, maxResponseBytes+1)
 	rawBody, readErr := io.ReadAll(limited)
 	if readErr != nil {
-		return nil, &Error{Op: op, Kind: KindNetworkUnreachable, Message: "read response failed: " + readErr.Error(), Retryable: true}
+		return nil, newError(op, KindNetworkUnreachable, 0, "").
+			withDetail("read response failed: %v", readErr)
 	}
 	if int64(len(rawBody)) > maxResponseBytes {
-		return nil, &Error{
-			Op:         op,
-			Kind:       KindUnknown,
-			HTTPStatus: resp.StatusCode,
-			Message:    "response exceeds the size limit",
-			Retryable:  false,
-		}
+		e := newError(op, KindUnknown, resp.StatusCode, "").
+			withDetail("response exceeds the size limit")
+		e.Retryable = false
+		return nil, e
 	}
 
 	// 订阅类端点返回非 JSON，本包的 4 个接口都应返回 JSON 信封。
 	// 非 JSON 说明地址不是 Xboard，或中间有拦截页面。
 	trimmed := bytes.TrimSpace(rawBody)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
-		kind := KindNotXboard
-		return nil, &Error{
-			Op:         op,
-			Kind:       kind,
-			HTTPStatus: resp.StatusCode,
-			Message:    "response is not a JSON object; the address may not be an Xboard panel",
-			Retryable:  retryableFor(kind),
-		}
+		return nil, newError(op, KindNotXboard, resp.StatusCode, "").
+			withDetail("response is not a JSON object; the address may not be an Xboard panel")
 	}
 
 	var env envelope
 	if err := json.Unmarshal(trimmed, &env); err != nil {
-		kind := KindNotXboard
-		return nil, &Error{
-			Op:         op,
-			Kind:       kind,
-			HTTPStatus: resp.StatusCode,
-			Message:    "response is not a valid Xboard envelope: " + err.Error(),
-			Retryable:  retryableFor(kind),
-		}
+		return nil, newError(op, KindNotXboard, resp.StatusCode, "").
+			withDetail("response is not a valid Xboard envelope: %v", err)
 	}
 
-	// 信封结构校验：四个字段中 status 必须存在且为已知值。
+	// 信封结构校验：status 必须存在且为已知值。
 	if env.Status != "success" && env.Status != "fail" {
-		kind := KindNotXboard
-		return nil, &Error{
-			Op:         op,
-			Kind:       kind,
-			HTTPStatus: resp.StatusCode,
-			Message:    "response envelope has unexpected status field",
-			Retryable:  retryableFor(kind),
-		}
+		return nil, newError(op, KindNotXboard, resp.StatusCode, "").
+			withDetail("response envelope has an unexpected status field")
 	}
 
 	if env.isSuccess() {
 		return &env, nil
 	}
 
+	// 服务端返回失败：分类后把服务端文案保存在 ServerMessage 里供诊断，
+	// 但界面文案仍由 MessageKey 决定（服务端文案可能随语言与版本变化）。
 	kind := classifyHTTP(op, resp.StatusCode)
-	return nil, &Error{
-		Op:            op,
-		Kind:          kind,
-		HTTPStatus:    resp.StatusCode,
-		Message:       localizedMessage(kind),
-		ServerMessage: env.Message,
-		Retryable:     retryableFor(kind),
-	}
+	return nil, newError(op, kind, resp.StatusCode, env.Message)
 }
 
 // classifyHTTP 把 HTTP 状态码映射为错误分类。
@@ -299,32 +276,11 @@ func classifyHTTP(op string, status int) ErrorKind {
 	}
 }
 
-// localizedMessage 给出面向用户的稳定文案。
+// localizedMessage 已删除。
 //
-// 这里只提供中文兜底；正式界面文案由 i18n 资源提供（见 R10）。
-// 本函数保证在任何情况下都不会把服务端原文当作唯一提示。
-func localizedMessage(kind ErrorKind) string {
-	switch kind {
-	case KindUnauthorized:
-		return "登录状态已失效，请重新登录"
-	case KindForbidden:
-		return "服务端拒绝该操作"
-	case KindRateLimited:
-		return "请求过于频繁，请稍后再试"
-	case KindServerError:
-		return "面板服务暂时不可用"
-	case KindNetworkUnreachable:
-		return "无法连接面板"
-	case KindNotXboard:
-		return "该地址不是有效的 Xboard 面板"
-	case KindInvalidCredentials:
-		return "邮箱或密码不正确"
-	case KindSubscriptionUnavailable:
-		return "订阅不可用（可能已到期或流量用尽）"
-	default:
-		return "面板操作失败"
-	}
-}
+// 原先它把错误分类直接映射成硬编码中文，导致英文界面在出错时显示中文。
+// 现在由 newError 统一填入 MessageKey，界面用 i18n.Bundle 渲染。
+// 见 design/architecture/i18n-convention.md。
 
 // 操作名常量，用于错误定位与分类。
 const (

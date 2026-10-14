@@ -55,6 +55,7 @@
     "panel.not_xboard": "This address is not a valid Xboard panel",
     "panel.invalid_credentials": "The email or password is incorrect",
     "panel.subscription_unavailable": "The subscription is unavailable (it may have expired or run out of quota)",
+    "panel.session_malformed": "The stored session has an invalid format (missing the Bearer prefix); clear the saved sign-in and try again",
     "panel.unknown": "The panel operation failed",
 
     "core.config_rejected": "The core rejected this configuration (exit code {0})",

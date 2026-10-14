@@ -17,7 +17,8 @@ import (
 //   - 返回的 Session 必须交给 SecretStore 保存，不得写入日志。
 func (c *Client) Login(ctx context.Context, creds Credentials) (*Session, *Error) {
 	if creds.Email == "" || creds.Password == "" {
-		return nil, &Error{Op: opLogin, Kind: KindInvalidCredentials, Message: "email and password are required"}
+		return nil, newError(opLogin, KindInvalidCredentials, 0, "").
+			withDetail("email and password are required")
 	}
 
 	body := map[string]string{
@@ -32,19 +33,12 @@ func (c *Client) Login(ctx context.Context, creds Credentials) (*Session, *Error
 
 	var s Session
 	if err := json.Unmarshal(env.Data, &s); err != nil {
-		return nil, &Error{
-			Op:            opLogin,
-			Kind:          KindUnknown,
-			Message:       "unexpected login response shape",
-			ServerMessage: env.Message,
-		}
+		return nil, newError(opLogin, KindUnknown, 0, env.Message).
+			withDetail("unexpected login response shape")
 	}
 	if s.SessionToken == "" {
-		return nil, &Error{
-			Op:      opLogin,
-			Kind:    KindUnknown,
-			Message: "login succeeded but no session token was returned",
-		}
+		return nil, newError(opLogin, KindUnknown, 0, "").
+			withDetail("login succeeded but no session token was returned")
 	}
 	return &s, nil
 }
@@ -66,19 +60,12 @@ func (c *Client) GetSubscriptionDescriptor(ctx context.Context, session string) 
 
 	var d SubscriptionDescriptor
 	if err := json.Unmarshal(env.Data, &d); err != nil {
-		return nil, &Error{
-			Op:            opSubscribe,
-			Kind:          KindUnknown,
-			Message:       "unexpected subscription response shape",
-			ServerMessage: env.Message,
-		}
+		return nil, newError(opSubscribe, KindUnknown, 0, env.Message).
+			withDetail("unexpected subscription response shape")
 	}
 	if d.SubscribeURL == "" {
-		return nil, &Error{
-			Op:      opSubscribe,
-			Kind:    KindUnknown,
-			Message: "panel returned an empty subscription URL",
-		}
+		return nil, newError(opSubscribe, KindUnknown, 0, "").
+			withDetail("panel returned an empty subscription URL")
 	}
 	return &d, nil
 }
@@ -97,12 +84,8 @@ func (c *Client) GetAccount(ctx context.Context, session string) (*Account, *Err
 
 	var a Account
 	if err := json.Unmarshal(env.Data, &a); err != nil {
-		return nil, &Error{
-			Op:            opAccount,
-			Kind:          KindUnknown,
-			Message:       "unexpected account response shape",
-			ServerMessage: env.Message,
-		}
+		return nil, newError(opAccount, KindUnknown, 0, env.Message).
+			withDetail("unexpected account response shape")
 	}
 	return &a, nil
 }
@@ -133,11 +116,8 @@ func (c *Client) DiscoverPanel(ctx context.Context) (*PanelIdentity, *Error) {
 	}
 	if err := json.Unmarshal(env.Data, &id.Raw); err != nil {
 		// data 不是对象（例如是数组或标量）：说明不是预期的 guest config 结构。
-		return nil, &Error{
-			Op:      opDiscover,
-			Kind:    KindNotXboard,
-			Message: "panel config is not a JSON object",
-		}
+		return nil, newError(opDiscover, KindNotXboard, 0, "").
+			withDetail("panel config is not a JSON object")
 	}
 	return id, nil
 }

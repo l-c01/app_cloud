@@ -61,16 +61,27 @@ const (
 	// KindSubscriptionUnavailable 订阅不可用（套餐到期、流量用尽、被封禁）。
 	// 对应订阅接口返回 403 且 body 为空的情形。
 	KindSubscriptionUnavailable ErrorKind = "subscription_unavailable"
+	// KindInvalidSession 传入的会话串格式不对（缺少 "Bearer " 前缀）。
+	//
+	// 单独分类的理由：这与「会话过期」完全不同——前者是配置被手工改坏
+	// 或调用方拼错了，用户看到笼统的「登录已失效」会一直重新登录却无效。
+	KindInvalidSession ErrorKind = "invalid_session"
 	// KindUnknown 未归类的失败。
 	KindUnknown ErrorKind = "unknown"
 )
 
 // Error 是面板操作失败的结构化错误。
 //
-// 调用方应依据 Kind 决策，而不是解析 Message。
-// ServerMessage 仅供诊断展示，可能包含服务端本地化文案。
+// 本地化约定（见 design/architecture/i18n-convention.md）：
+//   - MessageKey 与 MessageArgs 是**界面文案的唯一来源**；
+//     调用方用 bundle.T(e.MessageKey, e.MessageArgs...) 渲染；
+//   - Message 只是内部诊断用的英文兜底，**不得**直接显示给用户。
+//
+// 这样把「文案」与「错误分类」解耦：分类用于程序判断，文案用于展示。
 type Error struct {
 	Kind          ErrorKind
+	MessageKey    string
+	MessageArgs   []any
 	Message       string
 	HTTPStatus    int
 	ServerMessage string
@@ -83,10 +94,76 @@ func (e *Error) Error() string {
 	if e == nil {
 		return "<nil>"
 	}
-	if e.HTTPStatus > 0 {
-		return fmt.Sprintf("panel: %s failed: kind=%s http=%d: %s", e.Op, e.Kind, e.HTTPStatus, e.Message)
+	detail := e.Message
+	if detail == "" {
+		detail = e.MessageKey
 	}
-	return fmt.Sprintf("panel: %s failed: kind=%s: %s", e.Op, e.Kind, e.Message)
+	if e.HTTPStatus > 0 {
+		return fmt.Sprintf("panel: %s failed: kind=%s http=%d: %s", e.Op, e.Kind, e.HTTPStatus, detail)
+	}
+	return fmt.Sprintf("panel: %s failed: kind=%s: %s", e.Op, e.Kind, detail)
+}
+
+// newError 构造一个带文案键的错误。
+//
+// 所有构造点都走这里，避免某处忘记填 MessageKey 而让界面回退到英文兜底。
+func newError(op string, kind ErrorKind, httpStatus int, serverMessage string) *Error {
+	key, args := messageKeyFor(kind)
+	return &Error{
+		Op:            op,
+		Kind:          kind,
+		MessageKey:    key,
+		MessageArgs:   args,
+		Message:       diagnosticText(kind, httpStatus),
+		HTTPStatus:    httpStatus,
+		ServerMessage: serverMessage,
+		Retryable:     retryableFor(kind),
+	}
+}
+
+// messageKeyFor 返回错误分类对应的文案键与参数。
+func messageKeyFor(kind ErrorKind) (string, []any) {
+	switch kind {
+	case KindUnauthorized:
+		return "panel.unauthorized", nil
+	case KindForbidden:
+		return "panel.forbidden", nil
+	case KindRateLimited:
+		return "panel.rate_limited", nil
+	case KindServerError:
+		return "panel.server_error", nil
+	case KindNetworkUnreachable:
+		return "panel.network_unreachable", nil
+	case KindNotXboard:
+		return "panel.not_xboard", nil
+	case KindInvalidCredentials:
+		return "panel.invalid_credentials", nil
+	case KindSubscriptionUnavailable:
+		return "panel.subscription_unavailable", nil
+	case KindInvalidSession:
+		return "panel.session_malformed", nil
+	default:
+		return "panel.unknown", nil
+	}
+}
+
+// withDetail 附加仅用于日志与诊断的细节文本。
+//
+// 细节**不会**出现在界面上（界面用 MessageKey 渲染），
+// 它的作用是在日志里说清「到底哪一步失败了」。
+func (e *Error) withDetail(format string, args ...any) *Error {
+	e.Message = fmt.Sprintf(format, args...)
+	return e
+}
+
+// diagnosticText 给出仅用于日志与诊断的英文描述。
+//
+// 它不会出现在界面上；界面一律用 MessageKey 渲染。
+func diagnosticText(kind ErrorKind, httpStatus int) string {
+	if httpStatus > 0 {
+		return fmt.Sprintf("panel operation failed (kind=%s, http=%d)", kind, httpStatus)
+	}
+	return fmt.Sprintf("panel operation failed (kind=%s)", kind)
 }
 
 // retryableFor 判断某个分类是否值得重试。

@@ -8,19 +8,22 @@
     locale catalog. Nothing else enforces that in a code base without a local Go
     toolchain, so this script performs the check from the source side.
 
-    How keys are detected (deliberately narrow, to avoid false positives):
-      - lines containing "MessageKey:"                     -> the quoted key
-      - lines calling .Errorf( / .Warnf( / .Infof(         -> the quoted key argument
+    How keys are detected:
+      any quoted dotted lower-case literal whose FIRST segment is one of the known
+      message namespaces below is treated as a message key. No line-context
+      heuristics are needed, which is precisely the point of the namespace rule:
 
-    Key namespace convention (this is what makes detection reliable):
-      message keys are named  <package>.<topic>
-      field paths are named   <field>...   (e.g. tls.reality, transport.type)
+        文案键   <package>.<topic>     e.g. panel.unauthorized, netmgr.scope.tun
+        字段路径 <field>...            e.g. tls.reality, transport.type
+        凭据键   cred.<...>            e.g. cred.panel.session
 
-    Because a report call carries both a field path and a message key, and the
-    field path also looks like a dotted lower-case identifier, the checker only
-    accepts keys whose first segment is one of the known package namespaces
-    listed in $messageNamespaces below. Add a namespace here when a new package
-    starts emitting user-visible messages.
+      None of the latter two use a message namespace, so they can never be
+      mistaken for a message key. That is why credential keys were renamed from
+      "panel.session" to "cred.panel.session": both are dotted lower-case
+      identifiers, and sharing a prefix would have forced a permanent exception
+      list into this checker.
+
+    Add a namespace below when a new package starts emitting user-visible messages.
 
     Then it verifies, for every detected key:
       1. the key exists in every locale catalog under locales/;
@@ -99,10 +102,8 @@ foreach ($file in $files) {
     $lineNo = 0
     foreach ($line in (Get-Content -LiteralPath $file.FullName -Encoding UTF8)) {
         $lineNo++
-        $interesting = $false
-        if ($line -match 'MessageKey:') { $interesting = $true }
-        elseif ($line -match '\.(Errorf|Warnf|Infof)\(') { $interesting = $true }
-        if (-not $interesting) { continue }
+        # Skip comment-only lines: prose about keys should not register as usage.
+        if ($line -match '^\s*//') { continue }
 
         foreach ($m in [regex]::Matches($line, $keyPattern)) {
             $key = $m.Groups[1].Value
