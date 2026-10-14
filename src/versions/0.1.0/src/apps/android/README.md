@@ -1,11 +1,32 @@
 # Android 客户端 / Android client
 
-状态：**骨架**（`build_passed` 未达成，`runtime_passed` 未达成）
+状态：**`build_passed` 已达成 · `runtime_passed` 未达成**
 
-本模块是 Kotlin + Jetpack Compose 的 Android 前端。它是**骨架**而不是可用实现，
-本文档如实说明已完成与未完成的部分——设计基线要求两者必须分开陈述。
+本模块是 Kotlin + Jetpack Compose 的 Android 前端。它**能编译、能打包出可安装的
+APK**，但功能仍是骨架——本文档如实说明已完成与未完成的部分，
+设计基线要求两者必须分开陈述。
 
 ---
+
+## 0. 构建结果 / Build result
+
+> 2026-10-15 · CI 运行 `Build Android #2` · 提交 `967363c` · **success**
+
+| 项 | 值 |
+|---|---|
+| 产物 | `app-debug.apk` |
+| 大小 | 9,457,149 字节（9.0 MB） |
+| SHA256 | `45ae25359264fca0a6df537327355008e5f1cf6ff19d579c8e78484c091d4e8d` |
+| 内部条目 | 149 |
+| ABI | 仅 `arm64-v8a`（由 `-Ppcx.abiFilter` 收窄，构建后由工作流校验） |
+| 已含语言资源 | `assets/locales/en.json`、`assets/locales/zh-CN.json`（与桌面端同一份文件） |
+| 已含出厂配置 | `assets/config/client-config.json` |
+
+`build_passed` 的含义是**能编译并打包**，不代表能运行：
+
+- 从未在真机或模拟器上安装过；
+- 全部运行时行为仍然是 `not_run`；
+- **连接后流量不会经过代理**（见第 2 节）。
 
 ## 1. 已实现 / Implemented
 
