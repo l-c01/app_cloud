@@ -80,8 +80,11 @@
 | 20 | Clash YAML 导入器 | `shared/subscription` 的 YAML 解析 | 待办（G2） |
 | 21 | sing-box JSON 导入器 | `shared/subscription` 的 JSON 解析 | 待办（G2） |
 | 22 | 双核心配置编译器 | `shared/compiler`（Xray / sing-box 生成器 + 能力矩阵 + 契约测试） | **完成（未编译）** |
-| 23 | 运行期：核心适配器与自动更新 | `runtime/core`、`runtime/coreupdater`（ADR-0003） | 待办（G3/G4） |
-| 24 | 连接协调器与网络恢复 | `runtime/coordinator` | 待办（G3/G4） |
+| 23 | 凭据存储与脱敏 | `shared/secrets`（Store 契约、命名空间隔离、Redact、Scrubber + 测试） | **完成（未编译）** |
+| 24 | 核心安装与自动更新 | `runtime/coreupdater`（ADR-0003 落地：校验/原子替换/回滚 + 测试） | **完成（未编译）** |
+| 25 | 运行期：核心适配器 | `runtime/core`（sidecar 进程、能力查询、原生配置检查） | 待办（G3） |
+| 26 | 连接协调器与网络恢复 | `runtime/coordinator` + `platform` | 待办（G3/G4） |
+| 27 | 平台安全存储实现 | Windows DPAPI / Linux Secret Service / Android Keystore | 待办（G4） |
 | 19 | CI 检查落地 | `gofmt` / `go vet` / `go test` 工作流 | 待办（G1） |
 
 ---
