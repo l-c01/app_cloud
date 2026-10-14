@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "unresolved_template_not_for_release",
+  "appVersion": "0.1.0",
+  "releaseBuildMustRejectNullPins": true,
+  "note": "本文件由 G0/G1 冻结后填写；占位锁文件不得进入发布构建（见设计基线 §10.2）。核心采用官方预构建二进制，见 ADR-0003。",
+  "sources": {
+    "xboard_ref": { "commit": null, "note": "仅作契约/配置参考，不编译" },
+    "xray_core": {
+      "distribution": "official_prebuilt",
+      "version": null,
+      "sha256": null,
+      "upstream": "https://github.com/XTLS/Xray-core/releases",
+      "note": "锁定官方 Release 版本与校验和；本文件不得伪造数值"
+    },
+    "sing_box_core": {
+      "distribution": "official_prebuilt",
+      "version": null,
+      "sha256": null,
+      "upstream": "https://github.com/SagerNet/sing-box/releases",
+      "note": "锁定官方 Release 版本与校验和；本文件不得伪造数值"
+    }
+  },
+  "toolchains": {
+    "go": null,
+    "cmake": null,
+    "wxWidgets": null,
+    "msvc": null,
+    "linux_compiler": null,
+    "jdk": null,
+    "gradle": null,
+    "agp": null,
+    "kotlin": null,
+    "ndk": null,
+    "android_compile_sdk": null,
+    "android_min_sdk": null
+  },
+  "actions": {},
+  "baseImages": {},
+  "ruleResources": []
+}

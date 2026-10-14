@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xboard-client.invalid/schemas/client-config.schema.json",
+  "title": "ProxyClient 公共配置 Schema",
+  "description": "design/client-config.json 的结构契约。只包含公共非敏感配置；密码、token、签名私钥不得进入此文件，运行时秘密由 SecretStore 管理。",
+  "schemaVersion": "1.0.0",
+  "provenance": {
+    "basedOn": "design/proxy-client-design-v0.1.1/proxy-client-plan/client-config.schema.json",
+    "corrections": [
+      "修正：原 Schema 的 required 中列有 testSettings，但 properties 中缺少该定义，会导致所有合法配置校验失败。现已补全 testSettings 定义。",
+      "补充：为关键字段增加中文描述，说明约束来源与运行时要求。"
+    ]
+  },
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0",
+      "description": "配置结构版本。加载器必须拒绝不认识的版本，而不是尽力猜测。"
+    },
+    "branding": {
+      "type": "object",
+      "description": "软件身份与品牌信息，打包阶段读取。正式发布后 applicationId 与 androidPackageId 不得随意变更。",
+      "properties": {
+        "applicationName": { "type": "string", "description": "空值采用内部工作名 ProxyClient。" },
+        "displayNames": {
+          "type": "object",
+          "properties": {
+            "zh-CN": { "type": "string" },
+            "en": { "type": "string" }
+          },
+          "required": ["zh-CN", "en"],
+          "additionalProperties": false
+        },
+        "publisher": { "type": "string" },
+        "applicationId": { "type": "string", "description": "桌面稳定身份，反向域名格式。" },
+        "androidPackageId": { "type": "string", "description": "Android applicationId，需经构建校验。" },
+        "homepageUrl": { "type": "string" },
+        "supportUrl": { "type": "string" },
+        "privacyPolicyUrl": { "type": "string" },
+        "termsUrl": { "type": "string" },
+        "iconAssetPath": { "type": "string", "description": "仅允许项目资源目录内的相对路径，不允许任意文件路径。" }
+      },
+      "required": [
+        "applicationName",
+        "displayNames",
+        "publisher",
+        "applicationId",
+        "androidPackageId",
+        "homepageUrl",
+        "supportUrl",
+        "privacyPolicyUrl",
+        "termsUrl",
+        "iconAssetPath"
+      ],
+      "additionalProperties": false
+    },
+    "panel": {
+      "type": "object",
+      "description": "面板接口连接设置。默认全部留空，客户端不得内置任何生产地址。",
+      "properties": {
+        "apiBaseUrl": { "type": "string", "description": "面板 API 基础地址。留空即关闭面板请求，不影响第三方订阅。" },
+        "webBaseUrl": { "type": "string", "description": "面板网页地址。不得由 API 地址推测。" },
+        "apiProfile": { "type": "string", "description": "适配档案选择。auto 不承诺自动识别任意 Xboard。" },
+        "apiPathPrefix": { "type": "string" },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 120 },
+        "allowInsecureHttpForTesting": { "type": "boolean", "description": "仅测试用。开启时必须在界面上显示测试状态，且不得全局关闭 TLS 校验。" },
+        "customHeaders": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "仅允许公共非敏感请求头。运行时校验必须拒绝 Authorization、Cookie 等敏感头。"
+        },
+        "endpointOverrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["method", "path"],
+            "properties": {
+              "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+              "path": { "type": "string", "pattern": "^/" }
+            },
+            "additionalProperties": false
+          },
+          "description": "在对照目标面板源码核实前保持为空。只允许覆盖已验证的用户操作，不得借此调用管理员或节点管理接口。"
+        }
+      },
+      "required": [
+        "apiBaseUrl",
+        "webBaseUrl",
+        "apiProfile",
+        "apiPathPrefix",
+        "timeoutSeconds",
+        "allowInsecureHttpForTesting",
+        "customHeaders",
+        "endpointOverrides"
+      ],
+      "additionalProperties": false
+    },
+    "panelLinks": {
+      "type": "object",
+      "description": "面板网页入口。首轮用这些网页替代注册、找回密码、购买与续费接口。",
+      "properties": {
+        "registrationUrl": { "type": "string" },
+        "passwordResetUrl": { "type": "string" },
+        "purchaseUrl": { "type": "string" },
+        "renewalUrl": { "type": "string" },
+        "documentationUrl": { "type": "string" }
+      },
+      "required": ["registrationUrl", "passwordResetUrl", "purchaseUrl", "renewalUrl", "documentationUrl"],
+      "additionalProperties": false
+    },
+    "clientDefaults": {
+      "type": "object",
+      "description": "客户端默认值。优先级：内置安全回退 → 本文件公共默认值 → 用户在界面保存的个人覆盖。",
+      "properties": {
+        "uiMode": { "type": "string", "enum": ["simple", "professional"] },
+        "rememberUiMode": { "type": "boolean" },
+        "language": { "type": "string", "minLength": 1, "description": "system 表示跟随系统语言。" },
+        "fallbackLanguage": { "type": "string", "enum": ["en", "zh-CN"] },
+        "core": { "type": "string", "enum": ["xray", "sing-box"] },
+        "routingPolicy": { "type": "string", "enum": ["rule", "global", "direct"] },
+        "connectOnLaunch": { "type": "boolean" },
+        "launchAtLogin": { "type": "boolean" },
+        "subscriptionRefreshMinutes": { "type": "integer", "minimum": 0, "description": "0 表示默认手动更新。" },
+        "allowLanAccess": { "type": "boolean" },
+        "localProxyHost": { "type": "string" },
+        "httpProxyPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "socksProxyPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "trafficEntry": {
+          "type": "object",
+          "properties": {
+            "windows": { "type": "string", "enum": ["system_proxy", "tun", "pac", "local_proxy"] },
+            "android": { "type": "string", "enum": ["tun", "local_proxy"] },
+            "linux": { "type": "string", "enum": ["system_proxy", "tun", "pac", "local_proxy"] }
+          },
+          "required": ["windows", "android", "linux"],
+          "additionalProperties": false,
+          "description": "流量接入方式。桌面三种方式首轮互斥；Android 系统只允许一个活动 VPN。"
+        },
+        "androidAppScope": {
+          "type": "object",
+          "properties": {
+            "mode": { "type": "string", "enum": ["all", "include", "exclude"] },
+            "packages": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["mode", "packages"],
+          "additionalProperties": false,
+          "description": "include 与 exclude 互斥；包名列表在建立 VPN 前校验，变更时需重建 VPN。"
+        },
+        "tun": {
+          "type": "object",
+          "properties": {
+            "mtu": { "type": "integer", "minimum": 576, "maximum": 9000 },
+            "enableIpv6": { "type": "boolean" },
+            "excludeCidrs": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["mtu", "enableIpv6", "excludeCidrs"],
+          "additionalProperties": false
+        },
+        "pac": {
+          "type": "object",
+          "properties": {
+            "listenHost": { "type": "string" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "directDomains": { "type": "array", "items": { "type": "string" } },
+            "proxyDomains": { "type": "array", "items": { "type": "string" } },
+            "defaultAction": { "type": "string", "enum": ["DIRECT", "PROXY"] },
+            "geoImports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["source", "category", "sha256"],
+                "properties": {
+                  "source": { "type": "string" },
+                  "category": { "type": "string" },
+                  "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+                },
+                "additionalProperties": false
+              },
+              "description": "空列表表示不加载任何默认外部资源；每个条目必须带 sha256，经实际文件格式检查后导入。"
+            }
+          },
+          "required": ["listenHost", "port", "directDomains", "proxyDomains", "defaultAction", "geoImports"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "uiMode",
+        "rememberUiMode",
+        "language",
+        "fallbackLanguage",
+        "core",
+        "routingPolicy",
+        "connectOnLaunch",
+        "launchAtLogin",
+        "subscriptionRefreshMinutes",
+        "allowLanAccess",
+        "localProxyHost",
+        "httpProxyPort",
+        "socksProxyPort",
+        "trafficEntry",
+        "androidAppScope",
+        "tun",
+        "pac"
+      ],
+      "additionalProperties": false
+    },
+    "testSettings": {
+      "type": "object",
+      "description": "诊断与测试入口开关。testTargetUrl 留空时不主动发探测请求。",
+      "properties": {
+        "showConnectionDiagnostics": { "type": "boolean" },
+        "enableApiSettingsEditor": { "type": "boolean" },
+        "testTargetUrl": { "type": "string", "description": "留空即不探测。即使填写，也不能仅凭目标可打开判定路由或 TUN 正确。" }
+      },
+      "required": ["showConnectionDiagnostics", "enableApiSettingsEditor", "testTargetUrl"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["schemaVersion", "branding", "panel", "panelLinks", "clientDefaults", "testSettings"],
+  "additionalProperties": false
+}

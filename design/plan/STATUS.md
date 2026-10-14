@@ -12,8 +12,9 @@
 |---|---|
 | 阶段 | G0（设计收敛） |
 | 版本管理 | 一个 git 仓 + `src/versions/<版本>/` + tag |
-| 已受管文件 | 33 个（设计文档与契约；源码尚未开始） |
-| 可编译源码 | **无** |
+| 已受管文件 | 设计文档与契约（源码尚未开始） |
+| 核心分发 | **已决定**：官方预构建二进制 + 客户端内置自动更新（ADR-0003） |
+| 可编译源码 | **无**（本机无编译工具链，构建在 GitHub Actions，符合设计基线） |
 | 构建证据 | **无**（`not_run`） |
 | 运行证据 | **无**（`not_run`） |
 | 未决阻塞项 | 项目许可证、项目名称与包名、参考源码 commit（见下） |
@@ -60,12 +61,14 @@
 | 3 | 面板接口契约审计 | [`design/contracts/xboard-api-map.json`](../contracts/xboard-api-map.json)（48 条） | 完成 |
 | 4 | 接口范围收敛 | [`design/audit/xboard-api-audit-part3.md`](../audit/xboard-api-audit-part3.md) | 完成 |
 | 5 | 首批 ADR | ADR-0001、ADR-0002 | 完成 |
-| 6 | in-scope 接口 DTO Schema | `design/schemas/panel/` | 待办 |
-| 7 | 公共配置 Schema 校验 | `design/schemas/client-config.schema.json` | 待办 |
-| 8 | 构建目标清单与版本锁 | `deploy/targets/`（置于 0.1.0 版本目录） | 待办 |
-| 9 | 修订设计基线中的范围与事实错误 | `design/DESIGN.zh-CN.md`、`DESIGN.en.md` | 待办 |
-| 10 | G0 审计报告 | `output/reports/` | 待办 |
-| 11 | 建立 `src/versions/0.1.0/` 骨架 | 版本目录骨架 | 待办 |
+| 6 | 核心分发决策 | ADR-0003（官方预构建 + 客户端自动更新） | **完成（用户决定）** |
+| 7 | in-scope 接口 DTO Schema | `design/schemas/panel/panel-dto.schema.json` | **完成** |
+| 8 | 公共配置 Schema 复刻与修正 | `design/schemas/client-config.schema.json`（修复 testSettings 缺失） | **完成** |
+| 9 | 配置校验脚本 | `tools/scripts/*.ps1`（纯 ASCII，PowerShell+ .NET），`client-config.json` 通过校验 | **完成** |
+| 10 | 0.1.0 版本骨架 | `src/versions/0.1.0/`（README + versions.lock.json 模板） | **完成** |
+| 11 | 构建目标清单 | `deploy/targets/`（置于 0.1.0 版本目录） | 待办 |
+| 12 | 修订设计基线范围与事实错误 | `design/DESIGN.zh-CN.md`（接口事实、核心分发已修） | 部分完成（接口事实章节待细化） |
+| 13 | G0 审计报告 | `output/reports/` | 待办 |
 
 ---
 

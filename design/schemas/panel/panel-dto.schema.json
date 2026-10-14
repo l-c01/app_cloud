@@ -1,0 +1,323 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xboard-client.invalid/schemas/panel-dto.schema.json",
+  "title": "Xboard 面板接口 DTO（收敛版）",
+  "description": "客户端首轮实现的面板接口数据契约。所有字段均来自 src/references/Xboard-master 源码审计，逐条定位见 design/contracts/panel-api-contract.md。本 Schema 只覆盖 scopePolicy.in_scope 的接口；out_of_scope 接口不在此定义。",
+  "schemaVersion": "1.0.0",
+  "status": "verified_from_source",
+  "runtimeVerified": false,
+  "runtimeVerificationNote": "未在真实 Xboard 服务器上验证；真实响应样本为 not_run。",
+
+  "$defs": {
+    "Envelope": {
+      "title": "统一响应信封",
+      "description": "除订阅正文与 client/subscribe 外，所有面板接口使用此信封。HTTP 状态码取自内部 code 的前三位，响应体不含 code 字段。",
+      "type": "object",
+      "required": ["status", "message", "data", "error"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["success", "fail"]
+        },
+        "message": {
+          "type": "string",
+          "description": "服务端文案。可能随面板语言变化，禁止作为可编程判断依据。"
+        },
+        "data": {
+          "description": "成功时的业务数据；失败时通常为 null。类型随接口变化，含标量。"
+        },
+        "error": {
+          "description": "校验错误详情，通常为 null。"
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "Email": {
+      "type": "string",
+      "format": "email",
+      "minLength": 3,
+      "maxLength": 254,
+      "description": "登录邮箱。"
+    },
+
+    "SensitiveString": {
+      "type": "string",
+      "minLength": 1,
+      "description": "敏感字段：必须走 SecretStore，禁止写入日志、崩溃报告与导出配置。"
+    },
+
+    "LoginRequest": {
+      "title": "登录请求体",
+      "type": "object",
+      "required": ["email", "password"],
+      "properties": {
+        "email": { "$ref": "#/$defs/Email" },
+        "password": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "明文密码，仅用于本次请求；不得落盘。"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "LoginData": {
+      "title": "登录响应 data",
+      "type": "object",
+      "required": ["token", "auth_data", "is_admin"],
+      "properties": {
+        "token": {
+          "allOf": [{ "$ref": "#/$defs/SensitiveString" }],
+          "title": "subscriptionToken",
+          "description": "用户的**订阅 token**（users.token），不是登录凭据。用于请求订阅链接。"
+        },
+        "auth_data": {
+          "allOf": [{ "$ref": "#/$defs/SensitiveString" }],
+          "title": "sessionToken",
+          "description": "形如 'Bearer <sanctum-plain-text-token>'。必须原样作为 Authorization 头使用，不要自行拼接或剥离前缀。"
+        },
+        "is_admin": {
+          "type": "boolean",
+          "description": "仅用于展示。客户端不访问任何管理员接口。"
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "AccountInfo": {
+      "title": "账户信息（GET /api/v1/user/info）",
+      "type": "object",
+      "required": ["email", "transfer_enable", "u", "d", "expired_at"],
+      "properties": {
+        "email": { "$ref": "#/$defs/Email" },
+        "uuid": {
+          "allOf": [{ "$ref": "#/$defs/SensitiveString" }],
+          "description": "协议用户标识，用于订阅节点凭据。敏感。"
+        },
+        "transfer_enable": {
+          "type": ["integer", "number"],
+          "minimum": 0,
+          "description": "总额度（字节）。"
+        },
+        "last_login_at": { "type": ["integer", "null"] },
+        "created_at": { "type": ["string", "null"], "description": "服务端返回的时间字符串。" },
+        "banned": {
+          "type": ["integer", "boolean"],
+          "description": "服务端为数值；客户端按布尔语义解释（0 为未封禁）。"
+        },
+        "remind_expire": { "type": ["integer", "boolean"] },
+        "remind_traffic": { "type": ["integer", "boolean"] },
+        "expired_at": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "unix 秒。0 或 null 表示长期有效，禁止显示为 1970 年。"
+        },
+        "balance": { "type": ["integer", "number"] },
+        "commission_balance": { "type": ["integer", "number"] },
+        "plan_id": { "type": ["integer", "null"] },
+        "discount": { "type": ["integer", "number", "null"] },
+        "commission_rate": { "type": ["integer", "number", "null"] },
+        "telegram_id": { "type": ["integer", "string", "null"] },
+        "avatar_url": {
+          "type": ["string", "null"],
+          "description": "服务端按 email 的 md5 生成。**客户端不得自动请求**（会造成外联泄漏）；仅在用户主动点击时加载，或改用本地生成的头像。"
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "PlanSummary": {
+      "title": "套餐摘要",
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string" },
+        "transfer_enable": { "type": ["integer", "number", "null"] },
+        "speed_limit": { "type": ["integer", "number", "null"] },
+        "device_limit": { "type": ["integer", "null"] },
+        "monthly_price": { "type": ["integer", "number", "null"] },
+        "content": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true,
+      "description": "字段为服务端 Plan 模型的直接透传；未逐字段审计，按可选处理。"
+    },
+
+    "SubscriptionDescriptor": {
+      "title": "订阅描述（GET /api/v1/user/getSubscribe）",
+      "type": "object",
+      "required": ["token", "uuid", "subscribe_url"],
+      "properties": {
+        "subscribe_url": {
+          "allOf": [{ "$ref": "#/$defs/SensitiveString" }],
+          "description": "完整订阅链接，由服务端拼接，可能含查询参数。必须直接使用，**不得**自行拼接 '/api/v1/client/subscribe?token='。"
+        },
+        "token": {
+          "allOf": [{ "$ref": "#/$defs/SensitiveString" }],
+          "description": "订阅 token。"
+        },
+        "uuid": {
+          "allOf": [{ "$ref": "#/$defs/SensitiveString" }],
+          "description": "协议用户标识。"
+        },
+        "email": { "$ref": "#/$defs/Email" },
+        "plan_id": { "type": ["integer", "null"] },
+        "plan": {
+          "oneOf": [
+            { "$ref": "#/$defs/PlanSummary" },
+            { "type": "null" }
+          ],
+          "description": "仅当 plan_id 存在时由服务端附加。"
+        },
+        "expired_at": { "type": ["integer", "null"], "minimum": 0 },
+        "u": { "type": ["integer", "number"], "minimum": 0, "description": "已用上传字节。" },
+        "d": { "type": ["integer", "number"], "minimum": 0, "description": "已用下载字节。" },
+        "transfer_enable": { "type": ["integer", "number"], "minimum": 0 },
+        "device_limit": { "type": ["integer", "null"] },
+        "speed_limit": { "type": ["integer", "number", "null"] },
+        "next_reset_at": { "type": ["integer", "null"] },
+        "reset_day": { "type": ["integer", "null"] }
+      },
+      "additionalProperties": true
+    },
+
+    "GuestCommConfig": {
+      "title": "面板公共配置（GET /api/v1/guest/comm/config）",
+      "type": "object",
+      "description": "字段可被服务端插件增删，客户端必须容忍未知字段与字段缺失。本轮未逐字段展开，因此不约束具体键名。",
+      "additionalProperties": true
+    },
+
+    "PanelError": {
+      "title": "面板业务错误（客户端内部模型）",
+      "type": "object",
+      "required": ["kind", "message"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "unauthorized",
+            "forbidden",
+            "rate_limited",
+            "server_error",
+            "network_unreachable",
+            "not_xboard",
+            "invalid_credentials",
+            "subscription_unavailable",
+            "unknown"
+          ],
+          "description": "客户端分类结果。禁止把服务端 message 当作可编程判断依据。"
+        },
+        "message": { "type": "string", "description": "面向用户的文案（已本地化）。" },
+        "httpStatus": { "type": ["integer", "null"] },
+        "serverMessage": { "type": ["string", "null"], "description": "服务端原始文案，仅用于诊断展示。" },
+        "retryable": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "operations": {
+    "login": {
+      "summary": "登录获取会话凭据与订阅 token",
+      "scope": "in_scope",
+      "method": "POST",
+      "path": "/api/v1/passport/auth/login",
+      "auth": "public",
+      "request": { "$ref": "#/$defs/LoginRequest" },
+      "responseEnvelope": { "$ref": "#/$defs/Envelope" },
+      "responseData": { "$ref": "#/$defs/LoginData" },
+      "failureCodes": [400, 403, 422, 429, 500],
+      "idempotent": false,
+      "note": "服务端每次登录新建一个 token 记录；有效期一年（now()->addYear()）。无 refresh token。",
+      "sourceLocation": "src/references/Xboard-master/app/Http/Controllers/V1/Passport/AuthController.php:72-85"
+    },
+    "getSubscriptionDescriptor": {
+      "summary": "获取用户订阅链接",
+      "scope": "in_scope",
+      "method": "GET",
+      "path": "/api/v1/user/getSubscribe",
+      "auth": "bearer",
+      "request": null,
+      "responseEnvelope": { "$ref": "#/$defs/Envelope" },
+      "responseData": { "$ref": "#/$defs/SubscriptionDescriptor" },
+      "failureCodes": [400, 403, 429, 500],
+      "idempotent": true,
+      "note": "失败文案 'The user does not exist' / 'Subscription plan does not exist'。",
+      "sourceLocation": "src/references/Xboard-master/app/Http/Controllers/V1/User/UserController.php:131-162"
+    },
+    "getAccount": {
+      "summary": "获取账户信息，兼作会话有效性校验",
+      "scope": "in_scope",
+      "method": "GET",
+      "path": "/api/v1/user/info",
+      "auth": "bearer",
+      "request": null,
+      "responseEnvelope": { "$ref": "#/$defs/Envelope" },
+      "responseData": { "$ref": "#/$defs/AccountInfo" },
+      "failureCodes": [400, 403, 429, 500],
+      "idempotent": true,
+      "note": "无副作用，是会话探测的首选端点。",
+      "sourceLocation": "src/references/Xboard-master/app/Http/Controllers/V1/User/UserController.php:88-114"
+    },
+    "discoverPanel": {
+      "summary": "探测地址是否为 Xboard 并读取面板公共配置",
+      "scope": "in_scope",
+      "method": "GET",
+      "path": "/api/v1/guest/comm/config",
+      "auth": "public",
+      "request": null,
+      "responseEnvelope": { "$ref": "#/$defs/Envelope" },
+      "responseData": { "$ref": "#/$defs/GuestCommConfig" },
+      "failureCodes": [404, 500],
+      "idempotent": true,
+      "note": "探测请求不得携带任何凭据。必须区分 DNS/连接失败、非 JSON 响应、JSON 但非 Xboard 信封三种情况。",
+      "sourceLocation": "src/references/Xboard-master/app/Http/Controllers/V1/Guest/CommController.php"
+    },
+    "fetchSubscription": {
+      "summary": "通过订阅链接拉取节点内容",
+      "scope": "in_scope",
+      "method": "GET",
+      "path": "/api/v1/client/subscribe?token=<订阅 token>",
+      "auth": "subscribe_token_query",
+      "request": {
+        "type": "object",
+        "properties": {
+          "types": { "type": ["string", "null"], "description": "协议过滤，| , ｜ 分隔；空或 all 表示全部。" },
+          "filter": { "type": ["string", "null"], "description": "关键词过滤，长度 > 20 被服务端忽略。" },
+          "flag": { "type": ["string", "null"], "description": "客户端标识，决定服务端输出格式；也可由 User-Agent 提供。" }
+        },
+        "additionalProperties": false
+      },
+      "responseEnvelope": null,
+      "responseData": {
+        "type": "string",
+        "description": "**不是 JSON**：按 flag 返回 Base64 节点列表 / Clash YAML / sing-box JSON 等正文。"
+      },
+      "failureCodes": [403],
+      "idempotent": true,
+      "note": "403 且 body 为空表示用户不可用（套餐到期、流量用尽、封禁等），必须映射为具体业务错误。响应中可能含服务端注入的伪节点（剩余流量/套餐到期/重置天数），客户端必须过滤。",
+      "sourceLocation": "src/references/Xboard-master/app/Http/Controllers/V1/Client/ClientController.php:34-88"
+    }
+  },
+
+  "redactionPolicy": {
+    "description": "以下字段在一切非必要场景下必须脱敏：日志、崩溃报告、诊断包、导出配置、错误消息、UI 截图辅助文本。",
+    "secretFields": [
+      "LoginRequest.password",
+      "LoginData.token",
+      "LoginData.auth_data",
+      "AccountInfo.uuid",
+      "SubscriptionDescriptor.token",
+      "SubscriptionDescriptor.uuid",
+      "SubscriptionDescriptor.subscribe_url"
+    ],
+    "personalDataFields": ["email", "telegram_id"],
+    "rules": [
+      "脱敏统一采用中间掩码：保留前 4 位与后 4 位，中间以 * 替换，长度不足 8 位则全部替换。",
+      "订阅链接在 UI 中默认折叠显示；复制操作需用户显式触发。",
+      "错误消息中不得回显请求体原文。"
+    ]
+  }
+}

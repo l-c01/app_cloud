@@ -259,7 +259,9 @@ PAC 支持精确域名和后缀；通配符、关键词与正则分别标记语�
 
 输入建议：source ref、preset/arch、include_docker、build_type、artifact_only/publish、release_tag。默认当前所选 ref，记录解析后的 commit SHA；明确校验 ref 和 tag 匹配。同次构建固定一份锁文件快照，不在每个 job 获取 latest。
 
-版本锁定：app、Xray/sing-box commit、Go、CMake、wxWidgets、编译器、JDK、Gradle、AGP、Kotlin、NDK、Android SDK、资源 hash、GitHub Actions SHA、基础镜像 digest。首轮由 G0/G1 选定并写 `versions.lock.json`；占位锁文件不得进入发布构建。核心可由固定源码编译；用户应用源码在 GitHub 构建，不依赖本地预编译二进制。
+版本锁定：app、Xray/sing-box 目标版本与官方校验和、Go、CMake、wxWidgets、编译器、JDK、Gradle、AGP、Kotlin、NDK、Android SDK、资源 hash、GitHub Actions SHA、基础镜像 digest。首轮由 G0/G1 选定并写 `versions.lock.json`；占位锁文件不得进入发布构建。
+
+核心默认采用**官方预构建二进制**随客户端分发（见 [ADR-0003](adr/ADR-0003-核心官方预构建与自动更新.md)）：本项目不编译核心，客户端内置“核心自动更新”能力，按锁定版本 + SHA256 校验 + 原子替换 + 旧版本回滚执行；禁止裸追踪 latest。用户应用源码在 GitHub 构建，不依赖本地预编译二进制。
 
 工作流需做：dependency/architecture preflight → checkout fixed SHA → compile → 单元/契约/核心 config check → package → 架构/依赖检查 → 运行冒烟（可运行平台）→ SBOM/checksum/build-report → artifacts。matrix fail-fast=false 收集全部失败，最终汇总有目标失败则整体失败；禁止 continue-on-error 后发布“全平台成功”。不能执行的 runtime 测试标为 pending，而不是 passed。
 
