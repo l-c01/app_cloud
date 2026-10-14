@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  构建期必需的字符串。
+
+  注意：**界面文案不在这里**。本项目的两种客户端（桌面与 Android）共用
+  仓库根目录 locales/ 下的同一份语言资源，打包时复制到 assets/locales，
+  由 LocaleCatalog 在运行时读取。
+
+  理由：两份翻译文件必然漂移，最后表现为同一个错误在不同平台上
+  显示不同的话。键集合与占位符的一致性由
+  tools/scripts/check-i18n-keys.ps1 统一校验。
+
+  这里只保留 Android 在**构建期**就必须知道的值（应用名、通知渠道名）。
+-->
+<resources>
+    <!--
+      app_name 是启动器上显示的名字，必须在构建期确定，无法从 assets 读取。
+      它与 design/client-config.json 的 branding.applicationName 保持一致。
+    -->
+    <string name="app_name" translatable="false">default</string>
+
+    <string name="notification_channel_proxy">Proxy connection</string>
+    <string name="notification_title">Proxy is active</string>
+    <string name="notification_stop">Stop</string>
+</resources>

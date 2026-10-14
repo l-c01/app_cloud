@@ -118,6 +118,7 @@
     "ui.label.routing_policy": "路由策略",
     "ui.label.logs": "运行日志",
     "ui.detail.service_unavailable": "后台服务未运行；界面无法控制代理。请先启动服务。",
+    "ui.detail.vpn_permission_denied": "未获得 VPN 授权，无法接管流量。系统需要你明确允许本应用建立 VPN 连接。",
     "ui.detail.needs_attention": "存在需要你确认的问题，请查看详情。",
     "ui.detail.network_conflict": "系统网络设置「{0}」当前为「{1}」，与本次连接写入的值不一致；为避免覆盖你自己的修改，程序没有改动它。",
     "ui.detail.service_ok": "后台服务运行中",

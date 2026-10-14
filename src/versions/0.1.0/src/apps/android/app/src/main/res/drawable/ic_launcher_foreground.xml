@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  启动图标前景 / launcher foreground.
+
+  图形含义：两条平行的路径被一个节点汇聚——表示「双核心」，
+  即同一个客户端可选用 Xray 或 sing-box。
+
+  安全区域：自适应图标的前景只使用中间约 66% 的区域，
+  否则在圆形或圆角遮罩下会被裁掉。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 左侧路径 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,40 L46,40 L46,44 L38,44 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,64 L46,64 L46,68 L38,68 Z" />
+
+    <!-- 汇聚点 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M52,48 L60,48 L60,60 L52,60 Z" />
+
+    <!-- 右侧出口 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M66,52 L74,52 L74,56 L66,56 Z" />
+</vector>

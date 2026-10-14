@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  主题 / theme.
+
+  用 Material3 的 DayNight 父主题，但**界面本身用 Compose 绘制**，
+  因此这里的定义只影响窗口背景、状态栏等系统绘制部分。
+  真正的配色在 Compose 主题里（ui/Theme.kt）。
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.ProxyClient" parent="android:Theme.Material.NoActionBar">
+        <!--
+          启动窗口的背景色。设成固定值而不是跟随系统，是为了避免
+          冷启动时先闪一下白屏再变成深色——那种闪烁在深色模式下很明显。
+        -->
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+    </style>
+</resources>

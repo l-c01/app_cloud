@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  备份与传输规则 / backup and data extraction rules.
+
+  allowBackup 设为 false 且这里不导出任何数据，这是刻意的：
+
+  应用会保存订阅链接、会话凭据与节点信息。这些都算凭据或与凭据等价
+  （订阅链接本身就是凭据——拿到它就能使用该账号的流量）。
+  云备份会把它们复制到用户可能并未意识到的位置。
+
+  用户换机时应重新登录，而不是把凭据悄悄搬过去。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

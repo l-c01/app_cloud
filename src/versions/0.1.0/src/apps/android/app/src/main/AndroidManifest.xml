@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 清单 / Android manifest.
+
+  权限说明（设计基线要求：每一项权限都必须能说清用途）：
+
+  - INTERNET：代理客户端的基本前提。
+  - FOREGROUND_SERVICE：代理必须在应用退到后台后继续运行。
+  - FOREGROUND_SERVICE_SPECIAL_USE：Android 14 起前台服务必须声明用途类型。
+    代理不属于现有的任何具体类型，因此用 specialUse。
+  - POST_NOTIFICATIONS：Android 13 起前台服务的通知需要该权限。
+    没有它用户看不到「正在代理」的常驻提示，会以为程序没在跑。
+  - ACCESS_NETWORK_STATE：判断当前网络类型，用于提示与诊断。
+  - RECEIVE_BOOT_COMPLETED：**不使用**。开机自启属于用户偏好，
+    默认开启会让人以为手机被装了什么。需要时由用户显式开启再声明。
+
+  BIND_VPN_SERVICE 由系统在用户授权后绑定，应用**不能**自行声明该权限。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ProxyClient">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.ProxyClient">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          VpnService 是 Android 上唯一的流量接管方式。
+
+          android:permission 必须设为 BIND_VPN_SERVICE：否则任何应用都能绑定
+          我们的服务并借此建立 VPN 隧道，那是一个严重的权限提升。
+        -->
+        <service
+            android:name=".vpn.ProxyVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="proxy" />
+        </service>
+
+    </application>
+
+</manifest>

@@ -118,6 +118,7 @@
     "ui.label.routing_policy": "Routing policy",
     "ui.label.logs": "Runtime log",
     "ui.detail.service_unavailable": "The background service is not running, so the interface cannot control the proxy. Start the service first.",
+    "ui.detail.vpn_permission_denied": "VPN permission was denied, so traffic cannot be captured. Android requires you to explicitly allow this app to establish a VPN connection.",
     "ui.detail.needs_attention": "Something needs your attention. Please review the details.",
     "ui.detail.network_conflict": "The system network setting \"{0}\" is currently \"{1}\", which differs from what this connection wrote. It was left unchanged so that your own edits are not overwritten.",
     "ui.detail.service_ok": "The background service is running",

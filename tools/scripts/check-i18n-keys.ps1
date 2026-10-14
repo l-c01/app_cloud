@@ -48,7 +48,12 @@
 param(
     [string]$SourceRoot = 'src/versions/0.1.0/src',
     [string]$LocaleRoot = 'locales',
-    [string]$CppRoot = 'src/versions/0.1.0/src/apps/desktop'
+    # Roots of the non-Go clients. Both C++ and Kotlin reference the same
+    # catalog, and a mistyped key in either one shows the raw key on screen.
+    [string[]]$UiRoots = @(
+        'src/versions/0.1.0/src/apps/desktop',
+        'src/versions/0.1.0/src/apps/android'
+    )
 )
 
 $ErrorActionPreference = 'Stop'
@@ -127,62 +132,68 @@ Write-Host ("Keys used: {0}" -f $used.Count)
 Write-Host ''
 
 # ---------------------------------------------------------------------------
-# C++ side
+# Non-Go clients (C++, Kotlin)
 #
-# The desktop UI references the same catalog. Scanning only Go would leave a
-# real hole: a mistyped key in C++ would show the raw key on screen and nothing
-# would ever catch it.
+# The desktop and Android clients reference the same catalog. Scanning only Go
+# would leave a real hole: a mistyped key in C++ or Kotlin would show the raw
+# key on screen and nothing would ever catch it.
 #
-# Two forms appear in the C++ code:
+# Two forms appear in those sources:
 #   T("ui.state.connected")        a complete key, resolvable here
 #   T("ui.entry." + value)         a prefix plus a runtime value
 #
 # The second form cannot be resolved statically, so prefixes are recorded and
 # any catalog key starting with one of them counts as referenced.
 # ---------------------------------------------------------------------------
-$cppNamespaces = @('ui', 'compiler', 'ipc', 'netmgr', 'panel', 'subscription',
-                   'core', 'coordinator', 'secrets', 'coreupdater')
-$cppRoot = Join-Path $root "$CppRoot"
-$cppUsed = @{}
-$cppPrefixes = @()
+$uiNamespaces = @('ui', 'compiler', 'ipc', 'netmgr', 'panel', 'subscription',
+                  'core', 'coordinator', 'secrets', 'coreupdater')
+$uiUsed = @{}
+$uiPrefixes = @()
+$uiFileCount = 0
 
-if (Test-Path $cppRoot) {
-    $cppFiles = Get-ChildItem -Path $cppRoot -Recurse -File -Include '*.cpp', '*.hpp'
-    foreach ($file in $cppFiles) {
+foreach ($uiRoot in $UiRoots) {
+    $rootPath = Join-Path $root $uiRoot
+    if (-not (Test-Path $rootPath)) { continue }
+
+    $uiFiles = Get-ChildItem -Path $rootPath -Recurse -File -Include '*.cpp', '*.hpp', '*.kt'
+    foreach ($file in $uiFiles) {
+        $uiFileCount++
         $lineNo = 0
         foreach ($line in (Get-Content -LiteralPath $file.FullName -Encoding UTF8)) {
             $lineNo++
-            if ($line -match '^\s*//') { continue }
+            # Skip comment-only lines so prose about keys is not counted as usage.
+            if ($line -match '^\s*(//|\*|/\*)') { continue }
 
             # Full keys: any quoted dotted literal in a known namespace.
             foreach ($m in [regex]::Matches($line, $keyPattern)) {
                 $key = $m.Groups[1].Value
-                if ($cppNamespaces -notcontains $key.Split('.')[0]) { continue }
-                if (-not $cppUsed.ContainsKey($key)) { $cppUsed[$key] = @() }
-                $cppUsed[$key] += ("{0}:{1}" -f $file.Name, $lineNo)
+                if ($uiNamespaces -notcontains $key.Split('.')[0]) { continue }
+                if (-not $uiUsed.ContainsKey($key)) { $uiUsed[$key] = @() }
+                $uiUsed[$key] += ("{0}:{1}" -f $file.Name, $lineNo)
             }
 
             # Prefixes: "ui.entry." + value
             foreach ($m in [regex]::Matches($line, '"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.)"\s*\+')) {
                 $prefix = $m.Groups[1].Value
-                if ($cppNamespaces -notcontains $prefix.Split('.')[0]) { continue }
-                if ($cppPrefixes -notcontains $prefix) { $cppPrefixes += $prefix }
+                if ($uiNamespaces -notcontains $prefix.Split('.')[0]) { continue }
+                if ($uiPrefixes -notcontains $prefix) { $uiPrefixes += $prefix }
             }
         }
     }
-    Write-Host ("C++ files: {0} ({1} key(s), {2} dynamic prefix(es))" -f $cppFiles.Count, $cppUsed.Count, $cppPrefixes.Count)
-    Write-Host ''
 }
 
+Write-Host ("UI files : {0} ({1} key(s), {2} dynamic prefix(es))" -f $uiFileCount, $uiUsed.Count, $uiPrefixes.Count)
+Write-Host ''
+
 $used = $used.Clone()
-foreach ($key in $cppUsed.Keys) {
+foreach ($key in $uiUsed.Keys) {
     if (-not $used.ContainsKey($key)) { $used[$key] = @() }
-    $used[$key] += $cppUsed[$key]
+    $used[$key] += $uiUsed[$key]
 }
-foreach ($prefix in $cppPrefixes) {
+foreach ($prefix in $uiPrefixes) {
     Write-Host ("note: keys with prefix '{0}' are built at runtime and cannot be checked individually" -f $prefix)
 }
-if ($cppPrefixes.Count -gt 0) { Write-Host '' }
+if ($uiPrefixes.Count -gt 0) { Write-Host '' }
 
 $problems = 0
 
@@ -229,7 +240,7 @@ foreach ($k in $allLocaleKeys.Keys) {
     if ($used.ContainsKey($k)) { continue }
     # A key covered by a runtime prefix counts as referenced.
     $covered = $false
-    foreach ($prefix in $cppPrefixes) {
+    foreach ($prefix in $uiPrefixes) {
         if ($k.StartsWith($prefix)) { $covered = $true; break }
     }
     if (-not $covered) { $unused += $k }
