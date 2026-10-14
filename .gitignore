@@ -80,17 +80,25 @@ node_modules/
 tmp/
 
 # --- 秘密与本地凭据（绝不入库）---
-.env
-.env.*
-!.env.example
+#
+# 注意这里的匹配范围。写成 `secrets/` 会匹配**任意层级**的同名目录，
+# 包括源码包 `src/versions/0.1.0/src/shared/secrets/`，
+# 结果是整个凭据包从未被提交——本机检查读磁盘文件看不出问题，
+# CI 里却报 `package proxyclient/shared/secrets is not in std`。
+# 因此这些规则一律锚定到仓库根，或使用不易撞名的前缀。
+#
+# 由 tools/scripts/check-tracked-files.ps1 守住这条边界。
+/.env
+/.env.*
+!/.env.example
 *.keystore
 *.jks
 *.pfx
 *.p12
 *.pem
 *.key
-secrets/
-local-secrets/
+/secrets/
+/.local-secrets/
 
 # --- 运行时数据 / 日志 ---
 *.log
