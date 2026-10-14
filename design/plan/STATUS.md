@@ -86,7 +86,7 @@
 | 26 | 连接协调器 | `runtime/coordinator`（状态机、代次、恢复日志、所有权校验 + 25 组测试） | **完成（未编译）** |
 | 26b | 平台网络接管实现 | `platform/`（系统代理 / TUN / PAC / VPN） | 待办（G4） |
 | 27 | 平台安全存储实现 | Windows DPAPI / Linux Secret Service / Android Keystore | 待办（G4） |
-| 28 | UI ⇄ 服务 IPC | `runtime/ipc`（版本化 JSON RPC + ACL） | 待办（G3） |
+| 28 | UI ⇄ 服务 IPC | `runtime/ipc`（版本化本地 JSON RPC + 令牌 + 背压 + 20 组测试） | **完成（未编译）** |
 | 29 | 桌面 UI（C++/wxWidgets） | `apps/desktop` | 待办（G3） |
 | 30 | 中英文开发与使用文档 | `docs/zh-CN/`、`docs/en/` | 待办（G6） |
 | 19 | CI 检查落地 | `gofmt` / `go vet` / `go test` 工作流 | 待办（G1） |
