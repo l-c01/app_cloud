@@ -41,7 +41,7 @@
 | Desktop GUI build (linux) | PASS | wxWidgets 可执行文件构建成功（`-Werror`） |
 | Design JSON, config schema and i18n | PASS | 设计 JSON、出厂配置、翻译键一致性 |
 
-**仍未证明的**：连接真实 Xboard 面板、生成的核心配置是否被 Xray/sing-box 接受、
+**仍未证明的**：连接真实 Xboard 面板、生成的核心配置是否被 sing-box 接受、
 系统网络接管在真机上是否生效、Android 的 VPN 是否代理流量。
 这些都需要运行期验证，见 [验证说明](../../docs/zh-CN/dev/verification.md)。
 
@@ -88,7 +88,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | 阶段 | 目标 | 交付物 | 通过条件 | 状态 |
 |---|---|---|---|---|
 | **G0** | 设计收敛、接口契约、来源审计 | api-map、Schema、ADR、目标清单、来源登记 | 没有未知接口被当作既定事实；必需目标都有路线 | **进行中** |
-| G1 | 技术探针 | 各架构编译探针、双核心连接探针、手动工作流 | 关键架构可编译；首轮平台双核心可连 | 未开始 |
+| G1 | 技术探针 | 各架构编译探针、sing-box 连接探针、手动工作流 | 关键架构可编译；首轮平台可连 | 未开始 |
 | G2 | 标准模型与业务 | 领域模型、面板适配、订阅解析、i18n | 无面板也可导入第三方订阅；空 API 安全 | 未开始 |
 | G3 | 首轮可用 | Windows/Android 简易模式端到端 | 两平台代表架构可用；退出恢复通过 | 未开始 |
 | G4 | 完整定制 | TUN/PAC/应用范围、专业模式、原生编辑 | 关键功能无假开关；高级配置不被破坏 | 未开始 |
@@ -124,7 +124,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | 19 | 订阅格式策略决策 | ADR-0004（URI 列表为主输入；Xboard 无原生 Xray JSON） | **完成** |
 | 20 | Clash YAML 导入器 | `shared/subscription` 的 YAML 解析 | 待办（G2） |
 | 21 | sing-box JSON 导入器 | `shared/subscription` 的 JSON 解析 | 待办（G2） |
-| 22 | 双核心配置编译器 | `shared/compiler`（Xray / sing-box 生成器 + 能力矩阵 + 契约测试） | **完成（未编译）** |
+| 22 | sing-box 配置编译器 | `shared/compiler`（sing-box 生成器 + 能力矩阵 + 契约测试） | **完成（未编译）** |
 | 23 | 凭据存储与脱敏 | `shared/secrets`（Store 契约、命名空间隔离、Redact、Scrubber + 测试） | **完成（未编译）** |
 | 24 | 核心安装与自动更新 | `runtime/coreupdater`（ADR-0003 落地：校验/原子替换/回滚 + 测试） | **完成（未编译）** |
 | 25 | 运行期：核心适配器 | `runtime/core`（配置检查、进程生命周期、日志转发 + 测试） | **完成（未编译）** |
@@ -184,7 +184,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | 项目正式名称、发布者、桌面 applicationId、Android 包名 | 打包身份，写入 `client-config.json` | 用户 | G3 前 |
 | 5 份参考源码的准确仓库 URL 与 tag/commit | 让审计结果可复现 | 用户 | G0 收尾 |
 | Xboard 测试环境（地址 + 普通测试用户） | 验证登录与订阅获取 | 用户 | G2 起 |
-| Android 双核心绑定方式（单 AAR 是否可行） | 决定 Android 核心集成路线 | G1 探针结论 | G1 |
+| Android 核心集成方式（预构建二进制还是 AAR 内嵌） | 决定 Android 核心集成路线 | G1 探针结论 | G1 |
 
 ---
 

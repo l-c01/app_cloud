@@ -1,6 +1,6 @@
 ﻿Verification run
   repository : D:\workai\xbaord
-  started    : 2026-10-15 04:12:22 +08:00
+  started    : 2026-10-15 04:29:18 +08:00
   powershell : 5.1.26100.9444 (Desktop)
 
 ================================================================
@@ -80,17 +80,13 @@ Catalogs : en, zh-CN
 Go files : 26
 Keys used: 63
 
-UI files : 34 (49 key(s), 2 dynamic prefix(es))
+UI files : 34 (48 key(s), 2 dynamic prefix(es))
 
 note: keys with prefix 'ui.entry.' are built at runtime and cannot be checked individually
 note: keys with prefix 'ui.policy.' are built at runtime and cannot be checked individually
 
 
-Note: 2 catalog key(s) are not referenced from Go source yet (informational):
-  compiler.unknown_core
-  ui.label.not_installed
-
-RESULT: PASS - 108 referenced key(s) are present in all catalogs with matching placeholders.
+RESULT: PASS - 107 referenced key(s) are present in all catalogs with matching placeholders.
 exit code: 0
 
 ================================================================
@@ -104,10 +100,10 @@ DIR LINK  docs\zh-CN\dev\architecture.md:265  ../../../design/adr/
 DIR LINK  README.md:13  design/
 DIR LINK  README.md:14  src/
 DIR LINK  README.md:15  output/
-DIR LINK  README.md:85  design/contracts/
+DIR LINK  README.md:87  design/contracts/
 
 documents : 47
-links     : 129 relative link(s) checked
+links     : 133 relative link(s) checked
 
 RESULT: PASS - no broken relative links (8 directory link(s) noted).
 exit code: 0

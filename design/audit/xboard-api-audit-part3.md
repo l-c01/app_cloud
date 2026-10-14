@@ -47,7 +47,7 @@
 | 陷阱 | 服务端可能在前几条注入伪节点（剩余流量 / 套餐到期 / 重置天数），客户端必须过滤 |
 | 源码定位 | `src/references/Xboard-master/app/Http/Controllers/V1/Client/ClientController.php:34-88`、`:193-221` |
 
-**实现建议**：客户端按已选核心主动声明 `flag`（例如 sing-box 语境走 `sing-box`、Xray 语境走 `meta`/`v2ray`），避免服务端返回需要额外转换的格式。
+**实现建议**：客户端按固定内核主动声明 `flag`（sing-box 语境走 `sing-box`），避免服务端返回需要额外转换的格式。
 
 ## 下一步
 

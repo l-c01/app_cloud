@@ -20,7 +20,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(proxyclient-desktop
     VERSION 0.1.0
-    DESCRIPTION "Dual-core Xboard proxy client - desktop front end"
+    DESCRIPTION "sing-box based Xboard proxy client - desktop front end"
     LANGUAGES CXX)
 
 # -----------------------------------------------------------------------------

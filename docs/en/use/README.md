@@ -15,7 +15,8 @@ service of its own. You need your own panel account or subscription link.
 
 What sets it apart:
 
-- **Two cores** — pick Xray or sing-box. One application, not two.
+- **One core (sing-box)** — the core ships with the application, so you do not
+  install it separately.
 - **Two interface modes** — simple mode has just connect/disconnect;
   professional mode exposes everything. Switching modes **does not**
   change behaviour that is already established.
@@ -71,7 +72,7 @@ VPN capture everything.
 
 Three things: the current state, the current node, and the connect button.
 
-It deliberately **omits** core selection, routing policy, traffic entry and
+It deliberately **omits** routing policy, traffic entry and
 logs. These are not hidden "advanced" features; they are choices that let
 people get it wrong. A user who does not understand routing rules picks
 "direct everything", sees "connected but no web pages open", and has no way
@@ -79,12 +80,13 @@ to know why.
 
 ### Professional mode
 
-Exposes all four dimensions:
+Exposes all three dimensions:
 
-- **Core**: Xray or sing-box
 - **Traffic entry**: see the table above
 - **Routing policy**: rule based / proxy everything / direct everything
 - **Node list**
+
+There is no core to choose: this build ships sing-box only.
 
 ---
 
@@ -150,7 +152,7 @@ Stated plainly, because this matters more than a feature list:
 |---|---|
 | Panel sign-in, fetching the subscription link | Code written, **never compiled** |
 | Subscription fetch and node parsing | Code written, **never compiled** |
-| Dual-core config compilation | Code written, **never compiled**; capability table **not validated against pinned cores** |
+| sing-box config compilation | Code written, **never compiled**; capability table **not validated against pinned cores** |
 | Desktop interface (both modes) | Code written, **never compiled** |
 | Android interface | Code written, **never compiled** |
 | Android traffic capture | **Not implemented**: the APK installs, opens and creates a VPN, but does not proxy traffic |

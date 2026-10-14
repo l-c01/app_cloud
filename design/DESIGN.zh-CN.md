@@ -1,10 +1,10 @@
-# 双核心 Xboard 客户端：工作设计流与验收基线
+# Xboard 客户端：工作设计流与验收基线
 
 版本：0.1.0；日期：2026-10-14；状态：设计提案，尚未实施。
 
 ## 1. 目标与交付边界
 
-生产一套支持 Xboard 用户业务、第三方订阅与手工节点的轻量代理客户端。Windows 和 Android 可以采用不同 UI 与平台实现，共享业务模型、规则语义与测试样本。桌面目标同时保留 Linux。核心使用 Xray 与 sing-box，通过可替换适配器实现，用户可选择核心。
+生产一套支持 Xboard 用户业务、第三方订阅与手工节点的轻量代理客户端。Windows 和 Android 可以采用不同 UI 与平台实现，共享业务模型、规则语义与测试样本。桌面目标同时保留 Linux。核心使用 sing-box 单内核（ADR-0005）。
 
 本次交付是工作设计包。后续正式交付包括完整源码、依赖锁定、手动触发的 GitHub 编译工作流、安装/卸载配置、中文与英文开发文档、中文与英文使用文档、AI 项目上下文与变更记录。不在本次声称源码完成、工作流能运行或任意平台已经兼容。
 
@@ -17,7 +17,7 @@ Docker 可后置：其产品形态是无界面 HTTP/SOCKS 代理服务和可选�
 | R01 | 简易模式、专业模式、记住模式 | 重启、切换和取消记住的持久化测试 |
 | R02 | 源码中默认 API/品牌 URL 为空，客户端可手工填写 | 全新安装无外联；填写后连接测试；第三方模式独立可用 |
 | R03 | Xboard 登录、账户、用量、套餐信息、公告、工单 | 锁定版本契约测试与真实测试账号验证 |
-| R04 | Xray/sing-box 双核心，运行时能力校验 | 两个核心独立完成连接；不支持项给出具体错误 |
+| R04 | sing-box 单内核，运行时能力校验 | 核心完成连接；不支持项给出具体错误 |
 | R05 | Windows 系统代理/TUN/PAC | OS 配置检查、流量路径和退出恢复测试 |
 | R06 | Android VPN、全部应用/包含列表/排除列表 | 真机确认应用范围、网络切换与权限撤销 |
 | R07 | 第三方订阅、节点链接、原生配置导入与手工节点 | 不登录 Xboard 也可导入和连接 |
@@ -50,7 +50,7 @@ Android 的“全部应用”不等于路由“全局代理”：全部应用进
 
 ### 4.1 简易模式
 
-建议四个主入口：连接、账户、工单、设置。连接页包括一个连接按钮、真实运行状态、核心选择、节点选择、最近延迟与必要的连接方式选择；不显示复杂路由表。账户显示登录/退出、用量、总额度、到期时间、套餐和公告；服务端能力不存在时说明原因。工单包含列表、详情、创建、回复和关闭，以目标服务端实际支持为准。设置包含 API 地址、测试连接、语言、模式/记住、自动启动与平台专属设置。
+建议四个主入口：连接、账户、工单、设置。连接页包括一个连接按钮、真实运行状态、节点选择、最近延迟与必要的连接方式选择；不显示复杂路由表。账户显示登录/退出、用量、总额度、到期时间、套餐和公告；服务端能力不存在时说明原因。工单包含列表、详情、创建、回复和关闭，以目标服务端实际支持为准。设置包含 API 地址、测试连接、语言、模式/记住、自动启动与平台专属设置。
 
 Windows 简易设置提供系统代理/TUN/PAC；Android 提供 VPN 和应用范围；Linux 提供桌面代理/TUN/PAC，但根据桌面环境说明接管范围。空 API 地址时引导填入地址，同时保留“独立配置”入口。注册、找回密码、套餐购买/续费和支付首轮可打开用户自己填写的面板网页地址；web URL 不得根据 API URL 猜测，更不能在 URL 携带密码/token。
 
@@ -58,19 +58,19 @@ Windows 简易设置提供系统代理/TUN/PAC；Android 提供 VPN 和应用范
 
 入口包括仪表盘、配置/订阅、节点/出口组、路由、DNS、连接、日志、规则资源、账户/工单、平台设置、开发诊断。配置可新建、复制、备份、导入/导出；订阅可单独更新、定时更新和查看失败原因；支持节点参数、TLS、传输、DNS、端口、监听、路由优先级、出口选择组、测速策略、TUN MTU/IPv6/排除网段、PAC 域名、自定义规则、核心原生配置。
 
-能力驱动表单：每个字段标记支持的核心版本/平台；不兼容参数不能隐藏后静默忽略。连接明细、实时切节点、测速组等只在适配器实际提供时可用；Xray 与 sing-box 不要求管理 API 完全相同。没有连接列表能力时显示未提供，不用日志猜造完整连接表。
+能力驱动表单：每个字段标记支持的 sing-box 版本/平台；不兼容参数不能隐藏后静默忽略。连接明细、实时切节点、测速组等只在 sing-box 实际提供时可用。没有连接列表能力时显示未提供，不用日志猜造完整连接表。
 
-高级原生编辑分为“结构化配置”和“核心原生配置”两种配置类型。原生类型属于一个核心，不能自动切换到另一个核心；可复制并尝试转换，显示完整转换损失。默认不运行远程脚本、不执行 Clash YAML 中的脚本。未知字段保存在隔离区并列出，不混入已验证的结构化配置。
+高级原生编辑分为“结构化配置”和“核心原生配置”两种配置类型。原生类型绑定的是 sing-box；可复制并尝试转换，显示完整转换损失。默认不运行远程脚本、不执行 Clash YAML 中的脚本。未知字段保存在隔离区并列出，不混入已验证的结构化配置。
 
 ## 5. 技术路线与架构
 
 ### 5.1 建议候选
 
-桌面：C++20 + wxWidgets 原生 GUI、CMake；业务：Go 公共包和普通权限后台服务；核心：固定版本 Xray/sing-box sidecar；Android：Kotlin + Jetpack Compose + VpnService + Go bindings/AAR。此选择是为保留 x86、减少内置浏览器运行时的设计判断，不是已完成兼容性验证。wxWidgets 提供原生跨平台 UI 方向，但每个架构仍需 G1 探针。[S6]
+桌面：C++20 + wxWidgets 原生 GUI、CMake；业务：Go 公共包和普通权限后台服务；核心：固定版本 sing-box sidecar；Android：Kotlin + Jetpack Compose + VpnService + Go bindings/AAR。此选择是为保留 x86、减少内置浏览器运行时的设计判断，不是已完成兼容性验证。wxWidgets 提供原生跨平台 UI 方向，但每个架构仍需 G1 探针。[S6]
 
-不直接把 Clash Verge 的 Tauri/mihomo 配置拼接到双核心；参考其配置、托盘、日志、连接管理体验。Clash for Android 作为历史 UI/服务设计参考；其指定原仓库本次无法读取，后续须提供可验证的来源或固定快照。不得任意使用同名第三方 fork 替代。Qt 是备选，但当前官方支持列表没有 Windows/Linux x86，不能据此承诺所有 32 位平台。[S2][S7][S8]
+不直接把 Clash Verge 的 Tauri/mihomo 配置拼接到 sing-box；参考其配置、托盘、日志、连接管理体验。Clash for Android 作为历史 UI/服务设计参考；其指定原仓库本次无法读取，后续须提供可验证的来源或固定快照。不得任意使用同名第三方 fork 替代。Qt 是备选，但当前官方支持列表没有 Windows/Linux x86，不能据此承诺所有 32 位平台。[S2][S7][S8]
 
-G1 要验证：桌面 GUI、Go 服务、两种核心、TUN 驱动/桥接、Android AAR/JNI 四者架构匹配。Android 优先研究单一 AAR 包含业务包装与两个核心，避免多个独立 Go runtime；固定依赖能否共存必须编译验证。若冲突，先锁定兼容组合；仍失败则评估独立进程或其他绑定路线并记录 ADR，不得只交付单核心。
+G1 要验证：桌面 GUI、Go 服务、sing-box、TUN 驱动/桥接、Android AAR/JNI 四者架构匹配。Android 优先研究单一 AAR 包含业务包装与 sing-box，避免多个独立 Go runtime；固定依赖能否共存必须编译验证。若冲突，先锁定兼容组合；仍失败则评估独立进程或其他绑定路线并记录 ADR。
 
 ### 5.2 模块职责
 
@@ -80,7 +80,7 @@ G1 要验证：桌面 GUI、Go 服务、两种核心、TUN 驱动/桥接、Andro
 | PanelAdapter | Xboard 用户认证、用量、工单、业务能力 | 管理员/节点后台 API |
 | SubscriptionService | 拉取、解码、更新、来源和错误报告 | 执行订阅中的脚本 |
 | ProfileRepository | 配置、节点、版本、秘密引用、迁移 | 明文凭据日志 |
-| ConfigCompiler | 标准模型到 Xray/sing-box 配置 | 静默丢弃不支持的字段 |
+| ConfigCompiler | 标准模型到 sing-box 配置 | 静默丢弃不支持的字段 |
 | RuleResourceService | Geo/规则集读取、转换、PAC 子集生成 | 将任意正则等价宣称为域名后缀 |
 | CoreAdapter | 核心检查、启动/停止、能力、运行统计 | 自行无记录接管系统网络 |
 | ConnectionCoordinator | 单一连接事务、取消、回滚、代次 | 并发提交多个核心和多套网络图 |
@@ -95,7 +95,6 @@ flowchart TD
   B --> R["Profiles and subscriptions"]
   R --> C["Config compiler"]
   C --> O["Connection coordinator"]
-  O --> X["Xray adapter"]
   O --> S["sing-box adapter"]
   O --> N["Platform network / VPN"]
 ```
@@ -111,7 +110,7 @@ flowchart TD
 | `shared/domain/` | Profile/Node/Rule/DNS/PanelAccount 模型 |
 | `shared/panel/` | 版本化 Xboard API 适配与 DTO |
 | `shared/subscription/` | URI/Base64/YAML/JSON 解析器 |
-| `shared/compiler/` | 两个配置生成器及能力检查 |
+| `shared/compiler/` | sing-box 配置生成器及能力检查 |
 | `shared/rules/` | Geo 读取、标准规则及 PAC 编译器 |
 | `runtime/` | 协调器、适配器、IPC、恢复记录 |
 | `platform/` | Windows/Linux 特权服务、Android 核心桥接 |
@@ -169,7 +168,7 @@ API 基线已从用户提供的 Xboard 源码快照**逐条核实**（路由、�
 
 ### 6.3 订阅与标准配置
 
-支持目标：节点 URI 列表、Base64 节点列表、Clash 兼容 YAML、Xray JSON、sing-box JSON。格式探测与单格式解析分离。初始标准协议集合为 SS/VMess/VLESS/Trojan，具体 TLS/Reality/传输字段依固定核心能力验证；其他协议通过扩展矩阵或原生配置支持。不能宣称任何 Clash 配置都可无损转成两种核心。
+支持目标：节点 URI 列表、Base64 节点列表、Clash 兼容 YAML、Xray JSON、sing-box JSON。格式探测与单格式解析分离。初始标准协议集合为 SS/VMess/VLESS/Trojan，具体 TLS/Reality/传输字段依固定核心能力验证；其他协议通过扩展矩阵或原生配置支持。不能宣称任何 Clash 配置都可无损转成 sing-box 配置。
 
 节点保存来源 ID、稳定节点 ID、原始格式摘要、认证秘密引用、传输/TLS 参数、目标核心能力约束。以明确的 ID 或规范化参数摘要保持选择，不能只用显示名称匹配。订阅更新生成候选快照，解析和校验完成后原子替换，失败保留旧快照。手工覆盖独立存储，不被订阅刷新覆盖；移除当前节点时要求重新选择或应用预先配置的回退，不静默连到任意节点。
 
@@ -177,13 +176,13 @@ API 基线已从用户提供的 Xboard 源码快照**逐条核实**（路由、�
 
 ## 7. 核心与平台网络
 
-### 7.1 双核心
+### 7.1 单内核：sing-box
 
-桌面默认只运行一个核心。Xray 和 sing-box 配置各自由独立编译器生成，并调用各自锁定版本的原生配置检查。通过公共 capability 模型说明协议、TUN、统计、实时切换和路由差异。核心的管理接口限制到 loopback 或本地 IPC，并按能力加认证；端口随机/冲突检测。
+桌面只运行 sing-box 一个核心（[ADR-0005](adr/ADR-0005-单内核-sing-box.md)）。配置由 `shared/compiler` 的唯一生成器产出，并调用锁定版本的 sing-box 原生配置检查。通过 capability 模型说明协议、TUN、统计、实时切换和路由的能力边界。核心的管理接口限制到 loopback 或本地 IPC，并按能力加认证；端口随机/冲突检测。
 
-Xray 当前源码资料已经包含 TUN 输入支持，不能沿用“Xray 永远没有 TUN”的旧假设；但路由、DNS 和 Android FD 接管必须针对锁定版本验证。优先探针原生 TUN；若目标架构原生 TUN 不可用，评估 TUN-to-SOCKS 桥接并单独测试 UDP/DNS/IPv6，不能借用另一代理核心后仍显示为纯 Xray。[S3]
+界面选项与 sing-box 配置字段的对应关系见 [`architecture/ui-options.md`](architecture/ui-options.md)。
 
-Android 两种核心都由 VpnService 提供 FD、受保护 socket 和网络变更回调。处理授权拒绝、撤销、前台服务、应用列表和系统网络切换。系统只允许一个活动 VPN；不会提供等同 Windows 的一键全设备“系统代理/PAC”接管。可提供本地 HTTP/SOCKS 和 PAC URL 供支持它的应用手工配置，但必须标注范围。[S4]
+Android 上 sing-box 由 VpnService 提供 FD、受保护 socket 和网络变更回调。处理授权拒绝、撤销、前台服务、应用列表和系统网络切换。系统只允许一个活动 VPN；不会提供等同 Windows 的一键全设备“系统代理/PAC”接管。可提供本地 HTTP/SOCKS 和 PAC URL 供支持它的应用手工配置，但必须标注范围。[S4]
 
 ### 7.2 连接事务与恢复
 
@@ -204,9 +203,9 @@ Android 两种核心都由 VpnService 提供 FD、受保护 socket 和网络变�
 
 ## 8. PAC 与 Geo 规则
 
-`geodomain:gfw` 视为用户输入别名；内部使用资源 ID + 类别（如 geosite 数据集中的 gfw 类别），不直接写到任意核心配置。数据集是否有该类别必须检查。Xray Geo 数据与 sing-box 规则集不是同一种文件格式；sing-box 官方资料说明 geosite 已在 1.12.0 移除，所以新适配器走 rule-set，不生成失效的旧 geosite 字段。[S5]
+`geodomain:gfw` 视为用户输入别名；内部使用资源 ID + 类别（如 geosite 数据集中的 gfw 类别），不直接写到核心配置。数据集是否有该类别必须检查。sing-box 官方资料说明 geosite 已在 1.12.0 移除，所以新适配器走 rule-set，不生成失效的旧 geosite 字段。[S5]
 
-转换流：本地选择/用户指定 URL → 校验 hash/格式/类别 → 标准规则列表 → 分别编译 Xray 规则、sing-box rule-set、PAC 域名子集。资源版本、来源、许可证、hash、类别数量、支持/丢弃条目进入报告。
+转换流：本地选择/用户指定 URL → 校验 hash/格式/类别 → 标准规则列表 → 编译 sing-box rule-set 与 PAC 域名子集。资源版本、来源、许可证、hash、类别数量、支持/丢弃条目进入报告。
 
 PAC 支持精确域名和后缀；通配符、关键词与正则分别标记语义。不能无损转换的正则、IP 网段、进程、端口、复合规则不静默近似；默认阻止导入，用户查看损失报告后可明确选择仅导入支持的子集。优先级为用户直连例外 → 用户代理域名 → 导入域名 → 默认动作。PAC 只决定使用本地代理或 DIRECT，不等同于 TUN 的全流量路由。
 
@@ -218,7 +217,7 @@ PAC 支持精确域名和后缀；通配符、关键词与正则分别标记语�
 
 业务配置使用 SQLite 与版本化 JSON；数据库不保存明文密码/token。Windows 使用 DPAPI/Credential Manager，Android 使用 Keystore 保护密钥，Linux 使用 Secret Service；无钥匙环时默认只保存会话或明确选择加密保险库，不退回明文。更换服务器隔离账号和缓存；备份/迁移有 checksum、版本、原子写入与回退。
 
-轻量是可测量目标：GUI 不内置 Chromium；只运行所选核心；日志环形缓冲默认总额 20 MiB；节点测速限制并发，空闲停止无用轮询；Geo 资源按需加载；Android 按 ABI 分包。G1 建立硬件/系统/测试配置/核心版本基线，再冻结包体、空闲 RSS、连接 RSS、首次启动、连接延迟预算。暂定优化目标：桌面空闲 GUI+业务服务 RSS ≤120 MiB，普通双核心分发压缩包 ≤100 MiB（不含可选 Geo 资源）；不是已测性能。超预算必须有测量和 ADR，不能为追求包体删除目标架构/核心。
+轻量是可测量目标：GUI 不内置 Chromium；只运行 sing-box 一个核心；日志环形缓冲默认总额 20 MiB；节点测速限制并发，空闲停止无用轮询；Geo 资源按需加载；Android 按 ABI 分包。G1 建立硬件/系统/测试配置/核心版本基线，再冻结包体、空闲 RSS、连接 RSS、首次启动、连接延迟预算。暂定优化目标：桌面空闲 GUI+业务服务 RSS ≤120 MiB，单内核分发压缩包 ≤100 MiB（不含可选 Geo 资源）；不是已测性能。超预算必须有测量和 ADR，不能为追求包体删除目标架构/核心。
 
 ## 10. 多架构构建计划
 
@@ -237,7 +236,7 @@ PAC 支持精确域名和后缀；通配符、关键词与正则分别标记语�
 | linux-amd64 | Debian/Ubuntu x64 | amd64 | deb + tar.gz | 选定最低 glibc 的构建容器 |
 | linux-386 | Debian/Ubuntu i386 | 386 | deb + tar.gz | 固定提供 i386 依赖的环境；不假设所有 Ubuntu 有完整 i386 |
 | linux-arm64 | Debian/Ubuntu ARM64 | arm64 | deb + tar.gz | 交叉/原生 runner；目标环境运行测试 |
-| docker-amd64 | linux/amd64 | amd64 | OCI image | headless 服务与两核心 |
+| docker-amd64 | linux/amd64 | amd64 | OCI image | headless 服务与 sing-box |
 | docker-386 | linux/386 | 386 | OCI image | 基础镜像 manifest 与依赖独立检查 |
 | docker-arm64 | linux/arm64 | arm64 | OCI image | Buildx/QEMU 或原生，运行连接探针 |
 
@@ -261,7 +260,7 @@ PAC 支持精确域名和后缀；通配符、关键词与正则分别标记语�
 
 输入建议：source ref、preset/arch、include_docker、build_type、artifact_only/publish、release_tag。默认当前所选 ref，记录解析后的 commit SHA；明确校验 ref 和 tag 匹配。同次构建固定一份锁文件快照，不在每个 job 获取 latest。
 
-版本锁定：app、Xray/sing-box 目标版本与官方校验和、Go、CMake、wxWidgets、编译器、JDK、Gradle、AGP、Kotlin、NDK、Android SDK、资源 hash、GitHub Actions SHA、基础镜像 digest。首轮由 G0/G1 选定并写 `versions.lock.json`；占位锁文件不得进入发布构建。
+版本锁定：app、sing-box 目标版本与官方校验和、Go、CMake、wxWidgets、编译器、JDK、Gradle、AGP、Kotlin、NDK、Android SDK、资源 hash、GitHub Actions SHA、基础镜像 digest。首轮由 G0/G1 选定并写 `versions.lock.json`；占位锁文件不得进入发布构建。
 
 核心默认采用**官方预构建二进制**随客户端分发（见 [ADR-0003](adr/ADR-0003-核心官方预构建与自动更新.md)）：本项目不编译核心，客户端内置“核心自动更新”能力，按锁定版本 + SHA256 校验 + 原子替换 + 旧版本回滚执行；禁止裸追踪 latest。用户应用源码在 GitHub 构建，不依赖本地预编译二进制。
 
@@ -269,16 +268,16 @@ PAC 支持精确域名和后缀；通配符、关键词与正则分别标记语�
 
 Android 没有用户签名密钥时提供明确标注的 debug/test APK；正式 release 要求稳定用户 keystore 与 Secrets，缺少时失败，不能临时生成随机 release key。Windows 可无 Authenticode 生成测试安装包，报告签名状态；正式签名属于后续用户配置，不把凭据提交源码。发布 job 单独提升权限；依赖缓存键包含锁文件 hash 和架构。
 
-Docker 首轮延后也要保留构建契约；启用可选 Docker 而尚无实现时 preflight 明确失败。运行用户默认非 root，凭据通过挂载配置/secret，不在 Dockerfile 烘焙；镜像包含 headless manager 和所选核心，两核心不会同时运行。TUN 能力只影响容器命名空间，宿主路由属于另一个部署方案，不承诺自动接管宿主网络。优先产出三架构 OCI artifacts，用户选择 push 到 GHCR 后生成 manifest。
+Docker 首轮延后也要保留构建契约；启用可选 Docker 而尚无实现时 preflight 明确失败。运行用户默认非 root，凭据通过挂载配置/secret，不在 Dockerfile 烘焙；镜像包含 headless manager 与 sing-box。TUN 能力只影响容器命名空间，宿主路由属于另一个部署方案，不承诺自动接管宿主网络。优先产出三架构 OCI artifacts，用户选择 push 到 GHCR 后生成 manifest。
 
 ## 11. 工作流、阶段与交付门禁
 
 | 阶段 | 实现工作 | 产物 | 通过条件 |
 |---|---|---|---|
 | G0 事实与版本冻结 | 审计指定参考源码、Xboard 契约、许可证、OS/ABI/工具链 | source-register、api-map、versions lock、ADR | 没有未知 API 被当作既成事实；必需目标都有路线 |
-| G1 技术探针 | 所有必需架构 GUI/核心/绑定编译；Windows+Android 双核心网络探针；32 位重点 | probe 源码/手动 workflow/build report | 关键架构可编译；首轮平台双核心可连；阻塞有解决路线 |
+| G1 技术探针 | 所有必需架构 GUI/核心/绑定编译；Windows+Android 单内核网络探针；32 位重点 | probe 源码/手动 workflow/build report | 关键架构可编译；首轮平台可连；阻塞有解决路线 |
 | G2 模型与业务 | Schema、SecretStore、API adapter、订阅解析、i18n 与 UI 壳 | 标准配置、测试样本、双语言框架 | 无面板也可第三方导入；空 API 安全；迁移和契约测试通过 |
-| G3 首轮可用 | Windows/Android 简易连接、账户/工单、双核心、VPN/系统代理 | alpha 源码/安装包 | 两平台代表架构端到端可用；网络退出恢复通过 |
+| G3 首轮可用 | Windows/Android 简易连接、账户/工单、VPN/系统代理 | alpha 源码/安装包 | 两平台代表架构端到端可用；网络退出恢复通过 |
 | G4 完整定制 | Windows TUN/PAC、Android 应用范围、专业路由/DNS/原生编辑 | beta、能力矩阵、转换报告 | 关键功能无假开关；高级配置不会被简易模式破坏 |
 | G5 平台与打包 | Linux 桌面，全部必需架构打包，所有手动入口，Docker 可选 | 发布候选构建与平台报告 | 必需平台构建/运行证据完整；目标失败不发布成功标志 |
 | G6 文档与收敛 | 中英文开发/使用文档、AI 上下文、升级/卸载/恢复 | v1.0 source package、docs、release evidence | 下述收敛条件全部满足 |
@@ -293,7 +292,7 @@ Docker 首轮延后也要保留构建契约；启用可选 Docker 而尚无实�
 | T02 | 空 API、无账号、第三方订阅 | 无默认请求，独立连接成功 |
 | T03 | 登录/挑战/失效/换服务器 | 会话隔离、准确错误、秘密脱敏 |
 | T04 | 用量和工单 | 对照服务端数据；重复提交不会盲重试 |
-| T05 | 两核心及不支持协议 | 核心版本/流量证据；字段级阻止和回滚 |
+| T05 | sing-box 及不支持协议 | 核心版本/流量证据；字段级阻止和回滚 |
 | T06 | Windows 系统代理/TUN/PAC | HTTP/TCP/UDP/DNS/IPv6 各适用路径、OS 快照 |
 | T07 | Android 全应用/包含/排除 | 至少两应用对照；protected socket 无回环 |
 | T08 | 权限撤销/核心崩溃/强杀/卸载/重启 | 网络恢复或明确 recovery_required，设置所有权保留 |
@@ -307,13 +306,13 @@ Docker 首轮延后也要保留构建契约；启用可选 Docker 而尚无实�
 | T16 | 包体/RSS/启动与 PAC 压力 | 公开测量方法和冻结预算对照 |
 | T17 | 可选 Docker | 各架构镜像启动、代理连通、默认端口/权限 |
 
-用受控测试代理服务器验证路由和传输，不能只以公网网站可打开或 HTTP 状态码作为双核心证明。分别测试本地到核心、核心到代理服务器和代理到测试目标；捕获 egress/日志进行核对，测试数据不含真实用户秘密。CI 非特权 smoke 不代替 OS 接管真机测试。
+用受控测试代理服务器验证路由和传输，不能只以公网网站可打开或 HTTP 状态码作为核心可用性证明。分别测试本地到核心、核心到代理服务器和代理到测试目标；捕获 egress/日志进行核对，测试数据不含真实用户秘密。CI 非特权 smoke 不代替 OS 接管真机测试。
 
 阻断发布：凭据泄露、网络无法恢复、错误出口、静默删字段、伪造 API/用量、必需架构无法启动、模式切换破坏配置。普通样式缺陷按严重程度记录；有平台功能限制必须反映到 UI、能力矩阵与双语言文档。
 
 ## 13. 收敛目标 / Definition of Done
 
-核心 v1.0：Windows、Android、Linux 全部必需目标已分别通过构建和运行验证；两核心在每个平台族有连接测试，架构专属 TUN/绑定依赖有证据。简易/专业、记住模式、Xboard 用户业务、第三方配置、规定的平台代理方式、Geo/PAC、i18n、恢复和手动构建全部完成。没有 P0/P1 未关闭缺陷。
+核心 v1.0：Windows、Android、Linux 全部必需目标已分别通过构建和运行验证；sing-box 在每个平台族有连接测试，架构专属 TUN/绑定依赖有证据。简易/专业、记住模式、Xboard 用户业务、第三方配置、规定的平台代理方式、Geo/PAC、i18n、恢复和手动构建全部完成。没有 P0/P1 未关闭缺陷。
 
 若必需目标只能编译未能运行，允许提交 source-only/pre-release 包，明确列出验证缺口，不标为满足 v1.0。若用户后来调整架构/功能范围，先更新需求、目标清单和 ADR，再改变门禁。Docker 可明确为 deferred，不阻塞核心 v1.0；启用后单独达到 R13/T17 才宣布 Docker 完成。
 
@@ -350,7 +349,7 @@ AI 先读 AGENTS → 两种语言之一的设计 → spec → 当前状态/上�
 | 实际 Xboard fork/version/commit、认证与完整用户业务路径 | 未指定/未核实；不能生成确认接口 | G0；先审计参考版本，提供外部适配档案 |
 | 软件正式名称、包名、签名身份 | 暂用工作名；不阻碍探针 | G0/G3 |
 | 三个桌面 ABI、Android x86/v7a 的依赖/驱动支持 | 仅计划；需源码构建与运行 | G1/G5 |
-| 单 AAR 中双核心依赖兼容 | 仅候选 | G1 |
+| Android 单 AAR 中核心依赖兼容 | 仅候选 | G1 |
 | Clash for Android 可验证源快照 | 指定仓库本次不可读 | G0 |
 | Linux 最低 glibc、i386 发行版、Android minSdk | 未冻结 | G0/G1 |
 | 参考代码复用的许可和署名 | 逐文件/锁定版本核对，独立 UI 实现优先 | G0/发布前 |

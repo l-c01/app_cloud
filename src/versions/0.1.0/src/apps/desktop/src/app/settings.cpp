@@ -149,7 +149,6 @@ Config LoadConfig(const std::string& path, std::string* error) {
     config.default_remember_ui_mode = GetBool(defaults, "rememberUiMode");
     config.default_language = GetString(defaults, "language", "system");
     config.fallback_language = GetString(defaults, "fallbackLanguage", "en");
-    config.default_core = GetString(defaults, "core", "sing-box");
     config.default_routing_policy = GetString(defaults, "routingPolicy", "rule");
     config.local_proxy_host = GetString(defaults, "localProxyHost", "127.0.0.1");
     config.http_proxy_port = static_cast<int>(GetInt(defaults, "httpProxyPort", 7890));

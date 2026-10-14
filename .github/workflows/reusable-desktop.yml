@@ -4,7 +4,7 @@
 # 覆盖 Windows 与 Linux 目标。Android 见 reusable-android.yml，Docker 见 reusable-docker.yml。
 #
 # 设计约束：
-#   - 核心（Xray / sing-box）**不编译**，只下载官方预构建二进制并校验 SHA256（ADR-0003）。
+#   - 核心（sing-box）**不编译**，只下载官方预构建二进制并校验 SHA256（ADR-0003）。
 #   - 未冻结的核心版本会阻断 release 构建；test 构建允许跳过下载，但会在摘要中标注。
 #   - 应用源码尚未实现时 preflight 明确失败，不产出假的「构建成功」。
 # =============================================================================
@@ -83,8 +83,11 @@ jobs:
             exit 1
           fi
 
+          # 只锁 sing-box（ADR-0005）。这里列出的每一个来源都必须是
+          # versions.lock.json 里真实存在的键：多列一个不存在的键，
+          # jq 会把它算成「未冻结」，于是 release 构建永远被拒绝。
           missing=$(jq -r '
-            [ .sources.xray_core, .sources.sing_box_core ]
+            [ .sources.sing_box_core ]
             | map(select((.version // null) == null or (.sha256 // null) == null))
             | length' "$lock")
 
@@ -121,7 +124,7 @@ jobs:
           echo "arch     : ${{ matrix.arch }}"
           echo "runner   : ${{ matrix.desktopBuild.runner }}"
           echo "wx source: ${{ matrix.desktopBuild.wxSource }}"
-          echo "cores    : xray=${{ matrix.xrayAssetArch }} sing-box=${{ matrix.singBoxAssetArch }}"
+          echo "cores    : sing-box=${{ matrix.singBoxAssetArch }}"
 
       # -----------------------------------------------------------------------
       # 工具链

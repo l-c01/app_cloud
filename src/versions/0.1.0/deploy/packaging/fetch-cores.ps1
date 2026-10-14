@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Download and verify the proxy cores for one Windows target.
+    Download and verify the proxy core for one Windows target.
 
 .DESCRIPTION
     Contract (ADR-0003, design baseline 10.2):
-      - cores are NEVER compiled here; only official prebuilt release binaries;
+      - the core is NEVER compiled here; only official prebuilt release binaries;
       - every asset must be pinned by version AND sha256 in versions.lock.json;
       - an asset is verified BEFORE it is placed where anything can use it;
       - if a pin is missing, this script refuses. It must not download
@@ -64,15 +64,17 @@ if (-not $target) {
     Write-Error "target '$TargetId' is not in $targets"
     exit 1
 }
-if ([string]::IsNullOrWhiteSpace($target.xrayAssetArch) -or
-    [string]::IsNullOrWhiteSpace($target.singBoxAssetArch)) {
-    Write-Error "target '$TargetId' is missing its asset architectures in $targets"
+if ([string]::IsNullOrWhiteSpace($target.singBoxAssetArch)) {
+    Write-Error "target '$TargetId' is missing its sing-box asset architecture in $targets"
     exit 1
 }
 
 # --- 2) verify the pins BEFORE downloading anything -------------------------
+# Only sing-box is shipped (ADR-0005), so this list has exactly one entry. It is
+# kept as a list because the refusal below must stay a per-asset check: the day a
+# second asset is added, forgetting to add it here would be a silent hole.
 $unresolved = @()
-foreach ($name in @('xray_core', 'sing_box_core')) {
+foreach ($name in @('sing_box_core')) {
     $pin = $lockJson.sources.$name
     if (-not $pin -or [string]::IsNullOrWhiteSpace($pin.version) -or
         [string]::IsNullOrWhiteSpace($pin.sha256)) {
@@ -92,7 +94,6 @@ if ($unresolved.Count -gt 0) {
 }
 
 Write-Host "core pins are resolved; fetching assets for target $TargetId"
-Write-Host "  xray     arch: $($target.xrayAssetArch)"
 Write-Host "  sing-box arch: $($target.singBoxAssetArch)"
 
 # The download and extraction is intentionally not implemented as a best-effort

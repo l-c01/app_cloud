@@ -45,7 +45,7 @@ GitHub Actions 里进行，那里的结果才是唯一依据。
 
 ## 这是什么
 
-Xboard 面板的双核心（Xray / sing-box）代理客户端，含桌面端
+Xboard 面板的代理客户端（内核使用 sing-box），含桌面端
 （Windows、Linux）与 Android 前端。
 
 它是**客户端**，本身不提供任何代理服务——你需要有自己的面板账号或订阅链接。

@@ -40,8 +40,8 @@ Version: 0.1 · 阶段：重构后基线
 src/
 ├── references/          第三方只读参考源码（不入 git）
 │   ├── Xboard-master/           面板服务端，接口契约的事实来源
-│   ├── Xray-core-main/          代理核心 A
-│   ├── sing-box-testing/        代理核心 B
+│   ├── Xray-core-main/          代理核心 Xray 的只读快照（已不是构建来源，见 ADR-0005）
+│   ├── sing-box-testing/        代理核心 sing-box（唯一内核）的只读快照
 │   ├── clash-verge-rev-dev/     桌面 UI 交互参考
 │   └── ClashMetaForAndroid-main/ Android VPN/服务生命周期参考
 └── versions/            本项目源码，每个版本一个目录
@@ -75,7 +75,7 @@ src/versions/<version>/
 │   │   ├── domain/            Profile/Node/Rule/DNS 标准模型
 │   │   ├── panel/             Xboard 接口适配与 DTO
 │   │   ├── subscription/      订阅解析与格式探测
-│   │   ├── compiler/          Xray / sing-box 配置生成
+│   │   ├── compiler/          sing-box 配置生成
 │   │   ├── rules/             Geo 与 PAC 规则
 │   │   ├── secrets/           系统密钥存储与脱敏
 │   │   └── i18n/              多语言

@@ -17,13 +17,13 @@ src/versions/0.1.0/
 │   │   ├── domain/         Profile/Node/Rule/DNS 标准模型
 │   │   ├── panel/          Xboard 面板适配与 DTO（登录/取订阅链接/账户）
 │   │   ├── subscription/   订阅拉取与格式解析
-│   │   ├── compiler/       Xray / sing-box 配置生成与能力校验
+│   │   ├── compiler/       sing-box 配置生成与能力校验
 │   │   ├── rules/          Geo / PAC 规则（后续）
 │   │   ├── secrets/        系统密钥存储与脱敏
 │   │   └── i18n/           多语言（后续）
 │   ├── runtime/
 │   │   ├── coordinator/    连接协调器
-│   │   ├── core/           Xray / sing-box 适配器（sidecar 进程）
+│   │   ├── core/           sing-box 适配器（sidecar 进程）
 │   │   ├── coreupdater/    核心自动更新（ADR-0003）
 │   │   └── ipc/            桌面 UI <-> 服务 IPC
 │   └── platform/           Windows/Linux 特权代理、Android 桥接（后续）
@@ -44,7 +44,7 @@ src/versions/0.1.0/
 |---|---|
 | 共享业务模块 | Go（单一 module） |
 | 桌面 UI | C++20 + wxWidgets + CMake |
-| 核心 | Xray / sing-box **官方预构建二进制** sidecar + 自动更新（ADR-0003） |
+| 核心 | sing-box **官方预构建二进制** sidecar + 自动更新（ADR-0003） |
 | 本机构建 | 不进行；构建在 GitHub Actions 手动触发 |
 
 ## 约定
@@ -57,5 +57,5 @@ src/versions/0.1.0/
 ## 本版本首个实现任务（建议 G1/G2 起）
 
 1. 建立 `src/shared/domain` 领域模型 + `src/shared/panel` 面板适配（登录 → 取订阅链接 → 账户）。
-2. 建立 `src/runtime/core` 双核心 sidecar 适配器与 `coreupdater` 自动更新。
+2. 建立 `src/runtime/core` sing-box sidecar 适配器与 `coreupdater` 自动更新。
 3. 建立 `tests/fixtures` 脱敏固件与契约测试。

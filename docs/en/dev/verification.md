@@ -93,7 +93,7 @@ a hard rule: an unrun check has exactly one legitimate status, and it is
 |---|---|
 | Run on any real device | No runtime behaviour is confirmed |
 | Connected to any real Xboard panel | Every field mapping in the panel adapter comes from reading the reference source |
-| Started a real Xray / sing-box process | Command-line arguments and exit codes come from reading the core source |
+| Started a real sing-box process | Command-line arguments and exit codes come from reading the core source |
 | Had a core check any generated config | Whether the compiler's output is accepted is entirely unknown |
 | Confirmed system network takeover on real hardware | Neither the Windows registry writes nor the GNOME writes have ever executed |
 | Exercised core download and SHA256 verification | The lock file is unpinned, so that path has never run |

@@ -9,7 +9,7 @@
 | `shared/panel/` | Xboard 面板适配：登录、取订阅链接、账户信息、面板探测 | ✅ 已实现 |
 | `shared/domain/` | 规范领域模型（节点/传输/TLS/Reality） | ✅ 已实现 |
 | `shared/subscription/` | 订阅拉取、格式探测、节点 URI 解析 | ✅ 已实现（URI 列表；YAML/JSON 待补） |
-| `shared/compiler/` | Xray / sing-box 配置生成与能力校验 | ✅ 已实现（首轮四协议） |
+| `shared/compiler/` | sing-box 配置生成与能力校验 | ✅ 已实现（首轮四协议） |
 | `shared/secrets/` | 系统密钥存储抽象与脱敏 | ✅ 已实现 |
 | `shared/i18n/` | 多语言 | 待实现 |
 | `runtime/coreupdater/` | 核心安装、SHA256 校验、原子替换与回滚 | ✅ 已实现 |
@@ -43,30 +43,30 @@
 
 ## 已实现：shared/compiler
 
-把规范节点模型编译为两个核心各自的配置。生成器相互独立，不共用配置结构。
+把规范节点模型编译为 sing-box 配置。本项目只保留 sing-box 一个内核（ADR-0005），
+因此这里只有一套生成器与一张能力表。
 
 | 文件 | 内容 |
 |---|---|
 | `compile.go` | 请求/报告类型、统一入口 `Compile`、字段级 `Issue`、默认出口选择规则 |
 | `capability.go` | 核心能力矩阵与节点校验（不兼容项产生 `transport.type` 等字段级错误） |
-| `xray.go` | Xray 配置生成（含 streamSettings / realitySettings / tcpSettings） |
 | `singbox.go` | sing-box 配置生成（含 transport / tls / utls / reality） |
-| `compile_test.go` | 契约测试：能力差异、字段不静默丢弃、出站 tag 不重复、策略改变默认出口 |
+| `compile_test.go` | 契约测试：能力边界、字段不静默丢弃、出站 tag 不重复、策略改变默认出口 |
 
-### 核心能力差异（已按源码核实）
+### 需要记住的能力边界（已按源码核实）
 
-| 项 | Xray | sing-box | 依据 |
-|---|---|---|---|
-| `xhttp` 传输 | 支持 | **不支持** | Xray `infra/conf/transport_internet.go:20`；sing-box `option/v2ray_transport.go:15` 枚举无 xhttp |
-| TCP 上的 HTTP 伪装头 | 支持（`tcpSettings`） | **不支持** | Xray 有 tcpSettings；sing-box 无对应字段 |
-| HTTP/2 | `network: h2` 或 `http` | `transport.type: http` | Xray `:33`；sing-box 枚举只有 `http` |
-| REALITY serverName 位置 | `realitySettings.serverName` | `tls.server_name` + `tls.reality` | 两核心结构不同 |
+| 项 | sing-box | 依据 |
+|---|---|---|
+| `xhttp` 传输 | **不支持** | `option/v2ray_transport.go:15` 枚举无 xhttp |
+| TCP 上的 HTTP 伪装头 | **不支持** | 无 `tcpSettings` 对应字段 |
+| HTTP/2 | 映射为 `transport.type: http` | 枚举只有 `http`；没有 `h2` 这个名字 |
+| REALITY serverName 位置 | `tls.server_name` + `tls.reality` | 与面板常用的 xray 结构不同 |
 
 ### 重要声明
 
 `capability.go` 中的能力表标记为 `verifiedAgainst: "unverified"`：这些边界来自参考源码与官方文档，
 **尚未针对锁定版本实测**。G4 必须用固定版本的官方二进制逐项复核并把结论回写。
-在此之前，任何「某核心不支持 X」都按 error 处理——宁可拒绝，也不静默产出可能错误的配置。
+在此之前，任何「sing-box 不支持 X」都按 error 处理——宁可拒绝，也不静默产出可能错误的配置。
 
 ## 已实现：shared/secrets
 
@@ -121,7 +121,6 @@
 
 | 核心 | 配置检查 | 运行 | 配置错误退出码 |
 |---|---|---|---|
-| Xray | `xray run -test -c <file>` | `xray run -c <file>` | **23**（`main/run.go:86`） |
 | sing-box | `sing-box check -c <file>` | `sing-box run --disable-color -c <file>` | 非 0 |
 
 关键约定：
@@ -227,7 +226,7 @@
 - **module 路径**：正式仓库地址尚未确定，暂用占位名 `proxyclient`。
   待 GitHub 仓库确定后应改为真实路径（例如 `github.com/<owner>/<repo>/src/versions/0.1.0/src`），
   并同步更新所有 import。**改名前不应发布正式构建。**
-- **Go 版本**：核心（Xray / sing-box）按 ADR-0003 以官方预构建二进制分发，
+- **Go 版本**：核心（sing-box）按 ADR-0003 以官方预构建二进制分发，
   不参与本 module 编译，因此这里不受核心自身 Go 版本要求约束。
   实际使用的版本以 `deploy/targets/versions.lock.json` 的冻结值为准，由 CI 校验。
 - 之所以不在 `go.mod` 里写注释：`go mod tidy` 会重写该文件，

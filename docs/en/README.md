@@ -47,7 +47,7 @@ written as "passed".
 
 ## What this is
 
-A dual-core (Xray / sing-box) proxy client for Xboard panels, with desktop
+A sing-box based proxy client for Xboard panels, with desktop
 (Windows, Linux) and Android front ends.
 
 It is a **client**: it provides no proxy service of its own. You need your

@@ -1,0 +1,160 @@
+﻿Verification run
+  repository : D:\workai\xbaord
+  started    : 2026-10-15 04:21:06 +08:00
+  powershell : 5.1.26100.9444 (Desktop)
+
+================================================================
+Tracked source files
+  script: tools/scripts/check-tracked-files.ps1
+================================================================
+roots     : src/versions, design, docs, locales, tools, .github/workflows
+ignored   : 0
+untracked : 0
+
+RESULT: PASS - every authored file is tracked by git.
+exit code: 0
+
+================================================================
+Go unused imports
+  script: tools/scripts/check-go-imports.ps1
+================================================================
+
+Checked 37 Go file(s) with imports out of 38 file(s).
+RESULT: PASS - no unused imports detected.
+exit code: 0
+
+================================================================
+Go cross-package symbols
+  script: tools/scripts/check-go-symbols.ps1
+================================================================
+Indexed 14 internal package(s).
+
+Checked 277 internal reference(s).
+RESULT: PASS - all internal package references resolve.
+exit code: 0
+
+================================================================
+C++ structural consistency
+  script: tools/scripts/check-cpp-structure.ps1
+================================================================
+Checking CMakeLists.txt source references...
+Checking 28 C++ file(s)...
+
+RESULT: PASS - 28 file(s) checked, no structural problems found.
+NOTE: this does not mean the code compiles; it has never been compiled.
+exit code: 0
+
+================================================================
+Workflow structure
+  script: tools/scripts/check-workflows.ps1
+================================================================
+
+workflows : 13
+reusable  : reusable-android.yml, reusable-desktop.yml, reusable-docker.yml, reusable-resolve-targets.yml
+
+RESULT: PASS - workflow files are structurally consistent.
+NOTE: this does not prove they are valid YAML or that they run correctly.
+exit code: 0
+
+================================================================
+Go <-> C++ IPC contract
+  script: tools/scripts/check-ipc-contract.ps1
+================================================================
+protocol version : go=1 c++=1
+schema version   : go=1.0.0 c++=1.0.0
+operation names  : go=10 c++=10
+error codes      : go=10 c++=12 (C++ may define extra client-local codes)
+info: C++ defines a client-local error code not present in Go: transport_error
+info: C++ defines a client-local error code not present in Go: incompatible_client
+wire field names : 44 in Go, 0 not mentioned in the C++ parser
+
+RESULT: PASS - the Go and C++ IPC definitions agree.
+exit code: 0
+
+================================================================
+i18n message keys
+  script: tools/scripts/check-i18n-keys.ps1
+================================================================
+
+Catalogs : en, zh-CN
+Go files : 26
+Keys used: 63
+
+UI files : 34 (48 key(s), 2 dynamic prefix(es))
+
+note: keys with prefix 'ui.entry.' are built at runtime and cannot be checked individually
+note: keys with prefix 'ui.policy.' are built at runtime and cannot be checked individually
+
+
+RESULT: PASS - 107 referenced key(s) are present in all catalogs with matching placeholders.
+exit code: 0
+
+================================================================
+Documentation links
+  script: tools/scripts/check-doc-links.ps1
+================================================================
+DIR LINK  docs\en\README.md:38  ../../design/adr/
+DIR LINK  docs\en\dev\architecture.md:285  ../../../design/adr/
+DIR LINK  docs\zh-CN\README.md:36  ../../design/adr/
+DIR LINK  docs\zh-CN\dev\architecture.md:265  ../../../design/adr/
+DIR LINK  README.md:13  design/
+DIR LINK  README.md:14  src/
+DIR LINK  README.md:15  output/
+DIR LINK  README.md:85  design/contracts/
+
+documents : 47
+links     : 129 relative link(s) checked
+
+RESULT: PASS - no broken relative links (8 directory link(s) noted).
+exit code: 0
+
+================================================================
+Design JSON syntax
+  script: tools/scripts/validate-json.ps1
+================================================================
+  OK    design\client-config.json
+  OK    design\contracts\xboard-api-map.json
+  OK    design\proxy-client-design-v0.1.1\proxy-client-plan\client-config.json
+  OK    design\proxy-client-design-v0.1.1\proxy-client-plan\client-config.schema.json
+  OK    design\proxy-client-design-v0.1.1\proxy-client-plan\PLAN-VALIDATION.json
+  OK    design\proxy-client-design-v0.1.1\proxy-client-plan\project-spec.json
+  OK    design\proxy-client-design-v0.1.1\proxy-client-plan\templates\api-map.json
+  OK    design\proxy-client-design-v0.1.1\proxy-client-plan\templates\project-state.json
+  OK    design\proxy-client-design-v0.1.1\proxy-client-plan\templates\verification.json
+  OK    design\proxy-client-design-v0.1.1\proxy-client-plan\templates\versions.lock.json
+  OK    design\schemas\client-config.schema.json
+  OK    design\schemas\panel\panel-dto.schema.json
+
+Checked 12 file(s); 0 failed.
+exit code: 0
+
+================================================================
+Config vs schema
+  script: tools/scripts/validate-client-config.ps1
+================================================================
+
+Schema   : design/schemas/client-config.schema.json
+Document : design/client-config.json
+
+RESULT: PASS (0 problems)
+exit code: 0
+
+================================================================
+SUMMARY
+================================================================
+  Tracked source files             PASS
+  Go unused imports                PASS
+  Go cross-package symbols         PASS
+  C++ structural consistency       PASS
+  Workflow structure               PASS
+  Go <-> C++ IPC contract          PASS
+  i18n message keys                PASS
+  Documentation links              PASS
+  Design JSON syntax               PASS
+  Config vs schema                 PASS
+
+  passed: 10 / 10
+
+  NOTE: none of this compiles anything. The C++ and Go sources have
+        never been through a compiler on this machine. Compilation and
+        unit tests run in GitHub Actions; their status is not_run locally.

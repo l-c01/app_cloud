@@ -3,7 +3,7 @@
 // **两类设置刻意分开存放**，这不是过度设计：
 //
 //   Config       出厂配置，来自仓库里的 design/client-config.json（打包后随程序分发）。
-//                它描述「这个构建是什么」：软件名、面板地址、默认端口、默认核心……
+//                它描述「这个构建是什么」：软件名、面板地址、默认端口……
 //                普通用户不应修改它，应用也**绝不写它**。
 //
 //   Preferences  用户偏好：界面模式、语言、上次选中的节点……
@@ -87,7 +87,6 @@ struct Config {
     bool default_remember_ui_mode = false;
     std::string default_language = "system";
     std::string fallback_language = "en";
-    std::string default_core = "sing-box";
     std::string default_routing_policy = "rule";
     std::string local_proxy_host = "127.0.0.1";
     int http_proxy_port = 7890;

@@ -41,7 +41,6 @@
     "rememberUiMode": false,
     "language": "system",
     "fallbackLanguage": "en",
-    "core": "sing-box",
     "routingPolicy": "rule",
     "connectOnLaunch": false,
     "launchAtLogin": false,

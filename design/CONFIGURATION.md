@@ -30,7 +30,7 @@ All service URLs are empty by default. An empty panel URL disables panel request
 | branding | 软件名、语言显示名、发布者、应用身份、品牌/帮助/隐私/条款链接、本地图标资源路径 |
 | panel | API/网页基础地址、适配档案、前缀、超时、HTTP 测试开关、公共请求头和已核实的接口覆盖 |
 | panelLinks | 注册、找回密码、购买、续费、文档网页；首轮可使用这些网页入口 |
-| clientDefaults | 模式/记住/语言/核心/路由、启动行为、订阅更新、监听、平台接入方式、Android 应用范围、TUN/PAC |
+| clientDefaults | 模式/记住/语言/路由、启动行为、订阅更新、监听、平台接入方式、Android 应用范围、TUN/PAC |
 | testSettings | 诊断界面开关、API 编辑入口、用户自填测试目标地址 |
 
 `apiProfile=auto` 只是计划中的适配档案选择，不承诺任何未知 Xboard 都能自动识别。`apiPathPrefix` 和 `endpointOverrides` 先留空，审计上传源码后再填写。覆盖只能引用已验证的客户端 operation，不能通过配置调用管理员或节点管理 API；接口响应 DTO 和认证语义仍由版本化 adapter 负责，JSON 不能代替代码适配。

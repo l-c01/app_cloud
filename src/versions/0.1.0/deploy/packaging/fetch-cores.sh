@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Download and verify the proxy cores for one target.
+# Download and verify the proxy core for one target.
 #
 # Contract (ADR-0003, design baseline 10.2):
-#   - cores are NEVER compiled here; only official prebuilt release binaries
+#   - the core is NEVER compiled here; only official prebuilt release binaries
 #     are downloaded;
 #   - every asset must be pinned by version AND sha256 in versions.lock.json;
 #   - an asset is verified BEFORE it is placed where anything can use it;
@@ -61,17 +61,20 @@ done
 
 # --- 1) what does this target need? -----------------------------------------
 # The target manifest is the single source of truth for asset architecture.
-xray_arch=$(jq -r --arg id "$TARGET_ID" '.targets[] | select(.id == $id) | .xrayAssetArch // empty' "$TARGETS")
 singbox_arch=$(jq -r --arg id "$TARGET_ID" '.targets[] | select(.id == $id) | .singBoxAssetArch // empty' "$TARGETS")
 
-if [ -z "$xray_arch" ] || [ -z "$singbox_arch" ]; then
-    echo "target '$TARGET_ID' is not in $TARGETS, or its asset architectures are missing" >&2
+if [ -z "$singbox_arch" ]; then
+    echo "target '$TARGET_ID' is not in $TARGETS, or its asset architecture is missing" >&2
     exit 1
 fi
 
 # --- 2) verify the pins BEFORE downloading anything -------------------------
-# Check both cores up front so a missing pin fails fast, rather than after
+# Check the pin up front so a missing pin fails fast, rather than after
 # downloading a few hundred megabytes.
+#
+# Only sing-box is shipped (ADR-0005), so this is called once. It stays a
+# function because the refusal must remain a per-asset check: the day a second
+# asset is added, forgetting it here would be a silent hole.
 check_pin() {
     local name="$1"
     local version sha
@@ -84,7 +87,6 @@ check_pin() {
 }
 
 unresolved=""
-check_pin xray_core || unresolved="${unresolved} xray_core"
 check_pin sing_box_core || unresolved="${unresolved} sing_box_core"
 
 if [ -n "$unresolved" ]; then
@@ -99,7 +101,6 @@ if [ -n "$unresolved" ]; then
 fi
 
 echo "core pins are resolved; fetching assets for target ${TARGET_ID}"
-echo "  xray     arch: ${xray_arch}"
 echo "  sing-box arch: ${singbox_arch}"
 
 # The actual download and extraction lives in the per-asset step below. It is
