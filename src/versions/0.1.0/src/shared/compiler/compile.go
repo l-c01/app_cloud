@@ -268,6 +268,7 @@ func dedupeByOutboundTag(usable []*domain.Node, report *Report) []*domain.Node {
 }
 
 // selectNode 选出默认出口节点。
+func selectNode(req *Request, report *Report, usable []*domain.Node) *domain.Node {
 	if req.SelectedNodeID != "" {
 		for _, n := range usable {
 			if n.ID == req.SelectedNodeID {
