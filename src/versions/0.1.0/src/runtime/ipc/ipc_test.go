@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -374,6 +375,18 @@ func TestBroadcastDeliversEventsWithMonotonicSequence(t *testing.T) {
 // ---- 句柄文件 ----
 
 func TestHandleFileIsWrittenWithRestrictivePermissions(t *testing.T) {
+	// Windows 上没有可断言的模式位：os.Chmod 只切换只读属性，
+	// 并不控制其他用户的访问，而 os.Stat 报出的 0666 是合成值。
+	//
+	// 这个测试此前在 Windows 上**时好时坏**：命名管道的名字长度受限制，
+	// 临时目录路径稍长就让 Listen 失败、测试走 skip 分支而「通过」，
+	// 路径稍短就真的跑到断言并失败。也就是说它从没真正验证过什么，
+	// 只是碰巧有时沉默。
+	//
+	// 该平台上真正的保护来自父目录的 ACL——见 Handle 里的说明。
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode bits are not enforced on Windows; protection there comes from the parent directory ACL")
+	}
 	h := &echoHandler{}
 	dir := t.TempDir()
 	handlePath := filepath.Join(dir, "nested", "ipc.json")
