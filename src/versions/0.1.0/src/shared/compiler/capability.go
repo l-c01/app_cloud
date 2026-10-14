@@ -149,7 +149,7 @@ func checkNode(n *domain.Node, report *Report) bool {
 
 	if !c.transports[n.Transport] {
 		report.Errorf(n, "transport.type", "compiler.transport_unsupported",
-			"%s 不支持传输 %s；请改用其它传输或更换核心", core, n.Transport)
+			"%s 不支持传输 %s；请改用其它传输", core, n.Transport)
 		ok = false
 	}
 

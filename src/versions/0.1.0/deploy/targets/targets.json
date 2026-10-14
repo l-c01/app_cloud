@@ -8,10 +8,9 @@
     "adr": "design/adr/ADR-0003-核心官方预构建与自动更新.md",
     "principle": "本项目不编译核心；客户端按锁定版本下载官方 Release 二进制，SHA256 校验后原子替换，旧版本可回滚。",
     "sources": {
-      "xray": "https://github.com/XTLS/Xray-core/releases",
       "sing_box": "https://github.com/SagerNet/sing-box/releases"
     },
-    "archMappingNote": "各目标所需的核心产物架构由本表 assetArch 字段声明；实际文件名与校验和由 versions.lock.json 锁定，不在本文件伪造。"
+    "archMappingNote": "本构建只发布 sing-box（ADR-0005）；各目标所需的核心产物架构由本表 singBoxAssetArch 字段声明。实际文件名与校验和由 versions.lock.json 锁定，不在本文件伪造。"
   },
 
   "targets": [
@@ -24,7 +23,6 @@
       "required": true,
       "artifactTypes": ["zip", "installer"],
       "toolchainRoute": "MSVC + CMake (x64)",
-      "xrayAssetArch": "64",
       "singBoxAssetArch": "amd64",
       "desktopBuild": {
         "runner": "windows-latest",
@@ -47,7 +45,6 @@
       "required": true,
       "artifactTypes": ["zip", "installer"],
       "toolchainRoute": "MSVC + CMake (Win32)",
-      "xrayAssetArch": "32",
       "singBoxAssetArch": "386",
       "desktopBuild": {
         "runner": "windows-latest",
@@ -70,7 +67,6 @@
       "required": true,
       "artifactTypes": ["zip", "installer"],
       "toolchainRoute": "MSVC 交叉编译 + CMake",
-      "xrayAssetArch": "arm64-v8a",
       "singBoxAssetArch": "arm64",
       "desktopBuild": {
         "runner": "windows-latest",
@@ -93,7 +89,6 @@
       "required": true,
       "artifactTypes": ["deb", "tar.gz"],
       "toolchainRoute": "固定最低 glibc 的构建容器 + CMake",
-      "xrayAssetArch": "64",
       "singBoxAssetArch": "amd64",
       "desktopBuild": {
         "runner": "ubuntu-latest",
@@ -115,7 +110,6 @@
       "required": true,
       "artifactTypes": ["deb", "tar.gz"],
       "toolchainRoute": "固定提供 i386 依赖的环境 + CMake",
-      "xrayAssetArch": "32",
       "singBoxAssetArch": "386",
       "desktopBuild": {
         "runner": "ubuntu-latest",
@@ -139,7 +133,6 @@
       "required": true,
       "artifactTypes": ["deb", "tar.gz"],
       "toolchainRoute": "交叉编译或原生 runner + CMake",
-      "xrayAssetArch": "arm64-v8a",
       "singBoxAssetArch": "arm64",
       "desktopBuild": {
         "runner": "ubuntu-24.04-arm",
@@ -163,7 +156,6 @@
       "required": true,
       "artifactTypes": ["apk"],
       "toolchainRoute": "Gradle + NDK + 核心集成方式待 G1 探针",
-      "xrayAssetArch": "arm64-v8a",
       "singBoxAssetArch": "arm64",
       "status": "planned",
       "buildVerified": false,
@@ -182,7 +174,6 @@
       "required": true,
       "artifactTypes": ["apk"],
       "toolchainRoute": "Gradle + NDK + 32 位绑定探针",
-      "xrayAssetArch": "arm32-v7a",
       "singBoxAssetArch": "armv7",
       "status": "planned",
       "buildVerified": false,
@@ -200,7 +191,6 @@
       "required": true,
       "artifactTypes": ["apk"],
       "toolchainRoute": "Gradle + NDK + 32 位绑定探针",
-      "xrayAssetArch": "32",
       "singBoxAssetArch": "386",
       "status": "planned",
       "buildVerified": false,
@@ -217,7 +207,6 @@
       "required": false,
       "artifactTypes": ["oci-image"],
       "toolchainRoute": "Buildx headless 服务 + 核心预构建二进制",
-      "xrayAssetArch": "64",
       "singBoxAssetArch": "amd64",
       "status": "planned",
       "buildVerified": false,
@@ -234,7 +223,6 @@
       "required": false,
       "artifactTypes": ["oci-image"],
       "toolchainRoute": "Buildx headless 服务 + 核心预构建二进制",
-      "xrayAssetArch": "32",
       "singBoxAssetArch": "386",
       "status": "planned",
       "buildVerified": false,
@@ -252,7 +240,6 @@
       "required": false,
       "artifactTypes": ["oci-image"],
       "toolchainRoute": "Buildx/QEMU 或原生 + 核心预构建二进制",
-      "xrayAssetArch": "arm64-v8a",
       "singBoxAssetArch": "arm64",
       "status": "planned",
       "buildVerified": false,

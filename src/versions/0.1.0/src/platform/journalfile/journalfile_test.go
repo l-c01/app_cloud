@@ -26,7 +26,7 @@ func sampleEntry() coordinator.JournalEntry {
 		Generation: 12,
 		Stage:      coordinator.StatePreparingNetwork,
 		Mode:       "system_proxy",
-		Core:       "xray",
+		Core:       "sing-box",
 		ConfigPath: "/data/configs/active.json",
 		Owner:      "proxyclient",
 		Original: coordinator.NetworkSettings{
