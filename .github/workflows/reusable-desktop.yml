@@ -229,6 +229,17 @@ jobs:
       - name: Build the background service (Go)
         # GUI 没有这个服务就完全无法工作：所有涉及系统网络与核心进程的操作
         # 都在服务里。只打包 GUI 会得到一个能打开但什么都做不了的界面。
+        #
+        # 必须显式声明 shell: bash。
+        # 下面这段是 bash 脚本（set -euo pipefail、case），
+        # 而不声明 shell 时 Windows runner 的默认 shell 是 **PowerShell**——
+        # 于是 bash 语法在那里直接解析失败：
+        #     ParserError: D:\a\_temp\....ps1:4
+        # 这个错误看起来像 Go 构建失败，实际与被编译的语言毫无关系。
+        #
+        # Linux 上恰好不会暴露：那里的默认 shell 就是 bash。
+        # 「只在其中一个平台成立」的配置是最容易长期潜伏的一类。
+        shell: bash
         env:
           FAMILY: ${{ matrix.family }}
           GOARCH_TARGET: ${{ matrix.goArch }}
