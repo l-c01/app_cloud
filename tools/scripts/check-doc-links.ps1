@@ -36,7 +36,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string[]]$Roots = @('docs', 'design', 'README.md', 'src', '.github')
+    [string[]]$Roots = @('docs', 'design', 'output', 'README.md', 'src', '.github')
 )
 
 $ErrorActionPreference = 'Stop'

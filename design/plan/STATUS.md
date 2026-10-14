@@ -2,7 +2,7 @@
 
 本文件是项目进度的**唯一权威来源**。任何「已完成」的声明必须在此登记，并附可复核的证据。
 
-更新时间：2026-10-14 · 当前阶段：**G0 → G2 过渡** · 当前版本目录：`src/versions/0.1.0/`
+更新时间：2026-10-15 · 当前阶段：**G5 完成，等待手动构建** · 当前版本目录：`src/versions/0.1.0/`
 
 ---
 
@@ -10,14 +10,42 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | G0 设计与契约**已完成**；已开始 G2 的首个模块 |
-| 版本管理 | 一个 git 仓 + `src/versions/<版本>/` + tag |
-| 已受管文件 | 49（设计文档、契约、Schema、目标清单、报告、首个 Go 模块） |
-| 核心分发 | **已决定**：官方预构建二进制 + 客户端内置自动更新（ADR-0003） |
-| 应用源码 | 🟡 已开始：`src/versions/0.1.0/src/shared/panel`（4 个接口 + 契约测试） |
-| 编译证据 | **无**（`not_run`；本机无 Go 工具链，编译与测试在 CI） |
-| 运行证据 | **无**（`not_run`） |
-| 未决阻塞项 | 项目许可证、项目名称与包名、Go module 正式路径、参考源码 commit |
+| 阶段 | **G5 完成**：设计完整，可交付到 GitHub 手动编译 |
+| 版本管理 | 一个 git 仓 + `src/versions/<版本>/` + tag（`v0.1.0-alpha.1` … `alpha.4`） |
+| 已受管文件 | 174（源码、设计文档、契约、Schema、目标清单、文档、报告） |
+| 源码规模 | Go 12,300 行 / C++ 5,609 行 / Kotlin 844 行 |
+| 核心分发 | **已决定并落地**：官方预构建二进制 + SHA256 校验 + 原子替换（ADR-0003） |
+| 应用源码 | 🟢 桌面端与 Android 骨架均已完成 |
+| 本机可做验证 | 🟢 **9/9 通过**（见 [`output/reports/report-G5-0.1.0-20261015.md`](../../output/reports/report-G5-0.1.0-20261015.md)） |
+| 编译证据 | **无**（`not_run`；本机无 Go / C++ / JDK / Android SDK，编译与测试在 CI） |
+| 运行证据 | **无**（`not_run`；未在任何真实设备上运行过） |
+| 未决阻塞项 | 项目许可证、软件名与包名、Go module 正式路径、核心版本冻结、参考源码 commit |
+
+### 一句话
+
+**设计完整、可交付到 GitHub 手动编译；本机可做的验证全部通过，
+但全部代码从未经过编译器。**
+
+这是一个**可以开始手动构建**的状态，不是一个可以发布的状态。
+
+### 如何自行复核
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+& .\tools\scripts\run-all-checks.ps1
+```
+
+原始输出会自动写入 `output/reports/verification-run-<时间戳>.txt`。
+
+### 首次 CI 的预期
+
+| 可能失败 | 处理 |
+|---|---|
+| 格式检查 | 开发机无 `gofmt`，手工对齐可能不完整。下载 `gofmt-fixes` 补丁产物后 `git apply` |
+| 编译错误或测试失败 | 约 1.8 万行代码从未编译过，属预期风险 |
+| 契约/翻译检查 | 会明确指出哪个键缺在哪个语言里 |
+
+**未执行的检查一律记 `not_run`，不得写成「通过」。**
 
 ---
 
@@ -93,9 +121,41 @@
 | 30 | 平台网络接管适配层 | `platform/netmgr`（Backend + Manager + GNOME 后端 + 40 组测试） | **完成（未编译）** |
 | 31 | 持久化恢复日志 | `platform/journalfile`（原子写入 + 权限收紧 + 测试） | **完成（未编译）** |
 | 32 | Windows 系统代理 | `platform/winproxy`（reg.exe + 注入防护 + 所有权校验；InternetSetOption TODO） | **部分完成** |
-| 29 | 桌面 UI（C++/wxWidgets） | `apps/desktop` | 待办（G3） |
-| 30 | 中英文开发与使用文档 | `docs/zh-CN/`、`docs/en/` | 待办（G6） |
-| 19 | CI 检查落地 | `gofmt` / `go vet` / `go test` 工作流 | 待办（G1） |
+| 33 | 桌面端 IPC 协议（Go 的 C++ 镜像） | `apps/desktop/src/core/ipc_protocol.{hpp,cpp}` + 30 余组测试 | **完成（未编译）** |
+| 33b | 跨语言 IPC 契约自动校验 | `tools/scripts/check-ipc-contract.ps1`（已接入 CI） | **完成** |
+| 34 | 桌面端 IPC 传输层与客户端 | `ipc_transport`、`ipc_client`（后台读取线程 + 事件排队 + 20 余组测试） | **完成（未编译）** |
+| 35 | 桌面端界面骨架 | `apps/desktop/src/{main.cpp,ui,app}`（两种模式共用一份上下文） | **完成（未编译）** |
+| 35b | 出厂配置与用户偏好分离 | `apps/desktop/src/app/settings.{hpp,cpp}` + 20 组测试 | **完成（未编译）** |
+| 36 | Android 骨架 | `apps/android`（Kotlin + Compose + VpnService；**不代理流量**） | **部分完成（未编译）** |
+| 37 | 后台服务入口 | `src/cmd/proxyclient-service/main.go`（此前整个模块没有 main 包） | **完成（未编译）** |
+| 38 | 打包契约与构建接线 | `deploy/packaging/`、`reusable-desktop.yml` 真实构建（含服务二进制） | **完成（未运行）** |
+| 39 | Docker 契约 | `deploy/docker/README.md`（**刻意不创建 Dockerfile**，理由见文档） | **完成（deferred）** |
+| 40 | 双语文档 | `docs/zh-CN/`、`docs/en/`：README、架构、验证、上传构建、使用说明 | **完成** |
+| 41 | 本机可执行验证全套 | `tools/scripts/`：9 个检查 + `run-all-checks.ps1` | **完成（9/9 通过）** |
+| 42 | G5 验证报告 | `output/reports/report-G5-0.1.0-20261015.md` + 原始输出 | **完成** |
+| — | Clash YAML 导入器 | `shared/subscription` 的 YAML 解析 | 待办 |
+| — | sing-box JSON 导入器 | `shared/subscription` 的 JSON 解析 | 待办 |
+| — | 平台安全存储实现 | Windows DPAPI / Linux Secret Service / Android Keystore | 待办 |
+| — | TUN / PAC 平台实现 | `platform/` 的 TUN 与 PAC 接管 | 待办 |
+| — | Windows 注册表刷新 | `wininet` 的 `InternetSetOption` 调用 | 待办 |
+| — | Android 核心绑定 | 决定 AAR 内嵌还是预构建二进制 | 待办（G1 探针） |
+| — | 核心版本冻结 | 填写 `versions.lock.json` 的版本与 SHA256 | 待办（用户决定） |
+| — | 真机运行验证 | 全部运行期结论目前为 `not_run` | 待办 |
+
+---
+
+## 交付状态（G5 结束时）
+
+| 维度 | 状态 |
+|---|---|
+| 设计 | **完整**：设计基线、4 份 ADR、接口契约、Schema、目标清单、多语言与打包约定 |
+| 源码 | **骨架完整**：Go 14 包（含服务入口）、C++ 桌面端、Kotlin Android 端 |
+| 构建接线 | **已接线**：13 个工作流，含真实构建与安装包产出步骤 |
+| 文档 | **双语完整**：架构、验证、上传构建、使用说明，中英各一套 |
+| 本机验证 | **9/9 通过**（静态预检、契约一致性、JSON/Schema、链接） |
+| 编译验证 | **无**（`not_run`） |
+| 运行验证 | **无**（`not_run`） |
+| 可交付性 | **可以开始手动构建**；不是可发布状态 |
 
 ---
 
