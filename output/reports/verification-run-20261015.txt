@@ -1,6 +1,6 @@
 ﻿Verification run
   repository : D:\workai\xbaord
-  started    : 2026-10-15 04:34:30 +08:00
+  started    : 2026-10-15 04:45:46 +08:00
   powershell : 5.1.26100.9444 (Desktop)
 
 ================================================================
@@ -8,7 +8,7 @@ Tracked source files
   script: tools/scripts/check-tracked-files.ps1
 ================================================================
 UNTRACKED - authored files never added to git:
-  design/plan/HANDOFF.md
+  src/versions/0.1.0/src/shared/domain/options.go
 
   These exist on this machine but would be missing from a clone.
 
@@ -24,7 +24,7 @@ Go unused imports
   script: tools/scripts/check-go-imports.ps1
 ================================================================
 
-Checked 37 Go file(s) with imports out of 38 file(s).
+Checked 37 Go file(s) with imports out of 39 file(s).
 RESULT: PASS - no unused imports detected.
 exit code: 0
 
@@ -82,7 +82,7 @@ i18n message keys
 ================================================================
 
 Catalogs : en, zh-CN
-Go files : 26
+Go files : 27
 Keys used: 63
 
 UI files : 34 (48 key(s), 2 dynamic prefix(es))
