@@ -215,6 +215,26 @@ func (r *Request) dnsOptions() *domain.DNSSettings {
 	return &r.Options.DNS
 }
 
+// tunOptions 返回 TUN 设置；未接入选项时为 nil，此时不会生成 TUN 入站。
+func (r *Request) tunOptions() *domain.TUNSettings {
+	if r.Options == nil {
+		return nil
+	}
+	return &r.Options.Inbound.TUN
+}
+
+// perAppOptions 返回分应用设置；未接入选项时为 nil。
+//
+// 它只在 TUN 模式下有意义——系统代理与本地端口都是整机级别的，
+// 没有「按应用分流」这一说。因此调用方（TUN 入站的构造）为 nil 时
+// 自然就不设包名过滤。
+func (r *Request) perAppOptions() *domain.PerApp {
+	if r.Options == nil {
+		return nil
+	}
+	return &r.Options.Inbound.PerApp
+}
+
 // validate 做与核心无关的请求级校验。
 func (r *Request) validate() error {
 	if !r.Core.Valid() {

@@ -90,6 +90,15 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 			cfg.Outbounds = append(cfg.Outbounds, ob)
 		}
 	}
+	// TUN 入站（仅当选项要求时）。
+	//
+	// 放在这里而不是 cfg 字面量里，是因为它的存在与否取决于选项，
+	// 而字面量里已经有 HTTP 与 SOCKS 两个固定入站。
+	// 混在一起会让「哪些入站是固定的、哪些是可选的」看不出来。
+	if tunIn := singboxTUNInbound(req.tunOptions(), req.perAppOptions()); tunIn != nil {
+		cfg.Inbounds = append(cfg.Inbounds, tunIn)
+	}
+
 	cfg.Outbounds = append(cfg.Outbounds, map[string]any{"type": "direct", "tag": "direct"})
 
 	switch req.Policy {
@@ -239,6 +248,60 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 type singboxRoute struct {
 	Rules []map[string]any `json:"rules,omitempty"`
 	Final string           `json:"final,omitempty"`
+}
+
+// singboxTUNInbound 依据选项构造 TUN 入站；未启用时返回 nil
+// （调用方不追加任何东西，而不是追加一个 enable:false 的入站）。
+//
+// 不生成「关闭状态的入站」是刻意的：核心对 enable:false 的处理
+// 与「根本没有这个入站」并不总是等价，而前者会在日志里留下痕迹，
+// 让排查的人以为 TUN 被配置过。
+func singboxTUNInbound(tun *domain.TUNSettings, perApp *domain.PerApp) map[string]any {
+	if tun == nil || !tun.Enabled {
+		return nil
+	}
+
+	in := map[string]any{
+		"type": "tun",
+		"tag":  "tun-in",
+	}
+	if tun.Stack != "" {
+		in["stack"] = tun.Stack
+	}
+	if tun.Device != "" {
+		in["interface_name"] = tun.Device
+	}
+	if tun.MTU > 0 {
+		in["mtu"] = tun.MTU
+	}
+	if tun.AutoRoute {
+		in["auto_route"] = true
+	}
+	if tun.StrictRoute {
+		in["strict_route"] = true
+	}
+	if len(tun.DNSHijack) > 0 {
+		in["dns_hijack"] = tun.DNSHijack
+	}
+
+	// 分应用代理。
+	//
+	// include_package 与 exclude_package 在 sing-box 里**互斥**：
+	// 同时给出会被核心拒绝，而错误信息来自核心深处。
+	// 因此这里通过 PerApp 的两个取值方法拿列表——它们保证同一时刻
+	// 只有一个非空（见 domain.PerApp 的说明）。
+	if perApp != nil {
+		if pkgs := perApp.IncludePackages(); len(pkgs) > 0 {
+			in["include_package"] = pkgs
+		} else if pkgs := perApp.ExcludePackages(); len(pkgs) > 0 {
+			in["exclude_package"] = pkgs
+		}
+		// 模式为「全部应用」或列表为空时不设过滤，即全部走代理。
+		// 这与「设了一个空列表」不同：空列表在核心那里可能被解释为
+		// 「不代理任何应用」，正好与用户的选择相反。
+	}
+
+	return in
 }
 
 // singboxNodeOutbound 依据协议构造 sing-box 出站。
