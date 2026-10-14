@@ -63,8 +63,8 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 
 	listen := req.listenAddress()
 	cfg := singboxConfig{
-		Log:       map[string]any{"level": req.logLevel()},
-		DNS:       singboxDNSSection(req.dnsOptions()),
+		Log: map[string]any{"level": req.logLevel()},
+		DNS: singboxDNSSection(req.dnsOptions()),
 		Inbounds: []map[string]any{
 			{
 				"type":        "http",
@@ -176,8 +176,8 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 	// fake-ip 服务器排在最前：命中过滤列表的域名会落到后面的常规服务器。
 	if opts.FakeIP {
 		fakeip := map[string]any{
-			"type":  "fakeip",
-			"tag":   dnsTagFakeIP,
+			"type": "fakeip",
+			"tag":  dnsTagFakeIP,
 		}
 		if opts.FakeIPRange != "" {
 			fakeip["inet4_range"] = opts.FakeIPRange
