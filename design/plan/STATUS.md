@@ -72,8 +72,12 @@
 | 14 | 工作流骨架设计 | `deploy/workflows/`（七入口 + 三可复用） | 待办（G1） |
 | 15 | `shared/panel` 面板适配实现 | `src/versions/0.1.0/src/shared/panel/`（4 接口 + 契约测试） | **完成（未编译）** |
 | 16 | Go module 骨架与说明 | `src/go.mod`、`src/README.md` | **完成** |
-| 17 | `shared/domain` 领域模型 | 账户/订阅/节点标准模型 | 待办（G2） |
-| 18 | 订阅拉取与解析 | `shared/subscription` | 待办（G2） |
+| 17 | `shared/domain` 标准节点模型 | `src/versions/0.1.0/src/shared/domain/node.go` | **完成（未编译）** |
+| 18 | `shared/subscription` 拉取与解析 | 订阅拉取 + 格式探测 + 节点 URI 解析 + 契约测试 | **完成（未编译）** |
+| 19 | 订阅格式策略决策 | ADR-0004（URI 列表为主输入；Xboard 无原生 Xray JSON） | **完成** |
+| 20 | Clash YAML 导入器 | `shared/subscription` 的 YAML 解析 | 待办（G2） |
+| 21 | sing-box JSON 导入器 | `shared/subscription` 的 JSON 解析 | 待办（G2） |
+| 22 | 双核心配置编译器 | `shared/compiler`（Xray / sing-box） | 待办（G4） |
 | 19 | CI 检查落地 | `gofmt` / `go vet` / `go test` 工作流 | 待办（G1） |
 
 ---
