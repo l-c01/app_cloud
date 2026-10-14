@@ -1,0 +1,274 @@
+// Package compiler 把规范节点模型编译为具体核心的配置。
+//
+// 核心原则（设计基线 §5.2、§7.1）：
+//   - 两个核心各有一套独立生成器，互不依赖对方的配置结构；
+//   - 不支持的参数必须产生**字段级错误**，绝不静默丢弃；
+//   - 编译产物附带报告：能力校验结果、被拒绝的字段、被隔离的字段。
+//
+// 本包不启动进程、不读文件、不做网络请求；它只产出配置字节与报告。
+// 原生配置检查（xray run -test / sing-box check）由 runtime 层负责调用。
+package compiler
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"proxyclient/shared/domain"
+)
+
+// Core 标识目标核心。
+type Core string
+
+const (
+	CoreXray    Core = "xray"
+	CoreSingBox Core = "sing-box"
+)
+
+// Valid 判断核心标识是否受支持。
+func (c Core) Valid() bool {
+	return c == CoreXray || c == CoreSingBox
+}
+
+// IssueLevel 是报告条目的严重程度。
+type IssueLevel string
+
+const (
+	// LevelError 表示该节点无法编译，必须排除在产物之外。
+	LevelError IssueLevel = "error"
+	// LevelWarning 表示可以编译，但存在需要注意的取舍或限制。
+	LevelWarning IssueLevel = "warning"
+	// LevelInfo 表示信息性提示。
+	LevelInfo IssueLevel = "info"
+)
+
+// Issue 是一条编译报告条目。
+//
+// 每一条都必须能定位到具体节点与具体字段，避免出现「有问题但不知道哪里」的报告。
+type Issue struct {
+	Level IssueLevel
+	// NodeID 是 domain.Node.ID；为空表示与具体节点无关（例如全局设置问题）。
+	NodeID string
+	// NodeName 便于人阅读，不作为程序判断依据。
+	NodeName string
+	// FieldPath 例如 "tls.reality.publicKey"、"transport.type"。
+	FieldPath string
+	// MessageKey 是稳定的消息键，供 i18n 使用（R10）。
+	MessageKey string
+	// Message 是兜底的中文说明；正式界面文案由 i18n 资源提供。
+	Message string
+}
+
+func (i Issue) String() string {
+	loc := i.FieldPath
+	if loc == "" {
+		loc = "-"
+	}
+	name := i.NodeName
+	if name == "" {
+		name = i.NodeID
+	}
+	if name == "" {
+		return fmt.Sprintf("[%s] %s: %s", i.Level, loc, i.Message)
+	}
+	return fmt.Sprintf("[%s] %s (%s): %s", i.Level, loc, name, i.Message)
+}
+
+// Compile 按请求中的核心选择对应生成器。
+//
+// 这是调用方通常使用的入口；两个生成器的语义完全一致，
+// 因此上层无需为不同核心写两套流程。
+func Compile(req *Request) ([]byte, *Report, error) {
+	if req == nil {
+		return nil, nil, fmt.Errorf("nil request")
+	}
+	switch req.Core {
+	case CoreXray:
+		return CompileXray(req)
+	case CoreSingBox:
+		return CompileSingBox(req)
+	default:
+		return nil, nil, fmt.Errorf("unsupported core: %q", req.Core)
+	}
+}
+
+// Report 是一次编译的完整报告。
+type Report struct {
+	Core Core
+	// InboundPorts 记录实际使用的本地端口，便于 UI 展示与冲突排查。
+	InboundPorts map[string]int
+	// CompilerNodes 是成功进入产物的节点数。
+	CompiledNodes int
+	// Issues 按发现顺序记录；调用方应按 Level 分组展示。
+	Issues []Issue
+}
+
+// HasErrors 表示产物是否不可用于连接。
+func (r *Report) HasErrors() bool {
+	for _, i := range r.Issues {
+		if i.Level == LevelError {
+			return true
+		}
+	}
+	return false
+}
+
+// Errors 返回所有错误级条目。
+func (r *Report) Errors() []Issue { return r.filter(LevelError) }
+
+// Warnings 返回所有警告级条目。
+func (r *Report) Warnings() []Issue { return r.filter(LevelWarning) }
+
+func (r *Report) filter(level IssueLevel) []Issue {
+	var out []Issue
+	for _, i := range r.Issues {
+		if i.Level == level {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func (r *Report) add(level IssueLevel, node *domain.Node, fieldPath, messageKey, message string) {
+	issue := Issue{Level: level, FieldPath: fieldPath, MessageKey: messageKey, Message: message}
+	if node != nil {
+		issue.NodeID = node.ID
+		issue.NodeName = node.Name
+	}
+	r.Issues = append(r.Issues, issue)
+}
+
+// Errorf 追加一条错误级条目。
+func (r *Report) Errorf(node *domain.Node, fieldPath, messageKey, format string, args ...any) {
+	r.add(LevelError, node, fieldPath, messageKey, fmt.Sprintf(format, args...))
+}
+
+// Warnf 追加一条警告级条目。
+func (r *Report) Warnf(node *domain.Node, fieldPath, messageKey, format string, args ...any) {
+	r.add(LevelWarning, node, fieldPath, messageKey, fmt.Sprintf(format, args...))
+}
+
+// Infof 追加一条信息级条目。
+func (r *Report) Infof(node *domain.Node, fieldPath, messageKey, format string, args ...any) {
+	r.add(LevelInfo, node, fieldPath, messageKey, fmt.Sprintf(format, args...))
+}
+
+// InboundOptions 描述本地入口。
+//
+// 首轮只做本地代理入口；TUN / 系统代理 / PAC 属于接入方式，
+// 由 runtime 与 platform 层处理，不在这里生成。
+type InboundOptions struct {
+	// Listen 通常是 127.0.0.1；allowLanAccess 时才绑定 0.0.0.0。
+	Listen string
+	// HTTPPort 与 SocksPort 为本地代理端口，必须由调用方做冲突检测。
+	HTTPPort  int
+	SocksPort int
+	// AllowLanAccess 为真时入口监听所有网卡。
+	AllowLanAccess bool
+}
+
+// OutboundPolicy 是路由策略，对应设计基线里的三维度之一。
+type OutboundPolicy string
+
+const (
+	// PolicyRule 表示按规则分流。
+	PolicyRule OutboundPolicy = "rule"
+	// PolicyGlobal 表示全部走代理。
+	PolicyGlobal OutboundPolicy = "global"
+	// PolicyDirect 表示全部直连。
+	PolicyDirect OutboundPolicy = "direct"
+)
+
+// Request 是一次编译请求。
+type Request struct {
+	Core Core
+	// Nodes 是候选节点；不在 Supported 协议集合内的节点会产生错误级条目。
+	Nodes []*domain.Node
+	// SelectedNodeID 是用户选定的节点，将成为默认出口。
+	// 为空且策略为 rule/global 时，取第一个可用节点。
+	SelectedNodeID string
+	Inbound        InboundOptions
+	Policy         OutboundPolicy
+	// LogLevel 传给核心的日志级别（如 warning / info / debug）。
+	LogLevel string
+}
+
+// validate 做与核心无关的请求级校验。
+func (r *Request) validate() error {
+	if !r.Core.Valid() {
+		return fmt.Errorf("unsupported core: %q", r.Core)
+	}
+	if r.Inbound.Listen == "" {
+		return fmt.Errorf("inbound listen address is required")
+	}
+	if r.Inbound.HTTPPort <= 0 || r.Inbound.HTTPPort > 65535 {
+		return fmt.Errorf("invalid http port: %d", r.Inbound.HTTPPort)
+	}
+	if r.Inbound.SocksPort <= 0 || r.Inbound.SocksPort > 65535 {
+		return fmt.Errorf("invalid socks port: %d", r.Inbound.SocksPort)
+	}
+	if r.Inbound.HTTPPort == r.Inbound.SocksPort {
+		return fmt.Errorf("http and socks ports must differ")
+	}
+	switch r.Policy {
+	case PolicyRule, PolicyGlobal, PolicyDirect:
+	case "":
+		return fmt.Errorf("routing policy is required")
+	default:
+		return fmt.Errorf("unsupported routing policy: %q", r.Policy)
+	}
+	return nil
+}
+
+// listenAddress 返回入口应绑定的地址。
+func (r *Request) listenAddress() string {
+	if r.Inbound.AllowLanAccess {
+		return "0.0.0.0"
+	}
+	return r.Inbound.Listen
+}
+
+// logLevel 返回规范化后的日志级别。
+func (r *Request) logLevel() string {
+	if strings.TrimSpace(r.LogLevel) == "" {
+		return "warning"
+	}
+	return strings.TrimSpace(r.LogLevel)
+}
+
+// selectNode 选出默认出口节点。
+//
+// 选择规则：优先用用户显式选定的 ID；找不到则退回第一个可编译节点。
+// 绝不「静默连到任意节点」——退回时必须产生警告级条目（设计基线 §6.3）。
+func selectNode(req *Request, report *Report, usable []*domain.Node) *domain.Node {
+	if req.SelectedNodeID != "" {
+		for _, n := range usable {
+			if n.ID == req.SelectedNodeID {
+				return n
+			}
+		}
+		report.Warnf(nil, "selectedNodeId", "compiler.selected_node_missing",
+			"选定的节点 %s 不在可用列表中，已回退到第一个可用节点", req.SelectedNodeID)
+	}
+	if len(usable) == 0 {
+		return nil
+	}
+	if req.SelectedNodeID == "" {
+		report.Infof(usable[0], "selectedNodeId", "compiler.selected_node_defaulted",
+			"未指定节点，使用列表中的第一个可用节点")
+	}
+	return usable[0]
+}
+
+// sortIssues 让报告顺序稳定，便于比对与测试。
+func sortIssues(issues []Issue) {
+	sort.SliceStable(issues, func(i, j int) bool {
+		if issues[i].Level != issues[j].Level {
+			return issues[i].Level < issues[j].Level
+		}
+		if issues[i].NodeID != issues[j].NodeID {
+			return issues[i].NodeID < issues[j].NodeID
+		}
+		return issues[i].FieldPath < issues[j].FieldPath
+	})
+}

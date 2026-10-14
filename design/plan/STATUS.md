@@ -79,7 +79,9 @@
 | 19 | 订阅格式策略决策 | ADR-0004（URI 列表为主输入；Xboard 无原生 Xray JSON） | **完成** |
 | 20 | Clash YAML 导入器 | `shared/subscription` 的 YAML 解析 | 待办（G2） |
 | 21 | sing-box JSON 导入器 | `shared/subscription` 的 JSON 解析 | 待办（G2） |
-| 22 | 双核心配置编译器 | `shared/compiler`（Xray / sing-box） | 待办（G4） |
+| 22 | 双核心配置编译器 | `shared/compiler`（Xray / sing-box 生成器 + 能力矩阵 + 契约测试） | **完成（未编译）** |
+| 23 | 运行期：核心适配器与自动更新 | `runtime/core`、`runtime/coreupdater`（ADR-0003） | 待办（G3/G4） |
+| 24 | 连接协调器与网络恢复 | `runtime/coordinator` | 待办（G3/G4） |
 | 19 | CI 检查落地 | `gofmt` / `go vet` / `go test` 工作流 | 待办（G1） |
 
 ---

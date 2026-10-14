@@ -9,7 +9,7 @@
 | `shared/panel/` | Xboard 面板适配：登录、取订阅链接、账户信息、面板探测 | ✅ 已实现 |
 | `shared/domain/` | 规范领域模型（节点/传输/TLS/Reality） | ✅ 已实现 |
 | `shared/subscription/` | 订阅拉取、格式探测、节点 URI 解析 | ✅ 已实现（URI 列表；YAML/JSON 待补） |
-| `shared/compiler/` | Xray / sing-box 配置生成与能力校验 | 待实现 |
+| `shared/compiler/` | Xray / sing-box 配置生成与能力校验 | ✅ 已实现（首轮四协议） |
 | `shared/secrets/` | 系统密钥存储抽象与脱敏 | 待实现 |
 | `shared/i18n/` | 多语言 | 待实现 |
 | `runtime/` | 连接协调器、核心适配器、核心自动更新、IPC | 待实现 |
@@ -36,6 +36,33 @@
 4. **错误按分类处理**：调用方依据 `Error.Kind` 决策，不得解析服务端 `message` 文案。
 5. **拒绝凭据型请求头**：`WithCustomHeaders` 会拒绝 `Authorization` / `Cookie` / `Proxy-Authorization`。
 6. **不自动请求头像**：`Account.AvatarURL` 仅作为字段提供，客户端不得自动加载（会造成外联泄漏）。
+
+## 已实现：shared/compiler
+
+把规范节点模型编译为两个核心各自的配置。生成器相互独立，不共用配置结构。
+
+| 文件 | 内容 |
+|---|---|
+| `compile.go` | 请求/报告类型、统一入口 `Compile`、字段级 `Issue`、默认出口选择规则 |
+| `capability.go` | 核心能力矩阵与节点校验（不兼容项产生 `transport.type` 等字段级错误） |
+| `xray.go` | Xray 配置生成（含 streamSettings / realitySettings / tcpSettings） |
+| `singbox.go` | sing-box 配置生成（含 transport / tls / utls / reality） |
+| `compile_test.go` | 契约测试：能力差异、字段不静默丢弃、出站 tag 不重复、策略改变默认出口 |
+
+### 核心能力差异（已按源码核实）
+
+| 项 | Xray | sing-box | 依据 |
+|---|---|---|---|
+| `xhttp` 传输 | 支持 | **不支持** | Xray `infra/conf/transport_internet.go:20`；sing-box `option/v2ray_transport.go:15` 枚举无 xhttp |
+| TCP 上的 HTTP 伪装头 | 支持（`tcpSettings`） | **不支持** | Xray 有 tcpSettings；sing-box 无对应字段 |
+| HTTP/2 | `network: h2` 或 `http` | `transport.type: http` | Xray `:33`；sing-box 枚举只有 `http` |
+| REALITY serverName 位置 | `realitySettings.serverName` | `tls.server_name` + `tls.reality` | 两核心结构不同 |
+
+### 重要声明
+
+`capability.go` 中的能力表标记为 `verifiedAgainst: "unverified"`：这些边界来自参考源码与官方文档，
+**尚未针对锁定版本实测**。G4 必须用固定版本的官方二进制逐项复核并把结论回写。
+在此之前，任何「某核心不支持 X」都按 error 处理——宁可拒绝，也不静默产出可能错误的配置。
 
 ## 本机不编译：CI 必须执行的检查
 
