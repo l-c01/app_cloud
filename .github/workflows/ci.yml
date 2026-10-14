@@ -95,6 +95,17 @@ jobs:
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           ./tools/scripts/check-ipc-contract.ps1
 
+      - name: Verify workflow files are structurally consistent
+        shell: pwsh
+        run: |
+          # 工作流是真正构建与交付产品的代码。损坏的工作流在最糟的时机失败：
+          # 推送之后、在 Actions 标签页里、而且报错往往不指向真正的原因。
+          # 其中最有价值的一项是：本地复用的工作流路径是否真的存在——
+          # 路径写错只在工作流运行时才失败，报的是 invalid workflow file，
+          # 而不是 file not found。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/check-workflows.ps1
+
       - name: Verify PowerShell scripts are ASCII-only
         shell: bash
         run: |
@@ -109,7 +120,7 @@ jobs:
               LC_ALL=C grep -nP '[^\x00-\x7F]' "$f" | head -5
               failed=1
             fi
-          done < <(find tools -name '*.ps1' -type f -print0)
+          done < <(find tools src -name '*.ps1' -type f -print0)
           exit $failed
 
   # ---------------------------------------------------------------------------

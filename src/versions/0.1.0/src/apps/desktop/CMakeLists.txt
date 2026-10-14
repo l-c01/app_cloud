@@ -141,8 +141,25 @@ if(PCX_BUILD_GUI)
             "target. Missing: ${PCX_GUI_MISSING}. "
             "pcx_core and the tests still build.")
     else()
-        find_package(wxWidgets REQUIRED COMPONENTS core base)
-        include(${wxWidgets_USE_FILE})
+        # wxWidgets 有两种查找方式，两者的链接方式不同：
+        #
+        #   CONFIG 模式：vcpkg 等包管理器安装的 wx 提供 wxWidgetsConfig.cmake，
+        #                链接到 wx::core / wx::base 导入目标。
+        #   模块模式：发行版（apt 的 libwxgtk3.2-dev）提供 FindwxWidgets.cmake，
+        #                通过 wxWidgets_USE_FILE 设置编译选项，链接 wxWidgets_LIBRARIES。
+        #
+        # 先试 CONFIG 再回退模块模式：只支持一种的话，
+        # Windows（vcpkg）与 Linux（apt）必然有一边在 find_package 处失败。
+        find_package(wxWidgets CONFIG QUIET COMPONENTS core base)
+        if(wxWidgets_FOUND)
+            set(PCX_WX_LIBRARIES wx::core wx::base)
+            message(STATUS "using the wxWidgets CMake package (config mode)")
+        else()
+            find_package(wxWidgets REQUIRED COMPONENTS core base)
+            include(${wxWidgets_USE_FILE})
+            set(PCX_WX_LIBRARIES ${wxWidgets_LIBRARIES})
+            message(STATUS "using FindwxWidgets (module mode)")
+        endif()
 
         # Windows 下用 WIN32 生成子系统为 Windows 的可执行文件（不弹控制台）。
         if(WIN32)
@@ -151,8 +168,10 @@ if(PCX_BUILD_GUI)
             add_executable(proxyclient-desktop ${PCX_GUI_SOURCES})
         endif()
 
-        target_link_libraries(proxyclient-desktop PRIVATE pcx_core ${wxWidgets_LIBRARIES} pcx_warnings)
-        target_include_directories(proxyclient-desktop PRIVATE ${wxWidgets_INCLUDE_DIRS})
+        target_link_libraries(proxyclient-desktop PRIVATE pcx_core ${PCX_WX_LIBRARIES} pcx_warnings)
+        if(DEFINED wxWidgets_INCLUDE_DIRS)
+            target_include_directories(proxyclient-desktop PRIVATE ${wxWidgets_INCLUDE_DIRS})
+        endif()
 
         install(TARGETS proxyclient-desktop RUNTIME DESTINATION bin)
         install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../../../locales/

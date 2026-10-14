@@ -26,6 +26,13 @@
       "toolchainRoute": "MSVC + CMake (x64)",
       "xrayAssetArch": "64",
       "singBoxAssetArch": "amd64",
+      "desktopBuild": {
+        "runner": "windows-latest",
+        "wxSource": "vcpkg",
+        "vcpkgTriplet": "x64-windows",
+        "cmakeArch": "x64",
+        "note": "vcpkg 首次构建 wxWidgets 需要较长时间；runner 上已配置到 Actions 缓存的二进制缓存，后续运行会命中缓存。"
+      },
       "status": "planned",
       "buildVerified": false,
       "runtimeVerified": false,
@@ -42,6 +49,12 @@
       "toolchainRoute": "MSVC + CMake (Win32)",
       "xrayAssetArch": "32",
       "singBoxAssetArch": "386",
+      "desktopBuild": {
+        "runner": "windows-latest",
+        "wxSource": "vcpkg",
+        "vcpkgTriplet": "x86-windows",
+        "cmakeArch": "Win32"
+      },
       "status": "planned",
       "buildVerified": false,
       "runtimeVerified": false,
@@ -59,6 +72,12 @@
       "toolchainRoute": "MSVC 交叉编译 + CMake",
       "xrayAssetArch": "arm64-v8a",
       "singBoxAssetArch": "arm64",
+      "desktopBuild": {
+        "runner": "windows-latest",
+        "wxSource": "vcpkg",
+        "vcpkgTriplet": "arm64-windows",
+        "cmakeArch": "ARM64"
+      },
       "status": "planned",
       "buildVerified": false,
       "runtimeVerified": false,
@@ -76,6 +95,12 @@
       "toolchainRoute": "固定最低 glibc 的构建容器 + CMake",
       "xrayAssetArch": "64",
       "singBoxAssetArch": "amd64",
+      "desktopBuild": {
+        "runner": "ubuntu-latest",
+        "wxSource": "apt",
+        "aptPackages": ["libwxgtk3.2-dev"],
+        "cmakeFlags": []
+      },
       "status": "planned",
       "buildVerified": false,
       "runtimeVerified": false,
@@ -92,6 +117,13 @@
       "toolchainRoute": "固定提供 i386 依赖的环境 + CMake",
       "xrayAssetArch": "32",
       "singBoxAssetArch": "386",
+      "desktopBuild": {
+        "runner": "ubuntu-latest",
+        "wxSource": "apt-multiarch",
+        "aptPackages": ["libwxgtk3.2-dev:i386"],
+        "cmakeFlags": ["-DCMAKE_C_FLAGS=-m32", "-DCMAKE_CXX_FLAGS=-m32"],
+        "note": "需要先启用 i386 架构并固定提供依赖；依赖不完整时必须显式失败，不得产出一个看似成功的 64 位产物。"
+      },
       "status": "planned",
       "buildVerified": false,
       "runtimeVerified": false,
@@ -109,6 +141,13 @@
       "toolchainRoute": "交叉编译或原生 runner + CMake",
       "xrayAssetArch": "arm64-v8a",
       "singBoxAssetArch": "arm64",
+      "desktopBuild": {
+        "runner": "ubuntu-24.04-arm",
+        "wxSource": "apt",
+        "aptPackages": ["libwxgtk3.2-dev"],
+        "cmakeFlags": [],
+        "note": "使用 arm64 原生 runner，而不是在 amd64 上交叉编译 GUI：为 arm64 交叉构建 wxWidgets 需要一整套交叉工具链，成本远高于原生构建。arm64 runner 仅对公开仓库免费，私有仓库可能不可用。"
+      },
       "status": "planned",
       "buildVerified": false,
       "runtimeVerified": false,

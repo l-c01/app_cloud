@@ -50,6 +50,8 @@ jobs:
   preflight:
     needs: resolve
     runs-on: ubuntu-latest
+    outputs:
+      cores_resolved: ${{ steps.pins.outputs.cores_resolved }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -61,14 +63,15 @@ jobs:
           set -euo pipefail
           desktop_dir="${VERSION_DIR}/src/apps/desktop"
           if [ ! -f "${desktop_dir}/CMakeLists.txt" ]; then
-            echo "::error::desktop source is not implemented yet: ${desktop_dir}/CMakeLists.txt is missing."
-            echo "This is expected before stage G3. The build intentionally fails instead of producing a fake success."
+            echo "::error::desktop source is missing: ${desktop_dir}/CMakeLists.txt"
+            echo "The build intentionally fails instead of producing a fake success."
             echo "See design/plan/STATUS.md for the current stage and remaining work."
             exit 1
           fi
           echo "desktop source present"
 
       - name: Verify core pins for release builds
+        id: pins
         env:
           VERSION_DIR: ${{ inputs.version_dir }}
           BUILD_TYPE: ${{ inputs.build_type }}
@@ -87,12 +90,15 @@ jobs:
 
           if [ "$BUILD_TYPE" = "release" ] && [ "$missing" -gt 0 ]; then
             echo "::error::release build refused: $missing core pin(s) are unresolved in $lock"
-            echo "Release builds must not run with placeholder pins (design baseline §10.2)."
+            echo "Release builds must not run with placeholder pins (design baseline 10.2)."
             exit 1
           fi
 
           if [ "$missing" -gt 0 ]; then
-            echo "::warning::core pins are unresolved; a test build will proceed without bundled cores."
+            echo "::warning::core pins are unresolved; the package will not bundle cores."
+            echo "cores_resolved=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "cores_resolved=true" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -101,7 +107,8 @@ jobs:
       # 收集全部失败，发布成功标志前必须汇总（设计基线 §10.2）。
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
-    runs-on: ${{ startsWith(matrix.family, 'windows') && 'windows-latest' || 'ubuntu-latest' }}
+    # runner 由目标清单的 desktopBuild.runner 决定，不在这里另立一份映射。
+    runs-on: ${{ matrix.desktopBuild.runner }}
     name: desktop-${{ matrix.id }}
     steps:
       - name: Checkout
@@ -109,16 +116,229 @@ jobs:
 
       - name: Report resolved target
         run: |
-          echo "target : ${{ matrix.id }}"
-          echo "family : ${{ matrix.family }}"
-          echo "arch   : ${{ matrix.arch }}"
-          echo "cores  : xray=${{ matrix.xrayAssetArch }} sing-box=${{ matrix.singBoxAssetArch }}"
-          echo "route  : ${{ matrix.toolchainRoute }}"
+          echo "target   : ${{ matrix.id }}"
+          echo "family   : ${{ matrix.family }}"
+          echo "arch     : ${{ matrix.arch }}"
+          echo "runner   : ${{ matrix.desktopBuild.runner }}"
+          echo "wx source: ${{ matrix.desktopBuild.wxSource }}"
+          echo "cores    : xray=${{ matrix.xrayAssetArch }} sing-box=${{ matrix.singBoxAssetArch }}"
 
-      - name: TODO (G3) configure and build desktop app
+      # -----------------------------------------------------------------------
+      # 工具链
+      # -----------------------------------------------------------------------
+      - name: Install build tools (Linux)
+        if: startsWith(matrix.family, 'linux')
+        env:
+          WX_SOURCE: ${{ matrix.desktopBuild.wxSource }}
+          APT_PACKAGES: ${{ join(matrix.desktopBuild.aptPackages, ' ') }}
         run: |
-          echo "::notice::desktop build steps land in stage G3 once apps/desktop exists."
-          echo "Planned: CMake configure for ${{ matrix.arch }} -> build -> bundle pinned cores -> package."
+          set -euo pipefail
+          sudo apt-get update
+          if [ "$WX_SOURCE" = "apt-multiarch" ]; then
+            # i386 依赖不默认启用；不启用的话 apt 会找不到这些包，
+            # 而失败信息在几百行日志里很难被看见。
+            sudo dpkg --add-architecture i386
+            sudo apt-get update
+          fi
+          # 包名随发行版变化：24.04 是 libwxgtk3.2-dev，22.04 是 libwxgtk3.0-gtk3-dev。
+          # 先按清单尝试，失败再回退到旧包名，并在日志里说明用了哪个。
+          if ! sudo apt-get install -y --no-install-recommends cmake ninja-build $APT_PACKAGES; then
+            fallback="${APT_PACKAGES//libwxgtk3.2-dev/libwxgtk3.0-gtk3-dev}"
+            echo "::warning::primary wxWidgets packages were unavailable; retrying with: $fallback"
+            sudo apt-get install -y --no-install-recommends cmake ninja-build $fallback
+          fi
+          dpkg -l | grep -i wxgtk || true
+
+      - name: Install wxWidgets via vcpkg (Windows)
+        if: startsWith(matrix.family, 'windows')
+        shell: pwsh
+        env:
+          VCPKG_TRIPLET: ${{ matrix.desktopBuild.vcpkgTriplet }}
+        run: |
+          # GitHub 的 Windows runner 预装 vcpkg，并已把二进制缓存接到
+          # Actions 缓存上；因此首次运行会从源码构建 wxWidgets（较慢），
+          # 后续运行会命中缓存。
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            Write-Error "VCPKG_INSTALLATION_ROOT is not set; cannot obtain wxWidgets."
+            exit 1
+          }
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'vcpkg.exe'
+          if (-not (Test-Path $vcpkg)) {
+            Write-Error "vcpkg not found at $vcpkg"
+            exit 1
+          }
+          & $vcpkg install "wxwidgets:$env:VCPKG_TRIPLET" --triplet $env:VCPKG_TRIPLET
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "vcpkg failed to install wxWidgets for $env:VCPKG_TRIPLET"
+            exit 1
+          }
+
+      # -----------------------------------------------------------------------
+      # 构建
+      # -----------------------------------------------------------------------
+      - name: Configure
+        env:
+          WX_SOURCE: ${{ matrix.desktopBuild.wxSource }}
+          VCPKG_TRIPLET: ${{ matrix.desktopBuild.vcpkgTriplet }}
+          CMAKE_ARCH: ${{ matrix.desktopBuild.cmakeArch }}
+          EXTRA_FLAGS: ${{ join(matrix.desktopBuild.cmakeFlags, ' ') }}
+        shell: bash
+        working-directory: ${{ inputs.version_dir }}/src/apps/desktop
+        run: |
+          set -euo pipefail
+          args=(-S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+                -DPCX_BUILD_GUI=ON -DPCX_BUILD_TESTS=ON -DPCX_WERROR=ON)
+
+          # 目标架构的额外编译参数来自清单，不在这里写死。
+          if [ -n "${EXTRA_FLAGS:-}" ]; then
+            # shellcheck disable=SC2206
+            args+=($EXTRA_FLAGS)
+          fi
+
+          if [ "$WX_SOURCE" = "vcpkg" ]; then
+            # Windows 走 vcpkg 工具链文件；用 Visual Studio 生成器才能选目标架构，
+            # 因此这里覆盖生成器。
+            toolchain="${VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            args=(-S . -B build -DCMAKE_BUILD_TYPE=Release
+                  -DPCX_BUILD_GUI=ON -DPCX_BUILD_TESTS=ON -DPCX_WERROR=ON
+                  "-DCMAKE_TOOLCHAIN_FILE=${toolchain}"
+                  "-DVCPKG_TARGET_TRIPLET=${VCPKG_TRIPLET}"
+                  "-A" "${CMAKE_ARCH}")
+          fi
+
+          cmake "${args[@]}"
+
+      - name: Build
+        working-directory: ${{ inputs.version_dir }}/src/apps/desktop
+        run: cmake --build build --config Release --parallel
+
+      - name: Run unit tests
+        working-directory: ${{ inputs.version_dir }}/src/apps/desktop
+        env:
+          # 测试需要仓库里的语言资源与出厂配置。
+          PCX_LOCALES_DIR: ${{ github.workspace }}/locales
+          PCX_CONFIG_DIR: ${{ github.workspace }}/design
+        run: ctest --test-dir build --output-on-failure -C Release
+
+      # -----------------------------------------------------------------------
+      # 打包
+      #
+      # 分成两个平台各写一份，而不是用 pwsh 兼容两种：
+      # Git Bash 里没有 Compress-Archive，Linux runner 上也没有保证 pwsh 可用，
+      # 硬凑一个「两种都能跑」的脚本只会得到两处都不稳的结果。
+      # -----------------------------------------------------------------------
+      - name: Assemble the package (Linux)
+        if: startsWith(matrix.family, 'linux')
+        env:
+          TARGET_ID: ${{ matrix.id }}
+          VERSION_DIR: ${{ inputs.version_dir }}
+          CORES_RESOLVED: ${{ needs.preflight.outputs.cores_resolved }}
+        working-directory: ${{ inputs.version_dir }}/src/apps/desktop
+        run: |
+          set -euo pipefail
+          stage="stage/${TARGET_ID}"
+          rm -rf "$stage"; mkdir -p "$stage"
+
+          exe=$(find build -type f -name 'proxyclient-desktop' -perm -u+x | head -n1)
+          if [ -z "$exe" ]; then
+            echo "::error::the built executable was not found; refusing to produce an empty package"
+            exit 1
+          fi
+          install -m 0755 "$exe" "$stage/proxyclient-desktop"
+
+          # 语言资源：界面没有它们会显示键名而不是文案。
+          cp -r "${GITHUB_WORKSPACE}/locales" "$stage/locales"
+          mkdir -p "$stage/config"
+          cp "${GITHUB_WORKSPACE}/design/client-config.json" "$stage/config/"
+
+          if [ "$CORES_RESOLVED" = "true" ]; then
+            # 用 bash 显式调用而不是依赖可执行位：可执行位在 Windows 上克隆时
+            # 可能丢失，那会变成「文件明明在，却报权限不足」。
+            bash "${GITHUB_WORKSPACE}/${VERSION_DIR}/deploy/packaging/fetch-cores.sh" \
+              --target-id "$TARGET_ID" --out-dir "$stage/cores" \
+              --version-dir "${GITHUB_WORKSPACE}/${VERSION_DIR}"
+          else
+            # 未冻结时不附带核心是刻意的：附上一个占位或未校验的核心，
+            # 用户会以为拿到的是可用产物（设计基线 10.2）。
+            cat > "$stage/CORES-NOT-BUNDLED.txt" <<'EOF'
+This build does not bundle the proxy cores.
+
+The versions in deploy/targets/versions.lock.json are not pinned yet, so no
+core binary could be downloaded and verified. The client will fetch a core at
+first run, or you can place one manually.
+
+See design/adr/ADR-0003 for the core distribution policy.
+EOF
+          fi
+
+          mkdir -p ../../../../../dist
+          tar -czf "${GITHUB_WORKSPACE}/dist/${TARGET_ID}.tar.gz" -C stage "$TARGET_ID"
+          echo "package: dist/${TARGET_ID}.tar.gz"
+
+      - name: Assemble the package (Windows)
+        if: startsWith(matrix.family, 'windows')
+        shell: pwsh
+        env:
+          TARGET_ID: ${{ matrix.id }}
+          VERSION_DIR: ${{ inputs.version_dir }}
+          CORES_RESOLVED: ${{ needs.preflight.outputs.cores_resolved }}
+        run: |
+          $stage = "stage/$env:TARGET_ID"
+          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          $exe = Get-ChildItem -Path "$env:VERSION_DIR/src/apps/desktop/build" -Recurse -File |
+                 Where-Object { $_.Name -like 'proxyclient-desktop*' } |
+                 Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "the built executable was not found; refusing to produce an empty package"
+            exit 1
+          }
+          Copy-Item $exe.FullName (Join-Path $stage $exe.Name)
+
+          Copy-Item -Recurse "$env:GITHUB_WORKSPACE/locales" (Join-Path $stage 'locales')
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'config') | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE/design/client-config.json" (Join-Path $stage 'config')
+
+          if ($env:CORES_RESOLVED -eq 'true') {
+            & "$env:GITHUB_WORKSPACE/$env:VERSION_DIR/deploy/packaging/fetch-cores.ps1" `
+              -TargetId $env:TARGET_ID -OutDir (Join-Path $stage 'cores') `
+              -VersionDir "$env:GITHUB_WORKSPACE/$env:VERSION_DIR"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "core fetch failed"
+              exit 1
+            }
+          } else {
+            # 未冻结时不附带核心是刻意的，理由见 Linux 分支的说明。
+            Set-Content -Path (Join-Path $stage 'CORES-NOT-BUNDLED.txt') -Value @(
+              'This build does not bundle the proxy cores.',
+              '',
+              'The versions in deploy/targets/versions.lock.json are not pinned yet, so no',
+              'core binary could be downloaded and verified. The client will fetch a core at',
+              'first run, or you can place one manually.',
+              '',
+              'See design/adr/ADR-0003 for the core distribution policy.')
+          }
+
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath "dist/$env:TARGET_ID.zip" -Force
+          Write-Host "package: dist/$env:TARGET_ID.zip"
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.id }}
+          # 两个平台产出不同后缀，用通配符统一上传。
+          path: dist/${{ matrix.id }}.*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Record the result
+        shell: bash
+        run: |
+          echo "::notice::built ${{ matrix.id }} on ${{ matrix.desktopBuild.runner }}"
+          echo "This workflow assembles a package; it does not run the app on real hardware."
+          echo "Per the design baseline, unrun runtime checks stay 'not_run' (never 'passed')."
 
   summary:
     needs: [resolve, build]
