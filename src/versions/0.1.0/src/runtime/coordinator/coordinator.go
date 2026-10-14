@@ -562,16 +562,18 @@ func (c *Coordinator) Disconnect(ctx context.Context) error {
 
 	// --- 2) restoring：按恢复日志还原网络 ---
 	if _, err := c.restoreFromJournal(ctx); err != nil {
+		// 记录**带上下文的**错误，而不是内层错误的原文。
+		//
+		// 内层错误是网络后端自己的说法（例如「permission denied while restoring」），
+		// 它没有说明失败的是哪一步。用户看到「权限不足」会去查文件权限，
+		// 而真正的问题在「恢复网络设置」这一步上。
+		wrapped := fmt.Errorf("coordinator: restore network: %w", err)
 		_ = c.setState(gen, StateRecoveryRequired)
 		// 必须在 setState **之后**写：setState 会清空 lastError。
-		//
-		// 恢复失败意味着系统网络可能仍指向一个已经退出的代理，
-		// 用户的表现是「完全没网」。只给一个 recovery_required 状态
-		// 而不给原因，用户无从判断该改什么，界面上也只能显示一句空话。
 		c.mu.Lock()
-		c.lastError = err.Error()
+		c.lastError = wrapped.Error()
 		c.mu.Unlock()
-		return fmt.Errorf("coordinator: restore network: %w", err)
+		return wrapped
 	}
 
 	_ = c.opts.Journal.Clear()
@@ -607,17 +609,17 @@ func (c *Coordinator) Recover(ctx context.Context) (*RestoreResult, error) {
 
 	result, restoreErr := c.restoreFromJournal(ctx)
 	if restoreErr != nil {
+		// 与 Disconnect 同理：记录带上下文的错误，并保留「待恢复项」的语义。
+		wrapped := fmt.Errorf("coordinator: restore leftover network settings: %w", restoreErr)
 		_ = c.setState(gen, StateRecoveryRequired)
-		// 必须把原因写进 lastError，而且要在 setState 之后写——
-		// setState 会清空 lastError。
+		// 必须在 setState **之后**写：setState 会清空 lastError。
 		//
 		// 恢复失败意味着系统网络可能仍指向一个已经退出的代理，
-		// 用户的表现是「完全没网」。只给一个「需要修复」的状态
-		// 而不给原因，用户无从判断该改什么。
+		// 用户的表现是「完全没网」。只给状态不给原因，用户无从判断该改什么。
 		c.mu.Lock()
-		c.lastError = restoreErr.Error()
+		c.lastError = wrapped.Error()
 		c.mu.Unlock()
-		return result, fmt.Errorf("coordinator: restore leftover network settings: %w", restoreErr)
+		return result, wrapped
 	}
 	if err := c.opts.Journal.Clear(); err != nil {
 		return result, err
