@@ -355,15 +355,26 @@ func xrayStreamSettings(n *domain.Node, report *Report) map[string]any {
 			if n.TLS.RealityShortID != "" {
 				reality["shortId"] = n.TLS.RealityShortID
 			}
-			// REALITY 下 serverName 放在 realitySettings 内。
+			// REALITY 下 serverName 与 fingerprint 都属于 realitySettings，
+			// 不是 tlsSettings：
+			//
+			//   realitySettings 与 tlsSettings 是互斥的两种 TLS 呈现方式，
+			//   REALITY 连接不上时会去找 tlsSettings，找不到就报
+			//   「TLS 配置缺失」——一个和真实原因（字段放错了地方）无关的错误。
 			if v, ok := tls["serverName"]; ok {
 				reality["serverName"] = v
+				delete(tls, "serverName")
+			}
+			if v, ok := tls["fingerprint"]; ok {
+				reality["fingerprint"] = v
+				delete(tls, "fingerprint")
 			}
 			ss["realitySettings"] = reality
-			// realitySettings 内已含 serverName，避免顶层重复。
-			delete(tls, "serverName")
 		}
 
+		// 只有还剩真正的 TLS 字段时才发出 tlsSettings。
+		// REALITY 节点把字段都移走后这里自然为空，于是不会发出——
+		// 这正是想要的：一个只有 REALITY 的节点不该带一份空的 tlsSettings。
 		if len(tls) > 0 {
 			ss["tlsSettings"] = tls
 		}

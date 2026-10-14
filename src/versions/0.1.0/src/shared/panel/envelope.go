@@ -61,10 +61,12 @@ const (
 	// KindSubscriptionUnavailable 订阅不可用（套餐到期、流量用尽、被封禁）。
 	// 对应订阅接口返回 403 且 body 为空的情形。
 	KindSubscriptionUnavailable ErrorKind = "subscription_unavailable"
-	// KindInvalidSession 传入的会话串格式不对（缺少 "Bearer " 前缀）。
+	// KindInvalidSession 服务端明确回话说这个会话无效。
 	//
-	// 单独分类的理由：这与「会话过期」完全不同——前者是配置被手工改坏
-	// 或调用方拼错了，用户看到笼统的「登录已失效」会一直重新登录却无效。
+	// 与 KindUnauthorized 的区别在**是谁发现的**：
+	// KindInvalidSession 是服务端判定的（例如面板返回了一个表示会话无效的业务码），
+	// KindUnauthorized 是本端判定或 HTTP 401 —— 包括「本地存的会话串缺少
+	// "Bearer " 前缀」这种情形：调用方拼错了或配置被改坏，重新登录即可修好。
 	KindInvalidSession ErrorKind = "invalid_session"
 	// KindUnknown 未归类的失败。
 	KindUnknown ErrorKind = "unknown"

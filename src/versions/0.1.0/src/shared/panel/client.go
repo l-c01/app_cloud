@@ -180,9 +180,12 @@ func (c *Client) do(ctx context.Context, op, method, p string, body any, authHea
 		if !hasBearerPrefix(authHeader) {
 			// 明确报错而不是静默拼一个双前缀：这通常意味着配置被手工改坏。
 			//
-			// 用 KindInvalidSession 而不是 KindUnauthorized：
-			// 否则用户会反复重新登录却始终无效。
-			return nil, newError(op, KindInvalidSession, 0, "").
+			// 分类用 KindUnauthorized 而不是 KindInvalidSession：
+			// 这两者引导用户做的事不同——KindUnauthorized 让界面提示
+			// 「请重新登录」，而重新登录确实会重新写入一份格式正确的凭据，
+			// 问题就此消失。KindInvalidSession 的文案指向「会话已失效」，
+			// 会让人以为是服务端的问题，于是反复重试而不是重新登录。
+			return nil, newError(op, KindUnauthorized, 0, "").
 				withDetail("session token must already include the 'Bearer ' prefix")
 		}
 		req.Header.Set("Authorization", authHeader)

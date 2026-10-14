@@ -227,7 +227,10 @@ const (
 	redactKeep = 4
 	// redactMinLen 是启用"中间掩码"所需的最短长度；
 	// 比这更短的值整体替换，避免因保留首尾而暴露大部分内容。
-	redactMinLen = 12
+	//
+	// 阈值取 16 而不是 12：12 个字符的值会留下 8 个可见字符，
+	// 等于露出三分之二，对一个凭据来说已经不算脱敏了。
+	redactMinLen = 16
 	// redactMask 是掩码字符。
 	redactMask = "*"
 )
