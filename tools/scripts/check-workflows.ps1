@@ -91,13 +91,30 @@ foreach ($file in $files) {
         }
     }
 
-    # 3) indentation outside block scalars
+    # 3) indentation outside block scalars, plus block scalar termination
     #
     # A block scalar starts at a line whose value is '|' or '>' (optionally with
     # chomping/indent indicators) and continues while lines are more indented
     # than the key that introduced it.
+    #
+    # The termination rule is the valuable part. When a block scalar ends, the
+    # next non-empty line must be a legitimate YAML key. If it is not, the block
+    # content has "escaped" below the block -- which is always a syntax error,
+    # and the one that actually broke this repository:
+    #
+    #     run: |
+    #       cat > file <<'EOF'
+    #     This line starts at column 0, which ends the block scalar,
+    #     EOF
+    #
+    # A heredoc's body must start at column 0, and column 0 ends the block
+    # scalar, so the two are fundamentally incompatible inside `run: |`.
+    # GitHub reports this as "You have an error in your yaml syntax on line N".
+    $keyLike = '^\s*(?:-\s+)?(?:[\w.-]+|''[^'']*''|"[^"]*")\s*:(\s|$)'
+
     $inBlock = $false
     $blockIndent = 0
+    $blockStart = 0
     $lineNo = 0
     foreach ($line in $lines) {
         $lineNo++
@@ -107,12 +124,27 @@ foreach ($file in $files) {
 
         if ($inBlock) {
             if ($indent -gt $blockIndent) { continue }
+
+            # A comment line at a lower indentation does NOT terminate the block
+            # scalar: YAML comments may appear at any token boundary. Only a
+            # non-comment line ends the content.
+            if ($line -match '^\s*#') { continue }
+
+            # The block ends here. That is legal only if this line is a key.
+            if ($line -notmatch $keyLike) {
+                $problems++
+                Write-Host ("BLOCK SCALAR ESCAPED  {0}:{1}" -f $rel, $lineNo)
+                Write-Host ("                      the block scalar opened at line {0} (indent {1}) ends here," -f $blockStart, $blockIndent)
+                Write-Host ("                      but this line is not a YAML key: {0}" -f $line.Trim())
+                Write-Host '                      a heredoc body at column 0 does this; use printf or an indented form instead'
+            }
             $inBlock = $false
         }
 
         if ($line -match ':\s*[|>][-+]?\d*\s*$') {
             $inBlock = $true
             $blockIndent = $indent
+            $blockStart = $lineNo
             continue
         }
 

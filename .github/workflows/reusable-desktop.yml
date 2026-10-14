@@ -305,15 +305,19 @@ jobs:
           else
             # 未冻结时不附带核心是刻意的：附上一个占位或未校验的核心，
             # 用户会以为拿到的是可用产物（设计基线 10.2）。
-            cat > "$stage/CORES-NOT-BUNDLED.txt" <<'EOF'
-This build does not bundle the proxy cores.
-
-The versions in deploy/targets/versions.lock.json are not pinned yet, so no
-core binary could be downloaded and verified. The client will fetch a core at
-first run, or you can place one manually.
-
-See design/adr/ADR-0003 for the core distribution policy.
-EOF
+            #
+            # 这里不用 heredoc：heredoc 的内容必须顶格写，
+            # 而顶格的行会终止外层的 YAML 块标量，导致整个工作流文件解析失败。
+            # printf 的每一行都能正常缩进。
+            printf '%s\n' \
+              'This build does not bundle the proxy cores.' \
+              '' \
+              'The versions in deploy/targets/versions.lock.json are not pinned yet, so no' \
+              'core binary could be downloaded and verified. The client will fetch a core at' \
+              'first run, or you can place one manually.' \
+              '' \
+              'See design/adr/ADR-0003 for the core distribution policy.' \
+              > "$stage/CORES-NOT-BUNDLED.txt"
           fi
 
           mkdir -p ../../../../../dist
