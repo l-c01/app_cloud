@@ -59,6 +59,9 @@ jobs:
 
   android:
     uses: ./.github/workflows/reusable-android.yml
+    # 传递仓库 Secrets，供 Android release 签名使用；
+    # 缺少时由 preflight 明确失败，绝不临时生成随机密钥。
+    secrets: inherit
     with:
       version_dir: ${{ inputs.version_dir }}
       preset: all

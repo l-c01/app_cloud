@@ -1,0 +1,169 @@
+# =============================================================================
+# 手动入口：多目标交叉编译验证 / Manual entry: cross-compile verification
+#
+# 存在理由：
+#   构建安装包的工作流（build-*.yml）需要桌面 GUI 与 Android 源码，
+#   而它们尚未实现，因此那些入口现在必然在 preflight 失败。
+#   本工作流验证的是**已经存在的东西**：共享 Go module 能否为
+#   全部目标平台与架构编译通过。
+#
+#   这是现在唯一能给出真实通过/失败结论的手动构建入口。
+#
+# 它不产出可交付的安装包，只产出编译结论与日志。
+# =============================================================================
+
+name: Verify target architectures
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_dir:
+        description: '版本目录'
+        required: true
+        default: 'src/versions/0.1.0'
+        type: string
+      tests:
+        description: '是否同时运行单元测试（仅本机架构）'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+      count: ${{ steps.build.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive the cross-compile matrix from the target manifest
+        id: build
+        env:
+          VERSION_DIR: ${{ inputs.version_dir }}
+        run: |
+          set -euo pipefail
+          manifest="${VERSION_DIR}/deploy/targets/targets.json"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::target manifest not found: $manifest"
+            exit 1
+          fi
+
+          # 每个目标映射到一组 Go 环境变量：
+          #   windows/linux -> GOOS=windows|linux
+          #   android       -> GOOS=android（纯 Go 代码可用 CGO_ENABLED=0 交叉编译）
+          # 去重：多个目标可能映射到同一组环境变量（例如 docker-386 与 linux-386）。
+          matrix=$(jq -c '
+            [ .targets[]
+              | {
+                  id: .id,
+                  goos: (
+                    if .family == "windows" then "windows"
+                    elif .family == "android" then "android"
+                    else "linux" end
+                  ),
+                  goarch: .goArch,
+                  goarm: (.goarm // ""),
+                  abi: (.abi // ""),
+                  required: .required
+                }
+              | select(.goarch != null)
+            ]
+            | unique_by(.goos + "/" + .goarch + "/" + (.goarm|tostring))
+            | sort_by(.goos, .goarch, .goarm)
+          ' "$manifest")
+
+          count=$(jq 'length' <<< "$matrix")
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no cross-compile targets could be derived from $manifest"
+            exit 1
+          fi
+
+          echo "Derived $count cross-compile target(s):"
+          jq -r '.[] | "  \(.goos)/\(.goarch)\(if .goarm != "" then "v" + .goarm else "" end)  (\(.id))"' <<< "$matrix"
+
+          echo "matrix={\"include\":$matrix}" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+  cross-compile:
+    needs: resolve
+    strategy:
+      # 收集全部失败，最后汇总；不允许中途静默停止。
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    name: compile-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm && format('v{0}', matrix.goarm) || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      - name: Cross-compile all packages
+        working-directory: ${{ inputs.version_dir }}/src
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          # 共享模块是纯 Go 代码（不含 cgo），因此可以完全静态交叉编译。
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          echo "GOOS=$GOOS GOARCH=$GOARCH GOARM=${GOARM:-<unset>} CGO_ENABLED=$CGO_ENABLED"
+          go build ./...
+          echo "::notice::compiled successfully for $GOOS/$GOARCH${GOARM:+/v$GOARM} (target ${{ matrix.id }})"
+
+  tests:
+    # 单元测试只在原生架构上跑：交叉编译出来的二进制无法在本机执行。
+    if: ${{ inputs.tests }}
+    needs: resolve
+    runs-on: ubuntu-latest
+    name: unit tests (native)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      - name: Run tests
+        working-directory: ${{ inputs.version_dir }}/src
+        run: go test ./... -count=1
+
+  summary:
+    needs: [resolve, cross-compile, tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate the result
+        run: |
+          set -euo pipefail
+          echo "targets         : ${{ needs.resolve.outputs.count }}"
+          echo "cross-compile   : ${{ needs.cross-compile.result }}"
+          echo "unit tests      : ${{ needs.tests.result }}"
+
+          if [ "${{ needs.cross-compile.result }}" != "success" ]; then
+            echo "::error::cross-compilation failed for at least one target"
+            exit 1
+          fi
+          # tests 可能因输入选项被跳过；跳过不算失败，失败才算失败。
+          if [ "${{ needs.tests.result }}" = "failure" ]; then
+            echo "::error::unit tests failed"
+            exit 1
+          fi
+
+          echo ""
+          echo "结论：共享 Go module 已为全部目标架构编译通过。"
+          echo "注意：本工作流不产出安装包；桌面 GUI 与 Android 源码尚未实现。"
+          echo "可交付安装包的构建入口见 build-all.yml 等，它们在实现完成前会明确失败。"

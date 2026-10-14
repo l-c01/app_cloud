@@ -217,5 +217,18 @@
 
 ## 依赖
 
-当前 `shared/panel` **只使用标准库**，无第三方依赖，因此没有 `go.sum`。
+当前所有包**只使用标准库**，无第三方依赖，因此没有 `go.sum`。
 引入任何后续依赖时必须同时更新 `deploy/targets/versions.lock.json`。
+
+## module 路径与 Go 版本
+
+`go.mod` 刻意保持最小内容（只有 `module` 与 `go` 两行）：
+
+- **module 路径**：正式仓库地址尚未确定，暂用占位名 `proxyclient`。
+  待 GitHub 仓库确定后应改为真实路径（例如 `github.com/<owner>/<repo>/src/versions/0.1.0/src`），
+  并同步更新所有 import。**改名前不应发布正式构建。**
+- **Go 版本**：核心（Xray / sing-box）按 ADR-0003 以官方预构建二进制分发，
+  不参与本 module 编译，因此这里不受核心自身 Go 版本要求约束。
+  实际使用的版本以 `deploy/targets/versions.lock.json` 的冻结值为准，由 CI 校验。
+- 之所以不在 `go.mod` 里写注释：`go mod tidy` 会重写该文件，
+  注释可能被丢弃，从而让 CI 的 tidy 检查产生无意义的 diff。说明放在这里。

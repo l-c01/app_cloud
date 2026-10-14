@@ -1,7 +1,11 @@
 {
   "schemaVersion": "1.0.0",
+  "project": {
+    "repositoryUrl": "",
+    "license": ""
+  },
   "branding": {
-    "applicationName": "",
+    "applicationName": "default",
     "displayNames": {
       "zh-CN": "",
       "en": ""

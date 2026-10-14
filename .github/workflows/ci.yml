@@ -5,8 +5,15 @@
 #   - 本工作流**只做静态校验与单元测试**，不编译安装包、不发布产物。
 #   - 生产构建一律走手动触发的工作流（workflow_dispatch），见 build-*.yml。
 #
-# 为什么需要它：开发机上没有 Go 工具链（见 design/plan/environment-constraints.md），
-# 因此 gofmt / go vet / go test 只能在 CI 中执行，否则源码质量无从验证。
+# 为什么需要它：开发机上没有 Go / CMake / JDK（见
+# design/plan/environment-constraints.md），因此 gofmt / go vet / go test
+# 只能在 CI 中执行，否则源码质量无从验证。
+#
+# 作业刻意拆成 4 个并行作业，而不是串在一起：
+#   格式问题是最容易修的一类，如果它让整个流水线在第一步就停下，
+#   真正的编译错误会被掩盖。并行之后一次运行就能看到全部问题。
+#
+# 触发方式：推送到任意分支、发起 PR，或在 Actions 页面手动 Run workflow。
 # =============================================================================
 
 name: CI checks
@@ -17,12 +24,14 @@ on:
     paths:
       - 'src/versions/**'
       - 'design/**'
+      - 'locales/**'
       - 'tools/**'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - 'src/versions/**'
       - 'design/**'
+      - 'locales/**'
       - 'tools/**'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
@@ -36,13 +45,69 @@ permissions:
   contents: read
 
 env:
-  # 当前在开发的版本目录。新增版本时改这里，或在手动触发时覆盖。
+  # 当前在开发的版本目录。新增版本时改这里。
   VERSION_DIR: src/versions/0.1.0
   GO_MODULE_DIR: src/versions/0.1.0/src
 
 jobs:
-  go-checks:
-    name: Go format / vet / test
+  # ---------------------------------------------------------------------------
+  # 1) 格式检查：独立作业，失败信息可一键应用
+  # ---------------------------------------------------------------------------
+  format:
+    name: Go formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      - name: Check formatting (gofmt)
+        id: gofmt
+        continue-on-error: true
+        working-directory: ${{ env.GO_MODULE_DIR }}
+        run: |
+          set -euo pipefail
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::the following files are not gofmt-formatted:"
+            echo "$unformatted"
+            echo ""
+            echo "----- diff (first 300 lines) -----"
+            gofmt -d . | head -300 || true
+            # 同时产出一份可应用的补丁，供下载后一次性修复。
+            gofmt -d . > "$RUNNER_TEMP/gofmt.patch" || true
+            exit 1
+          fi
+          echo "gofmt: OK"
+
+      - name: Upload the formatting patch
+        if: steps.gofmt.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gofmt-fixes
+          path: ${{ runner.temp }}/gofmt.patch
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Fail the job if formatting was wrong
+        if: steps.gofmt.outcome == 'failure'
+        run: |
+          echo "::error::Formatting check failed."
+          echo "Fix it either way:"
+          echo "  a) download the 'gofmt-fixes' artifact and run: git apply gofmt.patch"
+          echo "  b) run 'gofmt -w .' in ${{ env.GO_MODULE_DIR }} locally and commit"
+          exit 1
+
+  # ---------------------------------------------------------------------------
+  # 2) 编译与测试（Linux）
+  # ---------------------------------------------------------------------------
+  go-checks-linux:
+    name: Go build / vet / test (linux)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -57,10 +122,9 @@ jobs:
             echo "::error::version lock file not found: $lock"
             exit 1
           fi
-          # 未冻结时（值为 null）使用保守的默认值，并在日志中明确提示。
           pinned=$(jq -r '.toolchains.go // empty' "$lock")
           if [ -z "$pinned" ] || [ "$pinned" = "null" ]; then
-            echo "::warning::toolchains.go is not pinned in $lock; falling back to 1.24"
+            echo "::warning::toolchains.go is not pinned in the lock file; falling back to 1.24"
             pinned="1.24"
           fi
           echo "version=$pinned" >> "$GITHUB_OUTPUT"
@@ -72,29 +136,18 @@ jobs:
           go-version: ${{ steps.goversion.outputs.version }}
           cache-dependency-path: ${{ env.GO_MODULE_DIR }}/go.sum
 
-      - name: Verify formatting (gofmt)
+      - name: Build all packages
         working-directory: ${{ env.GO_MODULE_DIR }}
-        run: |
-          set -euo pipefail
-          # gofmt -l 列出格式不合规的文件；有输出即失败。
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "::error::the following files are not gofmt-formatted:"
-            echo "$unformatted"
-            echo "Run 'gofmt -w .' locally (or accept the patch from this job) and commit the result."
-            exit 1
-          fi
-          echo "gofmt: OK"
+        run: go build ./...
 
       - name: Verify module metadata (go mod tidy)
         working-directory: ${{ env.GO_MODULE_DIR }}
         run: |
           set -euo pipefail
           cp go.mod go.mod.orig
-          if [ -f go.sum ]; then cp go.sum go.sum.orig; fi
           go mod tidy
           if ! diff -q go.mod go.mod.orig >/dev/null; then
-            echo "::error::go.mod is not tidy; run 'go mod tidy' and commit"
+            echo "::error::go.mod is not tidy; run 'go mod tidy' and commit the result"
             diff go.mod.orig go.mod || true
             exit 1
           fi
@@ -112,62 +165,14 @@ jobs:
         working-directory: ${{ env.GO_MODULE_DIR }}
         run: go test ./... -race -count=1
 
-  json-checks:
-    name: Design JSON syntax and config contract
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Validate JSON syntax with jq
-        run: |
-          set -euo pipefail
-          failed=0
-          # 只在受版本管理的设计目录内检查；src/references 为第三方快照，不入版本控制。
-          while IFS= read -r -d '' f; do
-            if jq empty "$f" >/dev/null 2>&1; then
-              echo "  OK    $f"
-            else
-              echo "::error file=$f::invalid JSON"
-              failed=1
-            fi
-          done < <(find design -name '*.json' -type f -print0)
-          exit $failed
-
-      - name: Validate client-config.json against its schema
-        shell: pwsh
-        run: |
-          # 复用仓库内校验器（本机与 CI 使用同一套规则，避免两套真相）。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          ./tools/scripts/validate-client-config.ps1
-
-      - name: Validate JSON syntax for locale catalogs
-        run: |
-          set -euo pipefail
-          failed=0
-          while IFS= read -r -d '' f; do
-            if jq empty "$f" >/dev/null 2>&1; then
-              echo "  OK    $f"
-            else
-              echo "::error file=$f::invalid JSON"
-              failed=1
-            fi
-          done < <(find locales -name '*.json' -type f -print0)
-          exit $failed
-
-      - name: Cross-check i18n keys against locale catalogs
-        shell: pwsh
-        run: |
-          # 校验：代码引用的文案键存在于所有语言表，且占位符个数一致。
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          ./tools/scripts/check-i18n-keys.ps1
-
-  # Windows 作业存在的理由：
-  #   带 //go:build windows 的文件在 Linux 上根本不会被编译，
-  #   这类代码若只靠 Linux 作业验证，等于长期处于「未编译」状态。
-  #   此作业确保 Windows 专属实现至少在编译与单元测试层面被覆盖。
+  # ---------------------------------------------------------------------------
+  # 3) 编译与测试（Windows）
+  #
+  # 存在理由：带 //go:build windows 的文件在 Linux 上根本不会被编译，
+  # 只靠 Linux 作业验证，这类代码等于长期处于「未编译」状态。
+  # ---------------------------------------------------------------------------
   go-checks-windows:
-    name: Go checks on Windows
+    name: Go build / test (windows)
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -204,3 +209,55 @@ jobs:
       - name: Unit and contract tests
         working-directory: ${{ env.GO_MODULE_DIR }}
         run: go test ./... -count=1
+
+  # ---------------------------------------------------------------------------
+  # 4) 设计契约与多语言资源
+  # ---------------------------------------------------------------------------
+  design-checks:
+    name: Design JSON, config schema and i18n
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate JSON syntax (design)
+        run: |
+          set -euo pipefail
+          failed=0
+          # src/references 是第三方快照，不入版本控制，因此不在此检查。
+          while IFS= read -r -d '' f; do
+            if jq empty "$f" >/dev/null 2>&1; then
+              echo "  OK    $f"
+            else
+              echo "::error file=$f::invalid JSON"
+              failed=1
+            fi
+          done < <(find design -name '*.json' -type f -print0)
+          exit $failed
+
+      - name: Validate JSON syntax (locales)
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r -d '' f; do
+            if jq empty "$f" >/dev/null 2>&1; then
+              echo "  OK    $f"
+            else
+              echo "::error file=$f::invalid JSON"
+              failed=1
+            fi
+          done < <(find locales -name '*.json' -type f -print0)
+          exit $failed
+
+      - name: Validate client-config.json against its schema
+        shell: pwsh
+        run: |
+          # 复用仓库内校验器：本机与 CI 使用同一套规则，避免两套真相。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/validate-client-config.ps1
+
+      - name: Cross-check i18n keys against locale catalogs
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/check-i18n-keys.ps1

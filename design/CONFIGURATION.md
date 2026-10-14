@@ -8,8 +8,10 @@ Edit client-config.json for public identity, panel addresses and client defaults
 
 | 字段 / Field | 含义 / Meaning | 何时填写 / When |
 |---|---|---|
-| branding.applicationName | 默认应用名 / Default application name | 命名后；空值采用内部工作名 ProxyClient |
-| branding.displayNames.zh-CN / en | 两种语言显示名称 / Localized names | 可选；空值使用 applicationName 或工作名 |
+| project.repositoryUrl | 源码仓库地址 / Source repository URL | 建好 GitHub 仓库后 |
+| project.license | 项目许可证标识 / Project license identifier | 选定后填写；**留空前不得引入 GPL 代码**（见 ADR-0002） |
+| branding.applicationName | 默认应用名 / Default application name | 命名后；当前模板值为 `default` |
+| branding.displayNames.zh-CN / en | 两种语言显示名称 / Localized names | 可选；空值使用 applicationName |
 | branding.publisher | 发布者 / Publisher | 正式打包前 |
 | branding.applicationId | 桌面稳定身份 / Stable desktop identity | 正式打包前，反向域名格式 |
 | branding.androidPackageId | Android applicationId/package identity | 正式打包前，反向域名格式；需经 Android 构建校验 |
@@ -24,6 +26,7 @@ All service URLs are empty by default. An empty panel URL disables panel request
 
 | 分组 / Group | 内容 / Contents |
 |---|---|
+| project | 项目身份：源码仓库地址、许可证标识 |
 | branding | 软件名、语言显示名、发布者、应用身份、品牌/帮助/隐私/条款链接、本地图标资源路径 |
 | panel | API/网页基础地址、适配档案、前缀、超时、HTTP 测试开关、公共请求头和已核实的接口覆盖 |
 | panelLinks | 注册、找回密码、购买、续费、文档网页；首轮可使用这些网页入口 |

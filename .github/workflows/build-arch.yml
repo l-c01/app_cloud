@@ -136,6 +136,8 @@ jobs:
     needs: map_android_arch
     if: ${{ inputs.include_android }}
     uses: ./.github/workflows/reusable-android.yml
+    # 传递仓库 Secrets，供 release 签名使用；缺失时由 preflight 明确失败。
+    secrets: inherit
     with:
       version_dir: ${{ inputs.version_dir }}
       preset: android

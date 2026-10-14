@@ -50,6 +50,8 @@ jobs:
   android:
     # common 预设含 Android arm64-v8a 与 armeabi-v7a。
     uses: ./.github/workflows/reusable-android.yml
+    # 传递仓库 Secrets，供 release 签名使用；缺失时由 preflight 明确失败。
+    secrets: inherit
     with:
       version_dir: ${{ inputs.version_dir }}
       preset: common

@@ -17,6 +17,22 @@
       "const": "1.0.0",
       "description": "配置结构版本。加载器必须拒绝不认识的版本，而不是尽力猜测。"
     },
+    "project": {
+      "type": "object",
+      "description": "项目身份信息。仓库地址与许可证由用户自行填写；留空表示尚未确定。",
+      "properties": {
+        "repositoryUrl": {
+          "type": "string",
+          "description": "源码仓库地址。留空表示尚未确定；Go module 路径的正式取值应与此保持一致。"
+        },
+        "license": {
+          "type": "string",
+          "description": "项目许可证标识（如 MIT、Apache-2.0、GPL-3.0-only）。留空表示尚未选择；确定前不得引入 GPL 代码，见 ADR-0002。"
+        }
+      },
+      "required": ["repositoryUrl", "license"],
+      "additionalProperties": false
+    },
     "branding": {
       "type": "object",
       "description": "软件身份与品牌信息，打包阶段读取。正式发布后 applicationId 与 androidPackageId 不得随意变更。",
@@ -216,6 +232,6 @@
       "additionalProperties": false
     }
   },
-  "required": ["schemaVersion", "branding", "panel", "panelLinks", "clientDefaults", "testSettings"],
+  "required": ["schemaVersion", "project", "branding", "panel", "panelLinks", "clientDefaults", "testSettings"],
   "additionalProperties": false
 }
