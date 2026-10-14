@@ -91,10 +91,20 @@ function Get-BlobBytes {
 
     $tmp = Join-Path $repoRoot 'output/_push-api-blob.bin'
     try {
-        $proc = Start-Process -FilePath $git `
-            -ArgumentList @('-C', $repoRoot, 'cat-file', 'blob', $blob) `
-            -RedirectStandardOutput $tmp -NoNewWindow -Wait -PassThru
-        if ($proc.ExitCode -ne 0) { throw "git cat-file failed for $Path at $Rev" }
+        # Byte-exact read through cmd's redirection.
+        #
+        # Start-Process was used first, but it copies the environment into a
+        # case-insensitive dictionary and throws when the parent process holds
+        # both NO_PROXY and no_proxy:
+        #   Item has already been added. Key in dictionary: 'NO_PROXY'
+        # Whether the parent sets both spellings is outside this script's
+        # control, so the dependency is removed rather than worked around.
+        #
+        # cmd.exe's ">" redirection passes the byte stream through untouched;
+        # PowerShell's ">" would decode and re-encode it.
+        $cmdLine = '"{0}" -C "{1}" cat-file blob {2} > "{3}"' -f $git, $repoRoot, $blob, $tmp
+        & cmd.exe /c $cmdLine
+        if ($LASTEXITCODE -ne 0) { throw "git cat-file failed for $Path at $Rev" }
         return [System.IO.File]::ReadAllBytes($tmp)
     } finally {
         Remove-Item $tmp -Force -ErrorAction SilentlyContinue
