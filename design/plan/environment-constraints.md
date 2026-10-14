@@ -62,6 +62,26 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 & .\tools\scripts\validate-json.ps1 -Path design
 ```
 
+### 5.1 检索参考源码的陷阱（重要）
+
+`src/references/**` 被 `.gitignore` 排除。**内容检索工具（ripgrep 类）默认遵守 `.gitignore`，会静默跳过这些目录并返回「无匹配」**——这容易被误读为「源码里没有该内容」。
+
+检索参考源码时必须改用 PowerShell：
+
+```powershell
+Select-String -Path "src\references\Xboard-master\app\Protocols\*.php" -Pattern '\$flags'
+```
+
+判断「确实没有」之前，先用 `glob` 确认文件存在，再换检索方式复核。
+
+### 5.2 文本文件编码约定
+
+| 文件类型 | 约定 | 原因 |
+|---|---|---|
+| `.ps1` 脚本 | **只用 ASCII** | Windows PowerShell 读取无 BOM 的 `.ps1` 时按系统 ANSI 代码页解码，中文会导致解析失败 |
+| PowerShell 读取 JSON | 必须显式 `-Encoding UTF8` | 否则按 ANSI 解码 UTF-8 内容，中文变乱码并可能解析失败 |
+| `.go` / `.md` / `.json` | UTF-8，可直接写中文 | Go 与 JSON 规范本身要求 UTF-8 |
+
 ## 6. 待用户在 CI 侧准备的事项
 
 | 项 | 何时需要 |

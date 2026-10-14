@@ -4,18 +4,16 @@
 
 ## 目录
 
-| 路径 | 职责 |
-|---|---|
-| `shared/panel/` | Xboard 面板适配：登录、取订阅链接、账户信息、面板探测 |
-| `shared/domain/` | 标准领域模型（Profile / Node / Rule / DNS），待实现 |
-| `shared/subscription/` | 订阅拉取与格式解析，待实现 |
-| `shared/compiler/` | Xray / sing-box 配置生成与能力校验，待实现 |
-| `shared/secrets/` | 系统密钥存储抽象与脱敏，待实现 |
-| `shared/i18n/` | 多语言，待实现 |
-| `runtime/` | 连接协调器、核心适配器、核心自动更新、IPC，待实现 |
-| `platform/` | 平台特权操作与桥接，待实现 |
-
-当前已实现：**`shared/panel`**。
+| 路径 | 职责 | 状态 |
+|---|---|---|
+| `shared/panel/` | Xboard 面板适配：登录、取订阅链接、账户信息、面板探测 | ✅ 已实现 |
+| `shared/domain/` | 规范领域模型（节点/传输/TLS/Reality） | ✅ 已实现 |
+| `shared/subscription/` | 订阅拉取、格式探测、节点 URI 解析 | ✅ 已实现（URI 列表；YAML/JSON 待补） |
+| `shared/compiler/` | Xray / sing-box 配置生成与能力校验 | 待实现 |
+| `shared/secrets/` | 系统密钥存储抽象与脱敏 | 待实现 |
+| `shared/i18n/` | 多语言 | 待实现 |
+| `runtime/` | 连接协调器、核心适配器、核心自动更新、IPC | 待实现 |
+| `platform/` | 平台特权操作与桥接 | 待实现 |
 
 ## 已实现：shared/panel
 
