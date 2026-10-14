@@ -131,7 +131,13 @@ class ProxyVpnService : VpnService() {
 
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
-            .setSmallIcon(android.R.drawable.stat_sys_vpn_ic)
+            // 用应用自己的图标，而不是 android.R.drawable.stat_sys_vpn_ic。
+            //
+            // 后者是系统隐藏资源：它不在公开 SDK 里，编译期直接报
+            // "Unresolved reference"。而且同一行的失败会让后续链式调用的
+            // 类型推断失效，连带下一行的 setContentIntent 也报未解析——
+            // 一个错误看起来像两个，容易修错地方。
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(contentIntent)
             .setOngoing(true)
             .build()
