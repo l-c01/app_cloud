@@ -1,25 +1,30 @@
 ﻿Verification run
   repository : D:\workai\xbaord
-  started    : 2026-10-15 05:03:42 +08:00
+  started    : 2026-10-15 05:06:27 +08:00
   powershell : 5.1.26100.9444 (Desktop)
 
 ================================================================
 Tracked source files
   script: tools/scripts/check-tracked-files.ps1
 ================================================================
+UNTRACKED - authored files never added to git:
+  src/versions/0.1.0/src/shared/compiler/singbox_options_test.go
+
+  These exist on this machine but would be missing from a clone.
+
 roots     : src/versions, design, docs, locales, tools, .github/workflows
 ignored   : 0
-untracked : 0
+untracked : 1
 
-RESULT: PASS - every authored file is tracked by git.
-exit code: 0
+RESULT: FAIL - 1 problem(s) found.
+exit code: 1
 
 ================================================================
 Go unused imports
   script: tools/scripts/check-go-imports.ps1
 ================================================================
 
-Checked 37 Go file(s) with imports out of 39 file(s).
+Checked 38 Go file(s) with imports out of 40 file(s).
 Checked both directions: imports that are never used, and packages used but never imported.
 RESULT: PASS - every import is used, and no guarded stdlib package is used without an import.
 exit code: 0
@@ -30,7 +35,7 @@ Go cross-package symbols
 ================================================================
 Indexed 14 internal package(s).
 
-Checked 312 internal reference(s).
+Checked 333 internal reference(s).
 RESULT: PASS - all internal package references resolve.
 exit code: 0
 
@@ -143,7 +148,7 @@ exit code: 0
 ================================================================
 SUMMARY
 ================================================================
-  Tracked source files             PASS
+  Tracked source files             FAIL (1)
   Go unused imports                PASS
   Go cross-package symbols         PASS
   C++ structural consistency       PASS
@@ -154,7 +159,7 @@ SUMMARY
   Design JSON syntax               PASS
   Config vs schema                 PASS
 
-  passed: 10 / 10
+  passed: 9 / 10
 
   NOTE: none of this compiles anything. The C++ and Go sources have
         never been through a compiler on this machine. Compilation and
