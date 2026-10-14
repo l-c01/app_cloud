@@ -320,7 +320,17 @@ jobs:
               > "$stage/CORES-NOT-BUNDLED.txt"
           fi
 
-          mkdir -p ../../../../../dist
+          # 用绝对路径，不要用 ../../.. 去数层数。
+          #
+          # 这里原本写的是 `mkdir -p ../../../../../dist`，
+          # 而这个步骤设了 working-directory（apps/desktop），
+          # 于是它与下一行 tar 要写的 "${GITHUB_WORKSPACE}/dist" 是**两个不同的目录**：
+          # mkdir 建出的是 <workspace>/src/dist，tar 却要写 <workspace>/dist，
+          # 报错是 `Cannot open: No such file or directory`——
+          # 看上去像权限或磁盘问题，真正的原因是路径指到了别处。
+          #
+          # 同一个步骤里混用相对路径与绝对路径，是这类错误的根源。
+          mkdir -p "${GITHUB_WORKSPACE}/dist"
           tar -czf "${GITHUB_WORKSPACE}/dist/${TARGET_ID}.tar.gz" -C stage "$TARGET_ID"
           echo "package: dist/${TARGET_ID}.tar.gz"
 
@@ -379,8 +389,12 @@ jobs:
               'See design/adr/ADR-0003 for the core distribution policy.')
           }
 
-          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath "dist/$env:TARGET_ID.zip" -Force
+          # 与 Linux 分支同理：统一用绝对路径，
+          # 不依赖本步骤当前的工作目录（这个步骤恰好没有设 working-directory，
+          # 于是相对路径碰巧正确——但那是巧合，不是设计）。
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath (Join-Path $dist "$env:TARGET_ID.zip") -Force
           Write-Host "package: dist/$env:TARGET_ID.zip"
 
       - name: Upload the package
