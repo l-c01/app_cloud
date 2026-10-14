@@ -309,7 +309,43 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   # ---------------------------------------------------------------------------
-  # 5) 设计契约与多语言资源
+  # 5) 桌面端 GUI 构建
+  #
+  # 只做 Linux：这是唯一能在 ubuntu runner 上装齐 wxWidgets 且不引入
+  # 第三方包管理器的平台。Windows 与 macOS 的 GUI 构建放在打包工作流里。
+  # 这个作业的价值是：**界面代码第一次真的被编译过**。
+  # ---------------------------------------------------------------------------
+  desktop-gui:
+    name: Desktop GUI build (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools and wxWidgets
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+          # 包名随发行版变化：24.04 是 libwxgtk3.2-dev，22.04 是
+          # libwxgtk3.0-gtk3-dev。两个都试，避免整个作业因为包名猜错而失败。
+          sudo apt-get install -y --no-install-recommends libwxgtk3.2-dev \
+            || sudo apt-get install -y --no-install-recommends libwxgtk3.0-gtk3-dev
+
+      - name: Configure
+        working-directory: ${{ env.VERSION_DIR }}/src/apps/desktop
+        run: |
+          cmake -S . -B build-gui -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPCX_BUILD_GUI=ON \
+            -DPCX_BUILD_TESTS=OFF \
+            -DPCX_WERROR=ON
+
+      - name: Build
+        working-directory: ${{ env.VERSION_DIR }}/src/apps/desktop
+        run: cmake --build build-gui --parallel
+
+  # ---------------------------------------------------------------------------
+  # 6) 设计契约与多语言资源
   # ---------------------------------------------------------------------------
   design-checks:
     name: Design JSON, config schema and i18n

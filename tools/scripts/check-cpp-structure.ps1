@@ -120,7 +120,15 @@ if (Test-Path $testsPath) {
 Write-Host ("Checking {0} C++ file(s)..." -f $sources.Count)
 
 foreach ($file in $sources) {
-    $lines = @(Get-Content -LiteralPath $file.FullName -Encoding UTF8)
+    # Replace C++ raw string literals with an empty string literal before scanning.
+    #
+    # The scanner below is line-based and cannot track a raw string's delimiter
+    # across lines, and the contents of R"(...)" must not affect bracket balance.
+    # Without this, every raw string containing braces or quotes is mis-parsed.
+    $raw_text = [System.IO.File]::ReadAllText($file.FullName, [System.Text.Encoding]::UTF8)
+    $raw_text = [regex]::Replace($raw_text, '(?s)R"([^()\\\s]{0,16})\(.*?\)\1"', '""')
+    $lines = @($raw_text -split "`r?`n")
+
     $rel = $file.FullName.Substring($repoRoot.Length).TrimStart('\', '/')
 
     # 2) Quoted includes must resolve.

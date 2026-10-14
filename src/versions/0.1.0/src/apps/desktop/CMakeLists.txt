@@ -81,12 +81,21 @@ endif()
 # -----------------------------------------------------------------------------
 # pcx_core：纯逻辑，不依赖 GUI
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# pcx_core：纯逻辑，不依赖 GUI
+#
+# settings 与 app_context 放在这里而不是 GUI 目标里：它们是纯逻辑
+# （读写配置、组织状态），放进 GUI 目标就只能在装了 wxWidgets 的环境里
+# 才能编译和测试，而它们的逻辑恰恰最需要单元测试。
+# -----------------------------------------------------------------------------
 add_library(pcx_core STATIC
     src/core/json_util.cpp
     src/core/i18n.cpp
     src/core/ipc_protocol.cpp
     src/core/ipc_transport.cpp
-    src/core/ipc_client.cpp)
+    src/core/ipc_client.cpp
+    src/app/settings.cpp
+    src/app/app_context.cpp)
 target_include_directories(pcx_core PUBLIC src)
 target_link_libraries(pcx_core PUBLIC nlohmann_json::nlohmann_json PRIVATE pcx_warnings)
 
@@ -110,21 +119,30 @@ target_compile_definitions(pcx_core PUBLIC
 # 源码补齐后这里会自动启用，不需要改配置。
 # -----------------------------------------------------------------------------
 if(PCX_BUILD_GUI)
-    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+    set(PCX_GUI_SOURCES
+        src/main.cpp
+        src/ui/main_frame.cpp
+        src/ui/simple_panel.cpp
+        src/ui/pro_panel.cpp)
+
+    # 检查**全部** GUI 源文件，而不是只检查 main.cpp：
+    # 只检查一个的话，缺其它文件时 cmake 会在 add_executable 处报
+    # 「找不到源文件」，那个错误看不出真正的原因。
+    set(PCX_GUI_MISSING "")
+    foreach(gui_source IN LISTS PCX_GUI_SOURCES)
+        if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${gui_source}")
+            list(APPEND PCX_GUI_MISSING ${gui_source})
+        endif()
+    endforeach()
+
+    if(PCX_GUI_MISSING)
         message(WARNING
-            "GUI sources are not implemented yet "
-            "(${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp is missing). "
-            "Skipping the proxyclient-desktop target; pcx_core and the tests still build.")
+            "GUI sources are not implemented yet; skipping the proxyclient-desktop "
+            "target. Missing: ${PCX_GUI_MISSING}. "
+            "pcx_core and the tests still build.")
     else()
         find_package(wxWidgets REQUIRED COMPONENTS core base)
         include(${wxWidgets_USE_FILE})
-
-        set(PCX_GUI_SOURCES
-            src/main.cpp
-            src/ui/main_frame.cpp
-            src/ui/simple_panel.cpp
-            src/ui/pro_panel.cpp
-            src/app/settings.cpp)
 
         # Windows 下用 WIN32 生成子系统为 Windows 的可执行文件（不弹控制台）。
         if(WIN32)
@@ -156,14 +174,18 @@ if(PCX_BUILD_TESTS)
         tests/test_json_util.cpp
         tests/test_i18n.cpp
         tests/test_ipc_protocol.cpp
-        tests/test_ipc_transport.cpp)
+        tests/test_ipc_transport.cpp
+        tests/test_settings.cpp)
     target_link_libraries(pcx_tests PRIVATE pcx_core pcx_warnings)
 
     add_test(NAME pcx_tests COMMAND pcx_tests)
 
-    # 让测试能找到仓库里的语言资源。
+    # 让测试能找到仓库里的语言资源与出厂配置。
+    #
+    # 直接加载真实的 client-config.json 是有意的：它是打包时分发的文件，
+    # 解析不了的话用户看到的是「软件名变成 default、端口全错」，且没有任何报错。
     set_tests_properties(pcx_tests PROPERTIES
-        ENVIRONMENT "PCX_LOCALES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../../../locales")
+        ENVIRONMENT "PCX_LOCALES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../../../locales;PCX_CONFIG_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../../../design")
 
     message(STATUS "tests enabled; run them with: ctest --output-on-failure")
 endif()
