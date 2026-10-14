@@ -157,7 +157,10 @@ foreach ($file in $files) {
 
         foreach ($pkgName in $imports.Keys) {
             $target = $imports[$pkgName]
-            $pattern = '\b' + [regex]::Escape($pkgName) + '\.([A-Za-z_]\w*)'
+            # The negative lookbehind matters: a field named after the package
+            # (for example h.compiler.dir) is a selector on a value, not a
+            # package reference, and matching it produces a false positive.
+            $pattern = '(?<![\w.])' + [regex]::Escape($pkgName) + '\.([A-Za-z_]\w*)'
             foreach ($m in [regex]::Matches($clean, $pattern)) {
                 $symbol = $m.Groups[1].Value
                 $checkedRefs++

@@ -13,7 +13,8 @@
 
 ```
 <target-id>/
-├── proxyclient-desktop        可执行文件
+├── proxyclient-desktop        图形界面
+├── proxyclient-service        后台服务（GUI 的必备组件）
 ├── locales/                   语言资源（zh-CN.json、en.json）
 ├── config/client-config.json  出厂配置模板
 ├── cores/                     核心二进制（仅在版本已冻结时存在）
@@ -22,6 +23,14 @@
 
 **`cores/` 与 `CORES-NOT-BUNDLED.txt` 必有其一**，这是刻意的：
 一个既没有核心、也没有任何说明的包，会让用户以为拿到的是完整产物。
+
+**`proxyclient-service` 不是可选项。** 所有涉及系统网络与核心进程的操作
+都在服务里；只打包 GUI 会得到一个能打开、但什么都做不了的界面。
+因此构建步骤在找不到服务二进制时会明确失败，而不是产出一个残缺的包。
+
+两个二进制的关系：GUI 通过本地 IPC 连接服务（见 `runtime/ipc`）。
+设计上必须分开进程，因为修改系统代理、启动核心、恢复网络这些操作需要在
+GUI 崩溃或被强杀后仍可被恢复——而 GUI 恰恰是最容易崩的那一个。
 
 ## 2. 核心分发规则（ADR-0003）
 

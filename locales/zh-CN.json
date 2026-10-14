@@ -31,6 +31,7 @@
     "ipc.message_too_large": "请求报文超过长度上限（{0} 字节）",
     "ipc.result_encode_failed": "服务端无法序列化返回结果（操作：{0}）",
     "ipc.not_ok": "服务返回了未标记成功的响应",
+    "ipc.watch_events_not_a_call": "WatchEvents 由服务主动推送，不是可以调用的操作",
 
     "netmgr.mode_unsupported": "后端 {0} 不支持接入方式 {1}；系统网络未被改动",
     "netmgr.local_proxy_noop": "本地代理模式不改动系统网络设置",

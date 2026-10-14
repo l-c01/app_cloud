@@ -31,6 +31,7 @@
     "ipc.message_too_large": "The request exceeds the size limit ({0} bytes)",
     "ipc.result_encode_failed": "The service could not serialise the result (operation: {0})",
     "ipc.not_ok": "The service returned a response that was not marked successful",
+    "ipc.watch_events_not_a_call": "WatchEvents is pushed by the service; it is not an operation you can call",
 
     "netmgr.mode_unsupported": "Backend {0} does not support traffic mode {1}; system networking was left unchanged",
     "netmgr.local_proxy_noop": "Local proxy mode does not change system network settings",

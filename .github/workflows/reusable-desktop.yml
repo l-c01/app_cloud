@@ -220,6 +220,43 @@ jobs:
           PCX_CONFIG_DIR: ${{ github.workspace }}/design
         run: ctest --test-dir build --output-on-failure -C Release
 
+      - name: Set up Go for the service build
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: ${{ inputs.version_dir }}/src/go.sum
+
+      - name: Build the background service (Go)
+        # GUI 没有这个服务就完全无法工作：所有涉及系统网络与核心进程的操作
+        # 都在服务里。只打包 GUI 会得到一个能打开但什么都做不了的界面。
+        env:
+          FAMILY: ${{ matrix.family }}
+          GOARCH_TARGET: ${{ matrix.goArch }}
+          VERSION_DIR: ${{ inputs.version_dir }}
+        run: |
+          set -euo pipefail
+          case "$FAMILY" in
+            windows) goos=windows ;;
+            linux)   goos=linux ;;
+            *) echo "::error::unsupported family for the service build: $FAMILY"; exit 1 ;;
+          esac
+
+          exe=""
+          if [ "$goos" = "windows" ]; then exe=".exe"; fi
+
+          mkdir -p "${GITHUB_WORKSPACE}/service-dist"
+          (
+            cd "${VERSION_DIR}/src"
+            # -trimpath 去掉构建机上的绝对路径：否则二进制里会带上
+            # 构建目录结构，既有隐私问题也让构建不可复现。
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$GOARCH_TARGET" \
+              go build -trimpath \
+              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME:-dev}" \
+              -o "${GITHUB_WORKSPACE}/service-dist/proxyclient-service${exe}" \
+              ./cmd/proxyclient-service
+          )
+          ls -l "${GITHUB_WORKSPACE}/service-dist"
+
       # -----------------------------------------------------------------------
       # 打包
       #
@@ -245,6 +282,14 @@ jobs:
             exit 1
           fi
           install -m 0755 "$exe" "$stage/proxyclient-desktop"
+
+          # 后台服务：GUI 的必备组件，缺了它界面能打开但什么都做不了。
+          service=$(find "${GITHUB_WORKSPACE}/service-dist" -type f -name 'proxyclient-service' | head -n1)
+          if [ -z "$service" ]; then
+            echo "::error::the background service binary was not built; the package would be unusable"
+            exit 1
+          fi
+          install -m 0755 "$service" "$stage/proxyclient-service"
 
           # 语言资源：界面没有它们会显示键名而不是文案。
           cp -r "${GITHUB_WORKSPACE}/locales" "$stage/locales"
@@ -295,6 +340,16 @@ EOF
             exit 1
           }
           Copy-Item $exe.FullName (Join-Path $stage $exe.Name)
+
+          # 后台服务：GUI 的必备组件，缺了它界面能打开但什么都做不了。
+          $service = Get-ChildItem -Path "$env:GITHUB_WORKSPACE/service-dist" -Recurse -File |
+                     Where-Object { $_.Name -like 'proxyclient-service*' } |
+                     Select-Object -First 1
+          if (-not $service) {
+            Write-Error "the background service binary was not built; the package would be unusable"
+            exit 1
+          }
+          Copy-Item $service.FullName (Join-Path $stage $service.Name)
 
           Copy-Item -Recurse "$env:GITHUB_WORKSPACE/locales" (Join-Path $stage 'locales')
           New-Item -ItemType Directory -Force -Path (Join-Path $stage 'config') | Out-Null
