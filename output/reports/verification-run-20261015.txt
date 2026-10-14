@@ -1,6 +1,6 @@
 ﻿Verification run
   repository : D:\workai\xbaord
-  started    : 2026-10-15 04:53:47 +08:00
+  started    : 2026-10-15 04:56:08 +08:00
   powershell : 5.1.26100.9444 (Desktop)
 
 ================================================================
@@ -20,7 +20,8 @@ Go unused imports
 ================================================================
 
 Checked 37 Go file(s) with imports out of 39 file(s).
-RESULT: PASS - no unused imports detected.
+Checked both directions: imports that are never used, and packages used but never imported.
+RESULT: PASS - every import is used, and no guarded stdlib package is used without an import.
 exit code: 0
 
 ================================================================

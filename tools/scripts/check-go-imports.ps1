@@ -1,15 +1,21 @@
 <#
 .SYNOPSIS
-    Detect unused imports in Go files.
+    Detect import problems in Go files, in both directions.
 
 .DESCRIPTION
-    Go refuses to compile a file that imports a package and never uses it.
-    That is the single most common compile error in freshly written code that has
-    never been built, and it is detectable statically without a Go toolchain.
+    Go refuses to compile a file that imports a package and never uses it, and it
+    equally refuses to compile one that uses a package it never imported
+    ("undefined: strings"). Both are common in freshly written code that has
+    never been built, and both are detectable statically without a Go toolchain.
 
-    This script parses the import block of each .go file, derives the identifier
-    each import introduces (alias, or the last path segment), and checks whether
-    that identifier appears anywhere in the rest of the file.
+    Direction 1 (unused): parses the import block of each .go file, derives the
+    identifier each import introduces (alias, or the last path segment), and
+    checks whether that identifier appears anywhere in the rest of the file.
+
+    Direction 2 (missing): checks whether any package in a conservative
+    allowlist is used as "pkg.Something" without being imported. The allowlist is
+    deliberately narrow - see the comment at the check itself for why ambiguous
+    short names are excluded.
 
     Deliberate limitations:
       - it works on text, not on the AST, so it cannot follow shadowing;
@@ -20,7 +26,7 @@
 
     NOTE: this file is intentionally ASCII-only (see design/plan/environment-constraints.md).
 
-    Exit codes: 0 = no unused imports found, 1 = problems found, 2 = setup problem.
+    Exit codes: 0 = no import problems, 1 = problems found, 2 = setup problem.
 
 .PARAMETER SourceRoot
     Go source root, relative to the repository root. Default: src/versions/0.1.0/src
@@ -103,6 +109,58 @@ foreach ($file in $files) {
     }
     $body = ($bodyLines -join "`n")
 
+    # ---- check for MISSING stdlib imports ----
+    #
+    # The unused-import check above only catches one direction. The mirror image
+    # is a file that USES a package it never imported, which Go also refuses to
+    # compile ("undefined: strings"). That gap was real: a change added
+    # strings.HasPrefix/TrimPrefix to a file whose import block had no strings,
+    # and this script reported PASS.
+    #
+    # Why an explicit list instead of "every stdlib package": a static text
+    # scanner cannot tell a package qualifier from a variable or field of the
+    # same name. `path.Join` is a package call, but a struct with a field named
+    # `path` would look identical. Inventing a false positive here would break
+    # the property this script promises in its header - it never sends you
+    # chasing a non-problem.
+    #
+    # So the list below is deliberately conservative: names that are practically
+    # never used as identifiers in this codebase, and that are common enough to
+    # be worth guarding. Ambiguous short names (io, log, net, os, time, path,
+    # url, rand) are left out on purpose. Missing those is a false negative,
+    # which is the acceptable direction.
+    $guardedPackages = @(
+        'strings', 'strconv', 'filepath', 'regexp', 'bufio',
+        'unicode', 'reflect', 'bytes', 'sha256', 'base64', 'utf8',
+        'errors', 'sort', 'json', 'exec', 'signal', 'atomic'
+    )
+
+    $importedNames = @{}
+    foreach ($imp in $imports) {
+        $alias = $imp.Alias
+        if ($alias -eq '_' -or $alias -eq '.') { continue }
+        $nm = $alias
+        if (-not $nm) {
+            $segments = $imp.Path -split '/'
+            $nm = $segments[$segments.Count - 1]
+            if ($nm -match '^v\d+$' -and $segments.Count -ge 2) { $nm = $segments[$segments.Count - 2] }
+        }
+        if ($nm -match '-') { $nm = ($nm -replace '-', '') }
+        $importedNames[$nm] = $true
+    }
+
+    foreach ($pkg in $guardedPackages) {
+        if ($importedNames.ContainsKey($pkg)) { continue }
+        # Usage is "pkg.Something", and not "something.pkg.Something" - the
+        # negative lookbehind keeps field access out of the match.
+        if ($body -match ('(?<![\w.])' + [regex]::Escape($pkg) + '\s*\.')) {
+            $problems++
+            $rel = $file.FullName.Substring($root.Length).TrimStart('\', '/')
+            Write-Host ("MISSING IMPORT {0}" -f $rel) -ForegroundColor Red
+            Write-Host ("               uses '{0}.' but does not import it; Go will report 'undefined: {0}'" -f $pkg) -ForegroundColor DarkRed
+        }
+    }
+
     # ---- check each import ----
     foreach ($imp in $imports) {
         $alias = $imp.Alias
@@ -131,9 +189,10 @@ foreach ($file in $files) {
 
 Write-Host ''
 Write-Host ("Checked {0} Go file(s) with imports out of {1} file(s)." -f $checked, $files.Count)
+Write-Host 'Checked both directions: imports that are never used, and packages used but never imported.'
 if ($problems -eq 0) {
-    Write-Host 'RESULT: PASS - no unused imports detected.' -ForegroundColor Green
+    Write-Host 'RESULT: PASS - every import is used, and no guarded stdlib package is used without an import.' -ForegroundColor Green
     exit 0
 }
-Write-Host ("RESULT: FAIL - {0} unused import(s). Go will not compile these files." -f $problems) -ForegroundColor Red
+Write-Host ("RESULT: FAIL - {0} import problem(s). Go will not compile these files." -f $problems) -ForegroundColor Red
 exit 1
