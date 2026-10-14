@@ -45,6 +45,20 @@ option(PCX_STRICT_CONVERSION "Also treat -Wconversion/-Wsign-conversion as error
 add_library(pcx_warnings INTERFACE)
 if(MSVC)
     target_compile_options(pcx_warnings INTERFACE /W4 /permissive-)
+
+    # 关闭 C4996 的「unsafe CRT」一族。
+    #
+    # 这一族警告建议把标准库函数换成微软专有版本
+    # （getenv -> _dupenv_s、strcpy_s 之类）。它们**不是代码缺陷**：
+    # getenv 是标准 C++，在所有目标平台上都可用；
+    # 换成 _dupenv_s 反而会让这份代码无法在 Linux 与 macOS 上编译。
+    # 也就是说照它改会破坏可移植性——这正是本项目最不需要的。
+    #
+    # 与下面的 -Wconversion 不同：那一类是「真实但噪音大」，
+    # 因此保留告警只去掉致命性；这一类是编译器厂商的偏好，
+    # 保留告警本身就没有意义，直接关掉。
+    target_compile_definitions(pcx_warnings INTERFACE _CRT_SECURE_NO_WARNINGS)
+
     if(PCX_WERROR)
         target_compile_options(pcx_warnings INTERFACE /WX)
     endif()
