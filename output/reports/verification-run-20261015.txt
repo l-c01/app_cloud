@@ -1,6 +1,6 @@
 ﻿Verification run
   repository : D:\workai\xbaord
-  started    : 2026-10-15 02:37:57 +08:00
+  started    : 2026-10-15 02:42:03 +08:00
   powershell : 5.1.26100.9444 (Desktop)
 
 ================================================================
@@ -29,7 +29,7 @@ Go cross-package symbols
 ================================================================
 Indexed 14 internal package(s).
 
-Checked 305 internal reference(s).
+Checked 306 internal reference(s).
 RESULT: PASS - all internal package references resolve.
 exit code: 0
 
@@ -78,7 +78,7 @@ i18n message keys
 
 Catalogs : en, zh-CN
 Go files : 27
-Keys used: 63
+Keys used: 64
 
 UI files : 34 (50 key(s), 2 dynamic prefix(es))
 
@@ -86,7 +86,7 @@ note: keys with prefix 'ui.entry.' are built at runtime and cannot be checked in
 note: keys with prefix 'ui.policy.' are built at runtime and cannot be checked individually
 
 
-RESULT: PASS - 109 referenced key(s) are present in all catalogs with matching placeholders.
+RESULT: PASS - 110 referenced key(s) are present in all catalogs with matching placeholders.
 exit code: 0
 
 ================================================================

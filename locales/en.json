@@ -22,6 +22,7 @@
     "compiler.selected_node_defaulted": "No node was selected; using the first available node",
     "compiler.rule_resources_missing": "Geo and rule-set resources for rule-based routing are not wired up yet, so this compilation routes everything through the proxy to avoid leaking traffic; this behaviour will change once rule resources are added",
     "compiler.plugin_mapped": "The SS plugin parameter was mapped to sing-box's plugin field",
+    "compiler.duplicate_node": "Node {0} has exactly the same connection parameters as an earlier node (both outbound tags are {1}), so it was skipped; keeping both would make the core refuse to start on a duplicate tag",
 
     "ipc.version_mismatch.protocol": "Protocol version mismatch: server is {0}, client is {1}",
     "ipc.version_mismatch.schema": "Schema version mismatch: server is {0}, client is {1}",

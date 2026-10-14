@@ -240,7 +240,34 @@ func (r *Request) logLevel() string {
 //
 // 选择规则：优先用用户显式选定的 ID；找不到则退回第一个可编译节点。
 // 绝不「静默连到任意节点」——退回时必须产生警告级条目（设计基线 §6.3）。
-func selectNode(req *Request, report *Report, usable []*domain.Node) *domain.Node {
+// dedupeByOutboundTag 移除会产生重复出站 tag 的节点。
+//
+// 为什么必须做：outboundTag 由节点 ID 派生，而 ID 只覆盖**连接参数**——
+// 订阅里「服务器/端口/密码完全相同、只有名字不同」的两条节点很常见
+// （同一个入口的不同倍率、不同备注），它们会得到同一个 tag。
+// 而 Xray 遇到重复 tag 会直接拒绝启动，用户看到的错误与真正的原因
+// （订阅里有两条重复节点）相距很远，几乎不可能自己定位。
+//
+// 保留第一个，其余记为**警告**而不是静默丢弃：
+// 用户需要知道自己的订阅里有哪些条目没有被编译进去。
+func dedupeByOutboundTag(usable []*domain.Node, report *Report) []*domain.Node {
+	seen := make(map[string]bool, len(usable))
+	out := make([]*domain.Node, 0, len(usable))
+	for _, n := range usable {
+		tag := outboundTag(n)
+		if seen[tag] {
+			report.Warnf(n, "node.id", "compiler.duplicate_node",
+				"节点 %q 与前面的节点连接参数完全相同（出站 tag 均为 %q），本次编译已跳过它；同时保留两者会导致核心因重复 tag 拒绝启动",
+				n.Name, tag)
+			continue
+		}
+		seen[tag] = true
+		out = append(out, n)
+	}
+	return out
+}
+
+// selectNode 选出默认出口节点。
 	if req.SelectedNodeID != "" {
 		for _, n := range usable {
 			if n.ID == req.SelectedNodeID {

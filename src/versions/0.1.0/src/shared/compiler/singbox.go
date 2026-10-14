@@ -49,6 +49,10 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 			usable = append(usable, n)
 		}
 	}
+	// 去掉会产生重复出站 tag 的节点：与 Xray 同理，
+	// sing-box 也不接受重复的 outbound tag。
+	usable = dedupeByOutboundTag(usable, report)
+
 	if len(usable) == 0 {
 		sortIssues(report.Issues)
 		return nil, report, fmt.Errorf("no compilable node for core %s", CoreSingBox)

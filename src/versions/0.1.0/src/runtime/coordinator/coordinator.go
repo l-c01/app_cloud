@@ -600,6 +600,15 @@ func (c *Coordinator) Recover(ctx context.Context) (*RestoreResult, error) {
 	result, restoreErr := c.restoreFromJournal(ctx)
 	if restoreErr != nil {
 		_ = c.setState(gen, StateRecoveryRequired)
+		// 必须把原因写进 lastError，而且要在 setState 之后写——
+		// setState 会清空 lastError。
+		//
+		// 恢复失败意味着系统网络可能仍指向一个已经退出的代理，
+		// 用户的表现是「完全没网」。只给一个「需要修复」的状态
+		// 而不给原因，用户无从判断该改什么。
+		c.mu.Lock()
+		c.lastError = restoreErr.Error()
+		c.mu.Unlock()
 		return result, fmt.Errorf("coordinator: restore leftover network settings: %w", restoreErr)
 	}
 	if err := c.opts.Journal.Clear(); err != nil {

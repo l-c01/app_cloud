@@ -195,13 +195,49 @@ func (m *Manager) ApplySystemProxy(ctx context.Context, host string, port int) (
 }
 
 // ApplyPAC 写入 PAC 自动配置 URL，返回实际写入的值。
-func (m *Manager) ApplyPAC(ctx context.Context, pacURL string) (map[string]string, error) {
-	if !strings.HasPrefix(pacURL, "http://127.0.0.1:") && !strings.HasPrefix(pacURL, "http://localhost:") {
-		// PAC 必须由本客户端的本地服务提供，不接受任意外部地址。
-		return nil, fmt.Errorf("winproxy: PAC URL must point at the local PAC server, got %q", pacURL)
+// pacURLPattern / pacCharsetPattern 校验写入注册表的 PAC 地址。
+//
+// 为什么不能沿用 proxyValuePattern：那是给「host:port」用的白名单，
+// 不允许 "/"——而 PAC 是一个 URL，路径里必然出现 "/"。
+// 但也不能因此放宽成「随便一个字符串」：这个值会被拼进 reg.exe 的命令行，
+// 允许引号或换行等于给自己开一条注入路径。所以仍然用白名单，只是换一份。
+//
+// 主机部分只接受环回：PAC 文件决定了哪些流量走代理，
+// 指向外部服务器等于把这份控制权交给别人，而且每次启动都要联网才能拿到规则。
+var (
+	pacHostPattern    = regexp.MustCompile(`^http://(127(\.\d{1,3}){3}|localhost|\[::1\])(:\d{1,5})?(/|$)`)
+	pacCharsetPattern = regexp.MustCompile(`^[A-Za-z0-9._~%\-/:\[\]]+$`)
+)
+
+// validatePACURL 校验 PAC 地址。
+//
+// 三类失败分开报：不是 http、不是本机、含不合法字符。
+// 合成一条笼统的「地址不合法」会让人不知道该改哪一处。
+func validatePACURL(raw string) error {
+	if raw == "" {
+		return errors.New("winproxy: PAC URL is empty")
 	}
-	if !proxyValuePattern.MatchString(pacURL) {
-		return nil, fmt.Errorf("winproxy: PAC URL contains unsupported characters")
+	if len(raw) > 255 {
+		// 注册表字符串值有长度上限，超了会被系统截断——截断后的地址
+		// 仍然能写入，但指向的已经不是用户给的那一个。
+		return fmt.Errorf("winproxy: PAC URL is longer than the registry value limit: %d", len(raw))
+	}
+	if !strings.HasPrefix(raw, "http://") {
+		return fmt.Errorf("winproxy: PAC URL must be an http URL, got %q", raw)
+	}
+	if !pacHostPattern.MatchString(raw) {
+		return fmt.Errorf("winproxy: PAC URL must point at the local PAC server, got %q", raw)
+	}
+	if !pacCharsetPattern.MatchString(raw) {
+		return fmt.Errorf("winproxy: PAC URL contains unsupported characters: %q", raw)
+	}
+	return nil
+}
+
+// ApplyPAC 接管为 PAC 模式。
+func (m *Manager) ApplyPAC(ctx context.Context, pacURL string) (map[string]string, error) {
+	if err := validatePACURL(pacURL); err != nil {
+		return nil, err
 	}
 
 	applied := map[string]string{keyAutoConfigURL: pacURL}

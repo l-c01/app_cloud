@@ -50,6 +50,9 @@ func CompileXray(req *Request) ([]byte, *Report, error) {
 			usable = append(usable, n)
 		}
 	}
+	// 去掉会产生重复出站 tag 的节点：Xray 遇到重复 tag 会拒绝启动。
+	usable = dedupeByOutboundTag(usable, report)
+
 	if len(usable) == 0 {
 		sortIssues(report.Issues)
 		return nil, report, fmt.Errorf("no compilable node for core %s", CoreXray)

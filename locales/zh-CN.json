@@ -22,6 +22,7 @@
     "compiler.selected_node_defaulted": "未指定节点，使用列表中的第一个可用节点",
     "compiler.rule_resources_missing": "规则路由所需的 Geo 与规则集尚未接入，本次编译按「全部经代理」处理以避免流量泄漏；接入规则资源后此行为会改变",
     "compiler.plugin_mapped": "SS 插件参数已映射到 sing-box 的 plugin 字段",
+    "compiler.duplicate_node": "节点 {0} 与前面的节点连接参数完全相同（出站 tag 均为 {1}），本次编译已跳过它；同时保留两者会导致核心因重复 tag 拒绝启动",
 
     "ipc.version_mismatch.protocol": "协议版本不匹配：服务为 {0}，客户端为 {1}",
     "ipc.version_mismatch.schema": "结构版本不匹配：服务为 {0}，客户端为 {1}",
