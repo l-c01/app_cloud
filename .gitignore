@@ -12,10 +12,16 @@
 # --- 第三方参考源码（只读审计对象，不入版本历史）---
 src/references/**
 
-# --- 对外输出（可再生成，不入库；保留目录占位文件）---
+# --- 对外输出 ---
+# 规则：
+#   output/reports/  阶段报告与验证证据（小体积文本）→ 入库，证据必须保留
+#   output/builds/   构建产物（大体积、可再生成）→ 不入库
+#   output/exports/  交付归档、导出包（可再生成）→ 不入库
 output/**
 !output/README.md
 !output/.gitkeep
+!output/reports/
+!output/reports/**
 
 # --- 构建产物 / 中间文件 ---
 build/

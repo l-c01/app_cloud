@@ -129,21 +129,23 @@ flowchart TD
 
 默认设置建议：`panel.apiBaseUrl=""`、`panel.webBaseUrl=""`、`panel.apiProfile="auto"`；可配置请求超时、API 前缀与版本适配档案。界面填写 API 时解析 URL，拒绝含凭据的 URL；默认 HTTPS。开发测试 HTTP 必须单独开启并显示测试状态；不得全局关闭 TLS 验证。
 
-API 基线必须从目标 Xboard 的固定 commit 的 routes、middleware、controller、resource 和认证返回值逐项确定。仓库主页本次已核对，但具体路由文件没有成功读取；以下是客户端抽象操作，不是确认过的路径、方法或字段。禁止把网上 V2board 示例接口直接当作实际 Xboard 契约。[S1]
+API 基线已从用户提供的 Xboard 源码快照**逐条核实**（路由、中间件、Controller、Resource、认证返回值与响应信封），事实清单见 [`contracts/xboard-api-map.json`](contracts/xboard-api-map.json)，实现依据见 [`contracts/panel-api-contract.md`](contracts/panel-api-contract.md)。禁止把网上 V2board 示例接口当作实际 Xboard 契约。
 
-| 客户端操作 | 输入 | 输出/注意 |
-|---|---|---|
-| `discoverPanel` | 地址、档案 | 可用 API 版本/业务能力或未识别报告 |
-| `login` | 邮箱、密码、额外认证字段 | 秘密引用、会话有效期、挑战要求 |
-| `getAccount` | 会话引用 | 账户、计划、额度、到期、服务端单位 |
-| `getTraffic` | 时间范围 | 服务端权威用量及更新时间 |
-| `getSubscriptionDescriptor` | 用户会话 | 秘密 URL 引用、格式、元数据 |
-| `listAnnouncements` | 游标 | 列表与未读状态（若提供） |
-| `listTickets/getTicket` | 分页/ID | 内容、状态和权限 |
-| `createTicket/replyTicket/closeTicket` | 内容/ID | 更新结果；提交不能盲目自动重试 |
-| `logout` | 会话引用 | 按实际服务端撤销能力执行，本地始终清理 |
+**客户端面板范围已收敛**：核心链路是「登录 → 取订阅链接 → 编译核心配置 → 连接」，面板只承担前两步。
 
-正式阶段建立 `api-map.json`：operation、method、path、request/response DTO、auth header 语义、错误码、源码定位和脱敏样本。不假设 Authorization 一定是 Bearer，不假设存在 refresh-token。401 引导重新登录；429 遵守退避；5xx 保留可用配置，显示业务不可用。切换服务器不能把旧 token 发到新主机；HTTPS 重定向跨主机不传认证头。
+| 客户端操作 | 方法 路径 | 认证 | 输出/注意 |
+|---|---|---|---|
+| `discoverPanel` | GET `/api/v1/guest/comm/config` | 无 | 面板身份探测；字段可被插件增删，必须容忍未知字段 |
+| `login` | POST `/api/v1/passport/auth/login` | 无 | 返回 `auth_data`（会话，Bearer）与 `token`（订阅 token，**两者语义不同**） |
+| `getSubscriptionDescriptor` | GET `/api/v1/user/getSubscribe` | Bearer | 返回 `subscribe_url`（含 token，属秘密）；**直接使用，不得自行拼接** |
+| `getAccount` | GET `/api/v1/user/info` | Bearer | 账户、额度、到期、封禁状态；兼作会话校验 |
+| `fetchSubscription` | GET（由 `subscribe_url` 决定） | query token | **非 JSON**，按 `flag` 返回节点内容；403 空 body 需映射为具体业务原因 |
+
+**明确不做**（已核实存在但不在范围）：工单、订单与支付、优惠券、礼品卡、邀请返佣、知识库、注册与找回密码、客户端自助更新。注册与找回密码首轮以「打开用户自填的面板网页」替代。
+
+已核实的关键语义：认证为 Laravel Sanctum Bearer，**无 refresh token**，会话有效期一年；统一信封为 `{status,message,data,error}`，HTTP 码取内部 code 前三位，`message` 不得作为可编程判断依据；节点列表接口不含连接所需的 host/port/凭据，连接必须依赖订阅链接。
+
+401 引导重新登录；429 遵守退避；5xx 保留可用配置，显示业务不可用。切换服务器不能把旧 token 发到新主机；HTTPS 重定向跨主机不传认证头。
 
 面板用量与本地代理统计分别标注来源。额度字节、计费周期和倍率按服务端契约计算，不能以本地上传/下载统计替代面板用量。认证请求默认直连；如用户启用通过代理访问面板，要提供启动依赖环检测。
 

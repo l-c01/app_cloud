@@ -77,9 +77,25 @@ Repository layout: `apps/desktop`, `apps/android`, `shared/{domain,panel,subscri
 
 Default `apiBaseUrl` and `webBaseUrl` are empty; `apiProfile=auto`. Allow timeout, prefix and version-profile configuration. Prefer HTTPS. Explicit development HTTP mode must be visible and must not disable TLS verification globally.
 
-The Xboard repository was reviewed, but specific route/controller files could not be retrieved. Endpoint methods, paths, payloads and authentication headers remain unverified [S1]. Abstract operations are `discoverPanel`, `login`, `getAccount`, `getTraffic`, `getSubscriptionDescriptor`, `listAnnouncements`, ticket operations and `logout`. They are proposed client operations, not claimed backend routes.
+The API baseline has been **verified item by item** against the supplied Xboard source snapshot (routes, middleware, controllers, resources, authentication responses and response envelope). The fact list is in [`contracts/xboard-api-map.json`](contracts/xboard-api-map.json); the implementation contract is in [`contracts/panel-api-contract.md`](contracts/panel-api-contract.md). Never treat online V2board examples as this Xboard's contract.
 
-G0 must inspect pinned routes, middleware, controllers, resources and authentication responses. Produce `api-map.json` with operation/method/path, DTOs, auth semantics, errors, source locations and redacted fixtures. Do not assume Bearer headers or refresh tokens. Keep panel usage distinct from local traffic counters, preserve server units and billing semantics, and isolate sessions by server. Do not forward authentication on cross-host redirects. Avoid blind retries of ticket mutations; respect rate limits and handle expired sessions without discarding usable independent profiles. Panel calls default to direct networking; optional proxied panel access needs startup dependency-loop checks.
+**The panel scope has been narrowed**: the client pipeline is login → obtain subscription link → compile core configuration → connect. The panel only serves the first two steps.
+
+| Client operation | Method path | Auth | Notes |
+|---|---|---|---|
+| `discoverPanel` | GET `/api/v1/guest/comm/config` | none | Panel identity probe; plugins may add or remove fields, so unknown fields must be tolerated |
+| `login` | POST `/api/v1/passport/auth/login` | none | Returns `auth_data` (session, Bearer) and `token` (subscription token — **different meanings**) |
+| `getSubscriptionDescriptor` | GET `/api/v1/user/getSubscribe` | Bearer | Returns `subscribe_url` (contains a token, secret); **use it as-is, do not rebuild it** |
+| `getAccount` | GET `/api/v1/user/info` | Bearer | Account, quota, expiry, ban state; also verifies the session |
+| `fetchSubscription` | GET (per `subscribe_url`) | query token | **Not JSON**; format depends on `flag`. A 403 with empty body must map to a concrete business reason |
+
+**Explicitly out of scope** (verified to exist, not implemented): tickets, orders and payments, coupons, gift cards, referrals and commission, knowledge base, registration and password recovery, client self-update. Registration and password recovery initially open the user-provided panel web page instead.
+
+Verified semantics: authentication is Laravel Sanctum Bearer with **no refresh token**, and sessions last one year; the envelope is `{status,message,data,error}` with the HTTP status derived from the first three digits of an internal code, and `message` must never drive program logic; the node-list endpoint does not contain the host/port/credentials needed to connect, so connecting must rely on the subscription link.
+
+Guide 401 back to login; honour 429 backoff; on 5xx keep usable configuration and report the panel as unavailable. Never send an old token to a new host; never forward authentication across a cross-host HTTPS redirect.
+
+G0 must keep inspecting pinned routes, middleware, controllers, resources and authentication responses. Produce `api-map.json` with operation/method/path, DTOs, auth semantics, errors, source locations and redacted fixtures. Keep panel usage distinct from local traffic counters, preserve server units and billing semantics, and isolate sessions by server. Respect rate limits and handle expired sessions without discarding usable independent profiles. Panel calls default to direct networking; optional proxied panel access needs startup dependency-loop checks.
 
 Desktop regular services use ACL-protected named pipes/Unix sockets with versioned JSON RPC; Android uses bound-service/AAR equivalents. The privileged broker has a separate restricted channel. Handshake validates protocol/schema versions. Public management HTTP is disabled by default.
 
@@ -148,7 +164,9 @@ For build-arch, Android mapping is amd64→optional x86_64, 386→x86, arm64→v
 
 Wrappers call reusable desktop/android/docker workflows driven by one target manifest. Uploading source must not automatically build/release installers. Lightweight source checks may be automatic. Default output is Actions artifacts; releases and registry pushes require explicit publish inputs. GitHub documents manual workflow triggering [S9].
 
-Inputs: source ref, preset/architecture, Docker inclusion, build type, artifact-only/publish and release tag. Resolve a single source SHA and lock snapshot for all jobs. Lock core commits, Go/CMake/wxWidgets/compiler/JDK/Gradle/AGP/Kotlin/NDK/SDK, resource hashes, Actions SHAs and image digests. No per-job latest downloads or unresolved placeholders in release builds. Application source builds in GitHub without locally supplied prebuilts.
+Inputs: source ref, preset/architecture, Docker inclusion, build type, artifact-only/publish and release tag. Resolve a single source SHA and lock snapshot for all jobs. Lock the Xray/sing-box target versions and official checksums, Go/CMake/wxWidgets/compiler/JDK/Gradle/AGP/Kotlin/NDK/SDK, resource hashes, Actions SHAs and image digests. No per-job latest downloads or unresolved placeholders in release builds.
+
+Cores ship as **official prebuilt binaries** (see [ADR-0003](adr/ADR-0003-核心官方预构建与自动更新.md)): this project does not compile cores. The client provides in-app core auto-update driven by locked versions with SHA256 verification, atomic replacement and rollback of the previous version; blindly tracking `latest` is forbidden. Application source builds in GitHub without locally supplied prebuilts.
 
 Pipeline: dependency/architecture preflight, fixed checkout, compile, unit/contract/native config checks, package, machine-type/dependency checks, available runtime smoke, SBOM/checksums/build report, artifacts. Use fail-fast=false to collect failures, but aggregate required failures into overall failure. Never mark skipped runtime checks as passed or use continue-on-error to announce universal success.
 

@@ -1,0 +1,287 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "planned",
+  "note": "构建目标的权威清单。目标矩阵沿用 design/proxy-client-design-v0.1.1 的既有定义（避免重复设计），并按 ADR-0003 增补各目标所需的核心官方预构建二进制架构映射。本文件全部状态为 planned；未执行的构建/运行检查一律 not_run。",
+
+  "coreDistribution": {
+    "mode": "official_prebuilt",
+    "adr": "design/adr/ADR-0003-核心官方预构建与自动更新.md",
+    "principle": "本项目不编译核心；客户端按锁定版本下载官方 Release 二进制，SHA256 校验后原子替换，旧版本可回滚。",
+    "sources": {
+      "xray": "https://github.com/XTLS/Xray-core/releases",
+      "sing_box": "https://github.com/SagerNet/sing-box/releases"
+    },
+    "archMappingNote": "各目标所需的核心产物架构由本表 assetArch 字段声明；实际文件名与校验和由 versions.lock.json 锁定，不在本文件伪造。"
+  },
+
+  "targets": [
+    {
+      "id": "windows-amd64",
+      "family": "windows",
+      "os": "Windows",
+      "arch": "amd64",
+      "goArch": "amd64",
+      "required": true,
+      "artifactTypes": ["zip", "installer"],
+      "toolchainRoute": "MSVC + CMake (x64)",
+      "xrayAssetArch": "64",
+      "singBoxAssetArch": "amd64",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null
+    },
+    {
+      "id": "windows-386",
+      "family": "windows",
+      "os": "Windows",
+      "arch": "386",
+      "goArch": "386",
+      "required": true,
+      "artifactTypes": ["zip", "installer"],
+      "toolchainRoute": "MSVC + CMake (Win32)",
+      "xrayAssetArch": "32",
+      "singBoxAssetArch": "386",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null,
+      "note": "32 位目标需要单独验证核心二进制与 TUN 驱动的 32 位可用性；不能以 64 位模拟测试代替。"
+    },
+    {
+      "id": "windows-arm64",
+      "family": "windows",
+      "os": "Windows",
+      "arch": "arm64",
+      "goArch": "arm64",
+      "required": true,
+      "artifactTypes": ["zip", "installer"],
+      "toolchainRoute": "MSVC 交叉编译 + CMake",
+      "xrayAssetArch": "arm64-v8a",
+      "singBoxAssetArch": "arm64",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null,
+      "note": "需在 Windows on ARM 真机或 runner 上运行验证。"
+    },
+    {
+      "id": "linux-amd64",
+      "family": "linux",
+      "os": "Debian/Ubuntu",
+      "arch": "amd64",
+      "goArch": "amd64",
+      "required": true,
+      "artifactTypes": ["deb", "tar.gz"],
+      "toolchainRoute": "固定最低 glibc 的构建容器 + CMake",
+      "xrayAssetArch": "64",
+      "singBoxAssetArch": "amd64",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null
+    },
+    {
+      "id": "linux-386",
+      "family": "linux",
+      "os": "Debian/Ubuntu",
+      "arch": "386",
+      "goArch": "386",
+      "required": true,
+      "artifactTypes": ["deb", "tar.gz"],
+      "toolchainRoute": "固定提供 i386 依赖的环境 + CMake",
+      "xrayAssetArch": "32",
+      "singBoxAssetArch": "386",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null,
+      "note": "不假设所有 Ubuntu 都有完整 i386；需独立检查基础镜像 manifest 与依赖。"
+    },
+    {
+      "id": "linux-arm64",
+      "family": "linux",
+      "os": "Debian/Ubuntu",
+      "arch": "arm64",
+      "goArch": "arm64",
+      "required": true,
+      "artifactTypes": ["deb", "tar.gz"],
+      "toolchainRoute": "交叉编译或原生 runner + CMake",
+      "xrayAssetArch": "arm64-v8a",
+      "singBoxAssetArch": "arm64",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null
+    },
+    {
+      "id": "android-arm64-v8a",
+      "family": "android",
+      "os": "Android",
+      "arch": "arm64",
+      "abi": "arm64-v8a",
+      "goArch": "arm64",
+      "required": true,
+      "artifactTypes": ["apk"],
+      "toolchainRoute": "Gradle + NDK + 核心集成方式待 G1 探针",
+      "xrayAssetArch": "arm64-v8a",
+      "singBoxAssetArch": "arm64",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": "建议先评估 API 26 起，G1 实测后冻结",
+      "note": "核心以 AAR 内嵌还是预构建二进制由 G1 绑定探针决定（ADR-0003 第 5 条）。"
+    },
+    {
+      "id": "android-armeabi-v7a",
+      "family": "android",
+      "os": "Android",
+      "arch": "arm",
+      "abi": "armeabi-v7a",
+      "goArch": "arm",
+      "goarm": "7",
+      "required": true,
+      "artifactTypes": ["apk"],
+      "toolchainRoute": "Gradle + NDK + 32 位绑定探针",
+      "xrayAssetArch": "arm32-v7a",
+      "singBoxAssetArch": "armv7",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null,
+      "note": "32 位 ARM 需要真机验证；不得误判为 amd32。"
+    },
+    {
+      "id": "android-x86",
+      "family": "android",
+      "os": "Android",
+      "arch": "386",
+      "abi": "x86",
+      "goArch": "386",
+      "required": true,
+      "artifactTypes": ["apk"],
+      "toolchainRoute": "Gradle + NDK + 32 位绑定探针",
+      "xrayAssetArch": "32",
+      "singBoxAssetArch": "386",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null,
+      "note": "需要兼容设备或模拟器；32 位 Intel，不是 Android64。"
+    },
+    {
+      "id": "docker-amd64",
+      "family": "docker",
+      "os": "linux/amd64",
+      "arch": "amd64",
+      "goArch": "amd64",
+      "required": false,
+      "artifactTypes": ["oci-image"],
+      "toolchainRoute": "Buildx headless 服务 + 核心预构建二进制",
+      "xrayAssetArch": "64",
+      "singBoxAssetArch": "amd64",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null,
+      "deferred": true
+    },
+    {
+      "id": "docker-386",
+      "family": "docker",
+      "os": "linux/386",
+      "arch": "386",
+      "goArch": "386",
+      "required": false,
+      "artifactTypes": ["oci-image"],
+      "toolchainRoute": "Buildx headless 服务 + 核心预构建二进制",
+      "xrayAssetArch": "32",
+      "singBoxAssetArch": "386",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null,
+      "deferred": true,
+      "note": "需独立检查基础镜像 manifest 与依赖。"
+    },
+    {
+      "id": "docker-arm64",
+      "family": "docker",
+      "os": "linux/arm64",
+      "arch": "arm64",
+      "goArch": "arm64",
+      "required": false,
+      "artifactTypes": ["oci-image"],
+      "toolchainRoute": "Buildx/QEMU 或原生 + 核心预构建二进制",
+      "xrayAssetArch": "arm64-v8a",
+      "singBoxAssetArch": "arm64",
+      "status": "planned",
+      "buildVerified": false,
+      "runtimeVerified": false,
+      "osBaseline": null,
+      "deferred": true
+    }
+  ],
+
+  "buildPresets": {
+    "note": "七个手动入口映射到目标子集；同一构建命令不得在多个工作流文件中复制维护。",
+    "all": {
+      "requiredTargets": [
+        "windows-amd64", "windows-386", "windows-arm64",
+        "android-arm64-v8a", "android-armeabi-v7a", "android-x86",
+        "linux-amd64", "linux-386", "linux-arm64"
+      ],
+      "optionalTargets": ["docker-amd64", "docker-386", "docker-arm64"]
+    },
+    "windows": { "targets": ["windows-amd64", "windows-386", "windows-arm64"] },
+    "android": { "targets": ["android-arm64-v8a", "android-armeabi-v7a", "android-x86"], "optionalAbi": "x86_64" },
+    "linux": { "targets": ["linux-amd64", "linux-386", "linux-arm64"] },
+    "docker": { "targets": ["docker-amd64", "docker-386", "docker-arm64"], "optional": true },
+    "common": {
+      "targets": [
+        "windows-amd64", "windows-386",
+        "linux-amd64", "linux-386",
+        "android-arm64-v8a", "android-armeabi-v7a"
+      ]
+    },
+    "architecture": {
+      "requiredChoice": ["amd64", "386", "arm64", "all"],
+      "extraChoice": ["armv7"],
+      "defaultFamilies": ["windows", "linux"],
+      "optInFamilies": ["android", "docker"],
+      "androidMapping": {
+        "amd64": "可选 x86_64，若请求但不可用必须显式失败",
+        "386": "x86",
+        "arm64": "arm64-v8a",
+        "armv7": "armeabi-v7a"
+      },
+      "omitUnavailableSilently": false
+    }
+  },
+
+  "workflowContract": {
+    "trigger": "workflow_dispatch",
+    "automaticProductionBuildOnPush": false,
+    "defaultDestination": "Actions artifacts",
+    "wrappers": [
+      "build-all.yml", "build-windows.yml", "build-android.yml",
+      "build-linux.yml", "build-docker.yml", "build-arch.yml", "build-common.yml"
+    ],
+    "reusable": ["reusable-desktop.yml", "reusable-android.yml", "reusable-docker.yml"],
+    "filesImplemented": false,
+    "matrixFailFast": false,
+    "requiredFailureFailsAggregate": true,
+    "unrunRuntimeStatus": "not_run",
+    "inputs": ["source_ref", "preset_or_arch", "include_docker", "build_type", "publish", "release_tag"],
+    "coreStep": "构建产物需附带锁定版本的核心二进制（或声明首启下载）；核心不编译，只下载 + 校验"
+  },
+
+  "statusVocabulary": {
+    "planned": "已计划，尚未开始",
+    "build_passed": "编译通过（不等于可运行）",
+    "runtime_passed": "在目标平台实际运行并取得证据",
+    "blocked": "有明确阻塞条件且已记录",
+    "deferred": "明确后置，不阻塞当前阶段",
+    "not_run": "未执行，不得写成通过"
+  }
+}

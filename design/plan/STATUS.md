@@ -66,9 +66,11 @@
 | 8 | 公共配置 Schema 复刻与修正 | `design/schemas/client-config.schema.json`（修复 testSettings 缺失） | **完成** |
 | 9 | 配置校验脚本 | `tools/scripts/*.ps1`（纯 ASCII，PowerShell+ .NET），`client-config.json` 通过校验 | **完成** |
 | 10 | 0.1.0 版本骨架 | `src/versions/0.1.0/`（README + versions.lock.json 模板） | **完成** |
-| 11 | 构建目标清单 | `deploy/targets/`（置于 0.1.0 版本目录） | 待办 |
-| 12 | 修订设计基线范围与事实错误 | `design/DESIGN.zh-CN.md`（接口事实、核心分发已修） | 部分完成（接口事实章节待细化） |
-| 13 | G0 审计报告 | `output/reports/` | 待办 |
+| 11 | 构建目标清单 | `src/versions/0.1.0/deploy/targets/targets.json`（12 目标，与既有设计包一致） | **完成** |
+| 12 | 修订设计基线范围与事实错误 | `DESIGN.zh-CN.md`、`DESIGN.en.md`（接口事实、范围收敛、核心分发） | **完成** |
+| 13 | G0 审计报告 | `output/reports/report-G0-0.1.0-all-20261014.md` | **完成** |
+| 14 | 工作流骨架设计 | `deploy/workflows/`（七入口 + 三可复用） | 待办（G1） |
+| 15 | `shared/panel` 与 `shared/domain` 接口设计 | 面板适配与领域模型 | 待办（G2） |
 
 ---
 
