@@ -5,6 +5,9 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
+#include <optional>
+#include <string_view>
 
 namespace pcx::json {
 

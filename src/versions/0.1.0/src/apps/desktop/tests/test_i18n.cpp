@@ -11,6 +11,9 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <cstddef>
+#include <utility>
+#include <vector>
 
 using pcx::i18n::Bundle;
 using pcx::i18n::Catalog;

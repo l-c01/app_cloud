@@ -2,6 +2,10 @@
 
 #include <wx/clipbrd.h>
 #include <wx/statline.h>
+#include <cstddef>
+#include <functional>
+#include <utility>
+#include <vector>
 
 namespace pcx::ui {
 

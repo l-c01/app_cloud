@@ -1,6 +1,8 @@
 #include "ui/simple_panel.hpp"
 
 #include <wx/statline.h>
+#include <functional>
+#include <utility>
 
 namespace pcx::ui {
 

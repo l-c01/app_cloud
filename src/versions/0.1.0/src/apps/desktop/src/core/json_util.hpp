@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>
+#include <cstdint>
 
 namespace pcx::json {
 

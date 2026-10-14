@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <cstddef>
 
 using pcx::app::Config;
 using pcx::app::LoadConfig;

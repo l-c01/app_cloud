@@ -9,6 +9,8 @@
 
 #include <set>
 #include <string>
+#include <chrono>
+#include <cstdint>
 
 using pcx::ipc::DescribeAddress;
 using pcx::ipc::IpcClient;

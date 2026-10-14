@@ -95,6 +95,16 @@ jobs:
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           ./tools/scripts/check-ipc-contract.ps1
 
+      - name: Verify authored files are tracked by git
+        shell: pwsh
+        run: |
+          # 其他检查都读磁盘文件，无法区分「文件存在」与「文件已入仓」。
+          # 这个缺口已经造成过实际事故：.gitignore 里的 `secrets/`
+          # 匹配任意层级的同名目录，导致 shared/secrets 整个包从未被提交，
+          # 本机全绿而 CI 报 `package proxyclient/shared/secrets is not in std`。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/check-tracked-files.ps1
+
       - name: Verify workflow files are structurally consistent
         shell: pwsh
         run: |

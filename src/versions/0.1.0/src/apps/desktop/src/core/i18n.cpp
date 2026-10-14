@@ -8,6 +8,10 @@
 #include <sstream>
 
 #include <nlohmann/json.hpp>
+#include <cstddef>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace pcx::i18n {
 

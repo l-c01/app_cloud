@@ -13,6 +13,9 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <chrono>
+#include <cstddef>
+#include <memory>
 #endif
 
 namespace pcx::ipc {

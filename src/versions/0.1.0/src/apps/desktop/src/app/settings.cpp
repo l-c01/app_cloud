@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <optional>
 
 #include "core/json_util.hpp"
 

@@ -12,6 +12,7 @@
 
 #ifndef WX_PRECOMP
 #include <wx/wx.h>
+#include <functional>
 #endif
 
 #include "app/app_context.hpp"

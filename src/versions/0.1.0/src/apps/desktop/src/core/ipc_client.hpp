@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cstddef>
 
 #include "core/ipc_protocol.hpp"
 #include "core/ipc_transport.hpp"

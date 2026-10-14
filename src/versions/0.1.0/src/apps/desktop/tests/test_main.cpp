@@ -3,6 +3,9 @@
 
 #include <algorithm>
 #include <iostream>
+#include <functional>
+#include <utility>
+#include <vector>
 
 namespace pcx::test {
 

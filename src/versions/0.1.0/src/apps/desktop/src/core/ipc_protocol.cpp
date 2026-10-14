@@ -4,6 +4,10 @@
 #include <chrono>
 #include <random>
 #include <sstream>
+#include <cstdint>
+#include <optional>
+#include <string_view>
+#include <vector>
 
 #include "core/json_util.hpp"
 

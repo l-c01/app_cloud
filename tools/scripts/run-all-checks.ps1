@@ -64,6 +64,7 @@ if (-not [string]::IsNullOrEmpty($logDir)) {
 # then fails to bind and, if the exit code is not inspected carefully, the run
 # still looks green. A hashtable splat passes named parameters unambiguously.
 $checks = @(
+    @{ Label = 'Tracked source files';         Script = 'check-tracked-files.ps1' }
     @{ Label = 'Go unused imports';            Script = 'check-go-imports.ps1' }
     @{ Label = 'Go cross-package symbols';     Script = 'check-go-symbols.ps1' }
     @{ Label = 'C++ structural consistency';   Script = 'check-cpp-structure.ps1' }
