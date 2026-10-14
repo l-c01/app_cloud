@@ -84,7 +84,9 @@ endif()
 add_library(pcx_core STATIC
     src/core/json_util.cpp
     src/core/i18n.cpp
-    src/core/ipc_protocol.cpp)
+    src/core/ipc_protocol.cpp
+    src/core/ipc_transport.cpp
+    src/core/ipc_client.cpp)
 target_include_directories(pcx_core PUBLIC src)
 target_link_libraries(pcx_core PUBLIC nlohmann_json::nlohmann_json PRIVATE pcx_warnings)
 
@@ -92,10 +94,7 @@ target_link_libraries(pcx_core PUBLIC nlohmann_json::nlohmann_json PRIVATE pcx_w
 find_package(Threads REQUIRED)
 target_link_libraries(pcx_core PUBLIC Threads::Threads)
 
-if(WIN32)
-    # Windows 命名管道。
-    target_link_libraries(pcx_core PRIVATE ws2_32)
-endif()
+# Windows 上只用命名管道，不需要 Winsock。
 
 # 让代码能知道当前版本（用于版本握手与「关于」界面）。
 target_compile_definitions(pcx_core PUBLIC
@@ -156,7 +155,8 @@ if(PCX_BUILD_TESTS)
         tests/test_main.cpp
         tests/test_json_util.cpp
         tests/test_i18n.cpp
-        tests/test_ipc_protocol.cpp)
+        tests/test_ipc_protocol.cpp
+        tests/test_ipc_transport.cpp)
     target_link_libraries(pcx_tests PRIVATE pcx_core pcx_warnings)
 
     add_test(NAME pcx_tests COMMAND pcx_tests)
