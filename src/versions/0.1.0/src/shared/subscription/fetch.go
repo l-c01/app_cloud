@@ -60,19 +60,68 @@ type FetchResult struct {
 }
 
 // Error 是订阅操作的失败，带稳定分类。
+//
+// 本地化约定（见 design/architecture/i18n-convention.md）：
+// MessageKey 与 MessageArgs 是界面文案的唯一来源；Message 只是内部诊断文本。
 type Error struct {
 	// Kind 取值：unavailable / unauthorized / network / too_large / unsupported_format / parse。
-	Kind    string
-	Message string
+	Kind        string
+	MessageKey  string
+	MessageArgs []any
+	Message     string
 	// HTTPStatus 服务端状态码；网络层失败时为 0。
 	HTTPStatus int
 }
 
 func (e *Error) Error() string {
 	if e.HTTPStatus > 0 {
-		return fmt.Sprintf("subscription: %s (http %d): %s", e.Kind, e.HTTPStatus, e.Message)
+		return fmt.Sprintf("subscription: %s (http %d): %s", e.Kind, e.HTTPStatus, e.detail())
 	}
-	return fmt.Sprintf("subscription: %s: %s", e.Kind, e.Message)
+	return fmt.Sprintf("subscription: %s: %s", e.Kind, e.detail())
+}
+
+// detail 返回诊断文本，缺失时回退到文案键（便于日志里定位遗漏）。
+func (e *Error) detail() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return e.MessageKey
+}
+
+// withDetail 附加仅用于日志诊断的细节。
+func (e *Error) withDetail(format string, args ...any) *Error {
+	e.Message = fmt.Sprintf(format, args...)
+	return e
+}
+
+// newError 构造带文案键的订阅错误。
+//
+// 所有构造点都走这里，避免某处漏填 MessageKey 而让界面回退到英文诊断文本。
+func newError(kind string, httpStatus int) *Error {
+	return &Error{
+		Kind:       kind,
+		MessageKey: messageKeyFor(kind),
+		HTTPStatus: httpStatus,
+		Message:    fmt.Sprintf("subscription operation failed (kind=%s, http=%d)", kind, httpStatus),
+	}
+}
+
+// messageKeyFor 把订阅错误分类映射到文案键。
+func messageKeyFor(kind string) string {
+	switch kind {
+	case KindUnavailable:
+		return "subscription.unavailable"
+	case KindUnauthorized:
+		return "subscription.unauthorized"
+	case KindNetwork:
+		return "subscription.network"
+	case KindTooLarge:
+		return "subscription.too_large"
+	case KindUnsupportedFormat:
+		return "subscription.unsupported_format"
+	default:
+		return "subscription.parse_failed"
+	}
 }
 
 // 错误分类常量。
@@ -108,10 +157,21 @@ func NewFetcher(hc *http.Client) *Fetcher {
 	return &Fetcher{http: hc}
 }
 
+// newErrorWithKey 构造错误并指定文案键。
+//
+// 用于「分类相同但用户该看到的提示不同」的情形，
+// 例如「格式未识别」与「格式识别了但没有可用节点」都属于解析失败类，
+// 但对用户的含义完全不同。
+func newErrorWithKey(kind, messageKey string, httpStatus int) *Error {
+	e := newError(kind, httpStatus)
+	e.MessageKey = messageKey
+	return e
+}
+
 // Fetch 拉取并解析订阅。
 //
 // 返回的 *Error 分类语义：
-//   - KindUnauthorized：HTTP 401/403 且响应体为空，表示订阅不可用
+//   - KindUnavailable：HTTP 401/403 且响应体为空，表示订阅不可用
 //     （套餐到期、流量用尽或封禁；服务端返回 403 空 body）。
 //   - KindTooLarge：响应体超过上限。
 //   - KindUnsupportedFormat：格式已识别但当前尚未实现解析（见 ParseResult 说明）。
@@ -119,7 +179,7 @@ func NewFetcher(hc *http.Client) *Fetcher {
 func (f *Fetcher) Fetch(ctx context.Context, subscribeURL string) (*FetchResult, *Error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, subscribeURL, nil)
 	if err != nil {
-		return nil, &Error{Kind: KindNetwork, Message: "build request failed: " + err.Error()}
+		return nil, newError(KindNetwork, 0).withDetail("build request failed: %v", err)
 	}
 	if f.UserAgent != "" {
 		req.Header.Set("User-Agent", f.UserAgent)
@@ -132,7 +192,7 @@ func (f *Fetcher) Fetch(ctx context.Context, subscribeURL string) (*FetchResult,
 
 	resp, err := f.http.Do(req)
 	if err != nil {
-		return nil, &Error{Kind: KindNetwork, Message: "request failed: " + err.Error()}
+		return nil, newError(KindNetwork, 0).withDetail("request failed: %v", err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -141,27 +201,23 @@ func (f *Fetcher) Fetch(ctx context.Context, subscribeURL string) (*FetchResult,
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if readErr != nil {
-		return nil, &Error{Kind: KindNetwork, Message: "read response failed: " + readErr.Error(), HTTPStatus: resp.StatusCode}
+		return nil, newError(KindNetwork, resp.StatusCode).
+			withDetail("read response failed: %v", readErr)
 	}
 	if int64(len(body)) > maxBodyBytes {
-		return nil, &Error{Kind: KindTooLarge, Message: "subscription body exceeds the size limit", HTTPStatus: resp.StatusCode}
+		return nil, newError(KindTooLarge, resp.StatusCode).
+			withDetail("subscription body exceeds the size limit")
 	}
 
 	// 服务端在用户不可用时返回 403 且 body 为空；这必须映射为具体业务原因，
-	// 不能显示为「网络错误」。
+	// 不能显示为「网络错误」——那会让用户反复重试一个永远不会成功的请求。
 	if (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized) && len(strings.TrimSpace(string(body))) == 0 {
-		return nil, &Error{
-			Kind:       KindUnavailable,
-			Message:    "subscription is unavailable (expired, out of quota, or banned)",
-			HTTPStatus: resp.StatusCode,
-		}
+		return nil, newError(KindUnavailable, resp.StatusCode).
+			withDetail("subscription endpoint returned %d with an empty body", resp.StatusCode)
 	}
 	if resp.StatusCode >= 400 {
-		return nil, &Error{
-			Kind:       KindUnauthorized,
-			Message:    "unexpected status from subscription endpoint",
-			HTTPStatus: resp.StatusCode,
-		}
+		return nil, newErrorWithKey(KindUnauthorized, "subscription.unauthorized", resp.StatusCode).
+			withDetail("unexpected status %d from the subscription endpoint", resp.StatusCode)
 	}
 
 	res := &FetchResult{
@@ -175,27 +231,25 @@ func (f *Fetcher) Fetch(ctx context.Context, subscribeURL string) (*FetchResult,
 	case FormatURIList:
 		nodes, warnings, rejected, perr := ParseBase64URIList(body)
 		if perr != nil {
-			return nil, &Error{Kind: KindParse, Message: perr.Error()}
+			return nil, newError(KindParse, 0).withDetail("parse URI list: %v", perr)
 		}
 		res.Nodes = nodes
 		res.Warnings = warnings
 		res.RejectedCount = rejected
 	case FormatClashYAML:
-		return nil, &Error{
-			Kind:    KindUnsupportedFormat,
-			Message: "clash YAML detected but not implemented yet; request flag=general to get the URI list instead",
-		}
+		return nil, newError(KindUnsupportedFormat, 0).
+			withDetail("clash YAML detected but not implemented yet; request flag=general to get the URI list instead")
 	case FormatSingBoxJSON:
-		return nil, &Error{
-			Kind:    KindUnsupportedFormat,
-			Message: "sing-box JSON detected but not implemented yet; request flag=general to get the URI list instead",
-		}
+		return nil, newError(KindUnsupportedFormat, 0).
+			withDetail("sing-box JSON detected but not implemented yet; request flag=general to get the URI list instead")
 	default:
-		return nil, &Error{Kind: KindParse, Message: "unrecognized subscription format"}
+		return nil, newError(KindParse, 0).withDetail("unrecognized subscription format")
 	}
 
 	if len(res.Nodes) == 0 {
-		return nil, &Error{Kind: KindParse, Message: "subscription contained no parseable nodes"}
+		// 分类仍是解析失败，但用户该看到的是「没有可用节点」而不是「解析失败」。
+		return nil, newErrorWithKey(KindParse, "subscription.no_nodes", 0).
+			withDetail("subscription contained no parseable nodes")
 	}
 	return res, nil
 }

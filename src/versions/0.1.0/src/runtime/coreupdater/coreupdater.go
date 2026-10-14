@@ -226,10 +226,34 @@ func (i *Installer) Install(ctx context.Context, manifest Manifest, core Core) (
 	}
 
 	if err := i.installAsset(ctx, core, asset); err != nil {
-		return Asset{}, err
+		// 统一包一层：调用方不必区分是下载、校验还是替换失败，
+		// 界面显示的键都是「内核安装失败」，细节在 Cause 里保留。
+		var ie *InstallError
+		if errors.As(err, &ie) {
+			return Asset{}, err
+		}
+		return Asset{}, &InstallError{Core: core, Version: asset.Version, Cause: err}
 	}
 	return asset, nil
 }
+
+// InstallError 表示内核安装失败（下载、校验或替换任一环节）。
+//
+// 本地化约定：界面用 coreupdater.install_failed 提示，
+// 具体的失败环节由 Cause 提供，用于日志与诊断。
+type InstallError struct {
+	Core    Core
+	Version string
+	Cause   error
+}
+
+func (e *InstallError) Error() string {
+	return fmt.Sprintf("coreupdater: install %s@%s: %v", e.Core, e.Version, e.Cause)
+}
+
+// Unwrap 保留底层错误，便于 errors.Is 判断具体原因
+// （例如 ErrChecksumMismatch）。
+func (e *InstallError) Unwrap() error { return e.Cause }
 
 // installAsset 执行实际的下载与替换。
 func (i *Installer) installAsset(ctx context.Context, core Core, asset Asset) error {
@@ -319,7 +343,9 @@ func (i *Installer) download(ctx context.Context, asset Asset, path string) erro
 	// SHA256 校验：不匹配一律拒绝安装，且不保留半成品。
 	got := hex.EncodeToString(hasher.Sum(nil))
 	if !strings.EqualFold(got, asset.SHA256) {
-		return fmt.Errorf("coreupdater: sha256 mismatch: got %s, want %s", got, asset.SHA256)
+		// 用哨兵错误包裹：界面需要单独提示「下载可能被篡改或损坏」，
+		// 这与其它安装失败的含义完全不同。
+		return fmt.Errorf("%w: got %s, want %s", ErrChecksumMismatch, got, asset.SHA256)
 	}
 	return nil
 }
@@ -357,6 +383,37 @@ func (i *Installer) Rollback(core Core) error {
 
 // ErrNoRollbackTarget 表示没有可回滚的上一版本。
 var ErrNoRollbackTarget = errors.New("coreupdater: no previous version to roll back to")
+
+// ErrChecksumMismatch 表示下载内容的 SHA256 与清单不符。
+//
+// 单列一类的原因：界面必须把「下载损坏或被篡改」与其它安装失败区分开——
+// 前者是安全事件，用户需要知道，而不是看到笼统的「安装失败」。
+var ErrChecksumMismatch = errors.New("coreupdater: download checksum mismatch")
+
+// MessageKeyFor 把本包的错误映射到界面文案键。
+//
+// 存在理由：本包对外的错误既有哨兵值，也有具名类型，
+// 界面不该逐个做类型断言。返回空串表示不是本包的可本地化错误。
+func MessageKeyFor(err error) string {
+	if err == nil {
+		return ""
+	}
+	// 校验失败优先：它比外层的「安装失败」更具体，也更需要用户注意。
+	if errors.Is(err, ErrChecksumMismatch) {
+		return "coreupdater.sha256_mismatch"
+	}
+	if errors.Is(err, ErrNoMatchingAsset) {
+		return "coreupdater.no_matching_asset"
+	}
+	if errors.Is(err, ErrNoRollbackTarget) {
+		return "coreupdater.no_rollback_target"
+	}
+	var ie *InstallError
+	if errors.As(err, &ie) {
+		return "coreupdater.install_failed"
+	}
+	return ""
+}
 
 // HasRollback 报告是否存在可回滚的版本。
 func (i *Installer) HasRollback(core Core) bool {

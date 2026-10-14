@@ -51,6 +51,51 @@ var ErrBusy = errors.New("coordinator: another connection transaction is in prog
 // 而不是错误提示。
 var ErrSuperseded = errors.New("coordinator: operation superseded by a newer generation")
 
+// RecoveryError 表示连接事务失败后，网络设置未能恢复到原始状态。
+//
+// 这是本包最需要用户介入的错误：系统网络可能仍指向一个已经停止的本地代理，
+// 用户会表现为「浏览器打不开任何网页」。因此：
+//   - 状态被置为 StateRecoveryRequired；
+//   - 错误里同时保留原始失败原因与恢复失败原因，两者都要能查到。
+type RecoveryError struct {
+	// Stage 是事务失败时所在的阶段。
+	Stage string
+	// Cause 是导致事务失败的原始错误。
+	Cause error
+	// RecoveryErr 是恢复网络时发生的错误。
+	RecoveryErr error
+}
+
+func (e *RecoveryError) Error() string {
+	return fmt.Sprintf("coordinator: %s: %v (network recovery failed: %v)", e.Stage, e.Cause, e.RecoveryErr)
+}
+
+// Unwrap 返回原始失败原因，便于 errors.Is / errors.As 判断。
+func (e *RecoveryError) Unwrap() error { return e.Cause }
+
+// MessageKeyFor 把本包的错误映射到界面文案键。
+//
+// 存在理由：本包对外暴露的是哨兵值与具名错误类型的混合，
+// 界面不该逐个做类型断言。返回空串表示不是本包的可本地化错误。
+func MessageKeyFor(err error) string {
+	if err == nil {
+		return ""
+	}
+	var re *RecoveryError
+	if errors.As(err, &re) {
+		// 恢复失败比原始失败更严重，优先按它提示用户。
+		return "coordinator.recovery_failed"
+	}
+	switch {
+	case errors.Is(err, ErrBusy):
+		return "coordinator.busy"
+	case errors.Is(err, ErrSuperseded):
+		return "coordinator.superseded"
+	default:
+		return ""
+	}
+}
+
 // CompiledConfig 是编译产物。
 type CompiledConfig struct {
 	Core compiler.Core
@@ -360,10 +405,11 @@ func (c *Coordinator) Connect(ctx context.Context, req ConnectRequest) error {
 		if recoveryErr != nil {
 			// 恢复失败：必须让用户知道并介入，不能假装已回到干净状态。
 			_ = c.setState(gen, StateRecoveryRequired)
+			failure := &RecoveryError{Stage: stage, Cause: cause, RecoveryErr: recoveryErr}
 			c.mu.Lock()
-			c.lastError = fmt.Sprintf("%s; 网络恢复失败：%v", cause.Error(), recoveryErr)
+			c.lastError = failure.Error()
 			c.mu.Unlock()
-			return fmt.Errorf("coordinator: %s: %w (network recovery failed: %v)", stage, cause, recoveryErr)
+			return failure
 		}
 
 		// 恢复到干净状态后才清除日志；否则保留给下次启动的 Recover 处理。

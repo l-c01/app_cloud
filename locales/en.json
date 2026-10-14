@@ -65,7 +65,6 @@
     "coordinator.busy": "Another connection operation is already in progress",
     "coordinator.superseded": "This operation was superseded by a newer one",
     "coordinator.recovery_failed": "Network recovery failed and needs manual attention",
-    "coordinator.selected_node_missing": "The selected node no longer exists; a fallback was used",
 
     "secrets.unavailable": "No secure storage is available on this platform; credentials will not be saved, and will never be stored in plaintext",
     "secrets.not_found": "The credential does not exist",

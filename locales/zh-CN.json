@@ -65,7 +65,6 @@
     "coordinator.busy": "另一个连接操作正在进行中",
     "coordinator.superseded": "该操作已被更新的操作取代",
     "coordinator.recovery_failed": "网络恢复失败，需要人工处理",
-    "coordinator.selected_node_missing": "选定的节点不存在，已回退",
 
     "secrets.unavailable": "本平台没有可用的安全存储；凭据不会被保存，也不会以明文落盘",
     "secrets.not_found": "凭据不存在",

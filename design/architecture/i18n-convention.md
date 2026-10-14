@@ -80,23 +80,40 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | 同一键的占位符个数是否跨语言一致 | 某语言下会显示 `{1}` 字面量或丢参数 |
 | （信息）语言表里有但代码未引用的键 | 翻译已就绪但代码还没接上 |
 
-## 7. 当前缺口（必须在 G6 前关闭）
+## 7. 缺口状态
 
-截至 2026-10-14，检查脚本报告 **35 个语言表键尚未被代码引用**。
+**已关闭（2026-10-14）。**
 
-原因：以下包目前用硬编码中文构造面向用户的错误，而不是返回文案键：
+检查脚本报告：**62 个文案键全部被代码引用**，两种语言表的键集合与占位符完全一致。
 
-| 包 | 位置 | 待办 |
-|---|---|---|
-| `shared/panel` | `envelope.go` 的 `localizedMessage` | 改为返回 `MessageKey`，由界面渲染 |
-| `shared/subscription` | `fetch.go` 的 `Error.Message` | 同上 |
-| `runtime/core` | `adapter.go` 的 `ConfigError.Message` | 同上 |
-| `runtime/coreupdater` | 各处 `fmt.Errorf` | 同上 |
-| `shared/secrets` | 各处错误 | 同上 |
-| `platform/netmgr` | `manager.go` 的 `Note.Message` | 同上 |
+原先存在 35 个「语言表里有、代码未引用」的键，原因是以下包用硬编码中文构造
+面向用户的错误。现已全部改造为返回文案键：
 
-改造方式（统一做法）：
-错误类型增加 `MessageKey string` 与 `MessageArgs []any` 字段，
-保留 `Message` 作为内部诊断用的英文兜底；界面优先用 `MessageKey` 渲染。
+| 包 | 改造方式 |
+|---|---|
+| `shared/panel` | `Error` 增加 `MessageKey`/`MessageArgs`；新增 `newError` 统一构造；删除 `localizedMessage` |
+| `shared/subscription` | 同上，新增 `newError` 与 `messageKeyFor` |
+| `runtime/core` | `ConfigError` 增加键字段；新增 `NotReadyError`、`ErrProcessDidNotExit` 与 `MessageKeyFor` |
+| `runtime/coreupdater` | 新增 `InstallError`、`ErrChecksumMismatch` 与 `MessageKeyFor` |
+| `runtime/coordinator` | 新增 `RecoveryError` 与 `MessageKeyFor`（映射 `ErrBusy`/`ErrSuperseded`） |
+| `shared/secrets` | 新增 `MessageKeyFor`（哨兵错误本身挂不了键字段） |
+| `platform/netmgr` | `Note` 增加 `MessageKey`/`MessageArgs`；新增 `newNote` 统一构造 |
 
-**未关闭前，英文界面在出错时仍会显示中文**——这是 R10 未完成的证据，不得声称 i18n 已达标。
+统一模式：
+
+- 错误的**分类**（Kind / 哨兵值）用于程序判断；
+- 错误的**文案**由 `MessageKey` + `MessageArgs` 表达，界面用 `i18n.Bundle` 渲染；
+- `Message` 字段降级为**内部诊断文本**，只进日志，不进界面。
+
+`MessageKeyFor(err) string` 是这个模式的公共出口：界面拿到任意 error 后调用它取键，
+不需要逐个做类型断言；返回空串表示不是该包的可本地化错误。
+
+### 命名冲突的解决
+
+`shared/secrets` 的凭据键原本叫 `panel.session`、`panel.subscribe_url` 等，
+与文案键命名空间 `panel.*` 撞车，会被检查脚本误判为缺失的文案键。
+
+已改为 **`cred.` 前缀**（`cred.panel.session` 等）。
+
+规则：**文案键、字段路径、凭据键三类标识符必须能在命名上区分**，
+否则自动检查永远需要维护例外清单，而例外清单迟早会失效。

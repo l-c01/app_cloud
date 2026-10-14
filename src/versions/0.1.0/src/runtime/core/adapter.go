@@ -135,18 +135,22 @@ func (a *Adapter) CheckConfig(ctx context.Context, configPath string) error {
 			for _, special := range spec.configErrorExitCodes {
 				if code == special {
 					return &ConfigError{
-						Core:     a.kind,
-						ExitCode: code,
-						Output:   text,
-						Message:  "核心拒绝了该配置（配置错误）",
+						Core:       a.kind,
+						ExitCode:   code,
+						Output:     text,
+						MessageKey: "core.config_rejected",
+						MessageArgs: []any{code},
+						Message:    fmt.Sprintf("%s rejected the configuration (exit %d)", a.kind, code),
 					}
 				}
 			}
 			return &ConfigError{
-				Core:     a.kind,
-				ExitCode: code,
-				Output:   text,
-				Message:  "核心配置检查失败",
+				Core:       a.kind,
+				ExitCode:   code,
+				Output:     text,
+				MessageKey: "core.config_rejected",
+				MessageArgs: []any{code},
+				Message:    fmt.Sprintf("%s config check failed (exit %d)", a.kind, code),
 			}
 		}
 		return fmt.Errorf("core: run %s config check: %w", a.kind, err)
@@ -158,11 +162,17 @@ func (a *Adapter) CheckConfig(ctx context.Context, configPath string) error {
 //
 // 与「无法启动进程」区分开：前者是配置问题，后者是环境问题，
 // 两者的用户提示与重试策略不同。
+//
+// 本地化约定（见 design/architecture/i18n-convention.md）：
+// MessageKey 与 MessageArgs 是界面文案的唯一来源；Message 只是内部诊断文本。
+// Core 与 ExitCode 是结构化的，界面可以据此展示更具体的信息。
 type ConfigError struct {
-	Core     Kind
-	ExitCode int
-	Output   string
-	Message  string
+	Core        Kind
+	ExitCode    int
+	Output      string
+	MessageKey  string
+	MessageArgs []any
+	Message     string
 }
 
 func (e *ConfigError) Error() string {
@@ -170,6 +180,59 @@ func (e *ConfigError) Error() string {
 		return fmt.Sprintf("core: %s config rejected (exit %d): %s", e.Core, e.ExitCode, e.Message)
 	}
 	return fmt.Sprintf("core: %s config rejected (exit %d): %s: %s", e.Core, e.ExitCode, e.Message, firstLine(e.Output))
+}
+
+// ErrProcessDidNotExit 表示核心进程在被强制结束后仍未退出。
+//
+// 这是环境问题的信号（进程被占用、处于不可中断状态等），
+// 与配置错误完全不同，因此单独成类。
+var ErrProcessDidNotExit = errors.New("core: process did not exit after being killed")
+
+// NotReadyError 表示核心进程已启动，但没能在限定时间内监听端口。
+//
+// 注意：端口可连接**不等于**代理可用（见 WaitForListen 的说明），
+// 这个错误只说明连「就绪信号」都没等到。
+type NotReadyError struct {
+	Address string
+	Timeout time.Duration
+	Err     error
+}
+
+func (e *NotReadyError) Error() string {
+	return fmt.Sprintf("core: %s did not start listening within %s: %v", e.Address, e.Timeout, e.Err)
+}
+
+// Unwrap 保留底层错误，便于调用方用 errors.Is / errors.As 判断。
+func (e *NotReadyError) Unwrap() error { return e.Err }
+
+// MessageKeyFor 把本包的错误映射到界面文案键。
+//
+// 存在理由：本包既有带结构化字段的错误类型（ConfigError、NotReadyError），
+// 也有哨兵值（ErrProcessDidNotExit）。界面不该逐个类型做类型断言，
+// 因此统一从这里取键。返回空串表示不是本包的可本地化错误。
+//
+// ConfigError 的键优先取它自己携带的 MessageKey，
+// 因为同一个类型可能对应不同的失败原因。
+func MessageKeyFor(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	var ce *ConfigError
+	if errors.As(err, &ce) && ce.MessageKey != "" {
+		return ce.MessageKey
+	}
+
+	var nre *NotReadyError
+	if errors.As(err, &nre) {
+		return "core.not_ready"
+	}
+
+	if errors.Is(err, ErrProcessDidNotExit) {
+		return "core.process_did_not_exit"
+	}
+
+	return ""
 }
 
 // Process 是一个运行中的核心进程。
@@ -325,7 +388,7 @@ func (p *Process) Stop(ctx context.Context) error {
 	select {
 	case <-p.done:
 	case <-time.After(3 * time.Second):
-		return errors.New("core: process did not exit after being killed")
+		return ErrProcessDidNotExit
 	}
 	return nil
 }
@@ -348,8 +411,7 @@ func (a *Adapter) scrub(text string) string {
 //
 // 用途：判断核心是否真正就绪。**仅凭进程存在或端口打开都不能代表代理可用**，
 // 因此这个函数只作为「可以进入下一步健康检查」的信号，不是连通性证明。
-func WaitForListen(ctx context.Context, address string, timeout time.Duration) error {
-	if timeout <= 0 {
+func WaitForListen(ctx context.Context, address string, timeout time.Duration) error {	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
 	deadline := time.Now().Add(timeout)
@@ -363,7 +425,7 @@ func WaitForListen(ctx context.Context, address string, timeout time.Duration) e
 		}
 
 		if time.Now().After(deadline) {
-			return fmt.Errorf("core: %s did not start listening within %s: %w", address, timeout, err)
+			return &NotReadyError{Address: address, Timeout: timeout, Err: err}
 		}
 
 		select {
