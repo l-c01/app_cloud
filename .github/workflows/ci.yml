@@ -51,6 +51,34 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # 0) 无工具链静态预检
+  #
+  # 这两个检查不需要 Go，跑得很快，而且能给出比编译器更精确的提示
+  # （直接指出是哪个 import 未使用、哪个引用解析不了）。
+  # 它们不替代 go build，只是让问题更快被看懂。
+  # ---------------------------------------------------------------------------
+  static-prechecks:
+    name: Go static pre-checks (no toolchain)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect unused imports
+        shell: pwsh
+        run: |
+          # Go 拒绝编译引用了却未使用的包，这是新代码最常见的编译错误。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/check-go-imports.ps1
+
+      - name: Verify internal package references resolve
+        shell: pwsh
+        run: |
+          # 跨包符号引用写错（改名、拼错）也会直接编译失败。
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./tools/scripts/check-go-symbols.ps1
+
+  # ---------------------------------------------------------------------------
   # 1) 格式检查：独立作业，失败信息可一键应用
   # ---------------------------------------------------------------------------
   format:
