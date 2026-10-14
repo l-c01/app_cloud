@@ -285,10 +285,10 @@ type AppSettings struct {
 type Options struct {
 	RouteMode RouteMode `json:"route_mode"`
 
-	Groups       []ProxyGroup `json:"groups,omitempty"`
-	Rules        []Rule       `json:"rules,omitempty"`
-	RuleSets     []RuleSet    `json:"rule_sets,omitempty"`
-	FinalAction  RuleAction   `json:"final_action"`
+	Groups      []ProxyGroup `json:"groups,omitempty"`
+	Rules       []Rule       `json:"rules,omitempty"`
+	RuleSets    []RuleSet    `json:"rule_sets,omitempty"`
+	FinalAction RuleAction   `json:"final_action"`
 
 	DNS     DNSSettings          `json:"dns"`
 	Inbound InboundSettings      `json:"inbound"`
