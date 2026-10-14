@@ -51,17 +51,34 @@ if (-not $repoRoot) { throw 'Cannot locate repository root (no .git found).' }
 
 # Collect markdown files. Reference snapshots are excluded: they are
 # third-party material and their links are not ours to fix.
+#
+# A root that cannot be read is skipped with a visible note rather than
+# aborting the whole check. A link checker failing because one directory is
+# unreadable would hide every real link problem behind an unrelated error.
 $files = @()
+$skipped = @()
 foreach ($root in $Roots) {
     $path = Join-Path $repoRoot $root
-    if (-not (Test-Path $path)) { continue }
-    $item = Get-Item $path
+    if (-not (Test-Path -LiteralPath $path)) {
+        $skipped += $root
+        continue
+    }
+    $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+    if ($null -eq $item) {
+        # Test-Path said it exists but Get-Item could not read it.
+        $skipped += $root
+        continue
+    }
     if ($item.PSIsContainer) {
-        $files += Get-ChildItem -Path $path -Recurse -File -Filter '*.md' |
-            Where-Object { $_.FullName -notmatch '\\references\\' }
+        $files += Get-ChildItem -LiteralPath $path -Recurse -File -Filter '*.md' |
+            Where-Object { $_.FullName -notmatch '[\\/]references[\\/]' }
     } elseif ($item.Extension -eq '.md') {
         $files += $item
     }
+}
+
+if ($skipped.Count -gt 0) {
+    Write-Host ("note: skipped root(s) that are not present or not readable: {0}" -f ($skipped -join ', '))
 }
 
 if ($files.Count -eq 0) {

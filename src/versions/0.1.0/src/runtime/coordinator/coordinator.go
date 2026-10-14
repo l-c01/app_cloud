@@ -381,7 +381,7 @@ func (c *Coordinator) Connect(ctx context.Context, req ConnectRequest) error {
 			c.recordJournal(&entry, gen, StateRecovering, running, req.Mode)
 
 			result, err := c.opts.Network.Restore(ctx, snapshot, applied)
-			if result != nil && len(result.Conflicts) > 0 {
+			if len(result.Conflicts) > 0 {
 				c.mu.Lock()
 				c.conflicts = result.Conflicts
 				c.mu.Unlock()
@@ -624,12 +624,16 @@ func (c *Coordinator) restoreFromJournal(ctx context.Context) (*RestoreResult, e
 	}
 
 	result, err := c.opts.Network.Restore(ctx, stored.Original, stored.Applied)
-	if result != nil && len(result.Conflicts) > 0 {
+	if len(result.Conflicts) > 0 {
 		c.mu.Lock()
 		c.conflicts = result.Conflicts
 		c.mu.Unlock()
 	}
-	return result, err
+	// NetworkManager.Restore 返回的是值而不是指针，因此这里取地址返回。
+	//
+	// 返回 nil 只发生在「日志里没有待恢复项」时，语义是「无需恢复」——
+	// 这与「恢复执行了但没有冲突」不是一回事，调用方据此区分两种情况。
+	return &result, err
 }
 
 // recordJournal 写入（或更新）恢复记录。

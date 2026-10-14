@@ -70,3 +70,13 @@ int RunAll() {
 }
 
 }  // namespace pcx::test
+
+// 进程入口。
+//
+// 必须在这里定义：test_main.cpp 是唯一始终参与链接的测试翻译单元。
+// 少了它，pcx_tests 链接时会报 `undefined reference to main'——
+// 链接错误不会指出「你忘了写入口」，只会列出这个符号，
+// 很容易被误读成构件配置问题。
+int main() {
+    return pcx::test::RunAll();
+}

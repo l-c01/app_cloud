@@ -88,7 +88,14 @@ void MainFrame::BuildMenuBar() {
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         ApplyMode(app::UiMode::Professional, /*persist=*/true);
     }, wxID_VIEW_DETAILS);
-    Bind(wxEVT_MENU, &MainFrame::OnClose, this, wxID_EXIT);
+    // 「退出」菜单走 Close()，而不是直接把 OnClose 绑到菜单事件上。
+    //
+    // OnClose 的参数是 wxCloseEvent&，而 wxEVT_MENU 派发的是 wxCommandEvent&，
+    // 类型不匹配无法绑定（wx 的事件表是编译期检查的）。
+    // 更重要的是语义：退出应当走正常的关闭流程——Close() 会发出
+    // wxEVT_CLOSE_WINDOW，从而经过 OnClose 里的保存与断开逻辑；
+    // 直接调用 OnClose 或强行绑定反而会跳过这些步骤。
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { Close(); }, wxID_EXIT);
 
     auto* help_menu = new wxMenu();
     help_menu->Append(wxID_ANY, wxString::FromUTF8(context_.T("ui.menu.diagnostics")));
@@ -301,7 +308,9 @@ void MainFrame::ShowAbout() {
     info.SetName(wxString::FromUTF8(context_.config.application_name));
     info.SetVersion(wxString::FromUTF8(PCX_VERSION));
     if (!context_.config.publisher.empty()) {
-        info.SetDeveloper(wxString::FromUTF8(context_.config.publisher));
+        // wx 3.2 的 API 是 SetDevelopers（复数）：它接受一组开发者，
+        // 传入单个字符串会隐式构造一个元素的数组。
+        info.SetDevelopers(wxString::FromUTF8(context_.config.publisher));
     }
     if (!context_.config.homepage_url.empty()) {
         info.SetWebSite(wxString::FromUTF8(context_.config.homepage_url));
