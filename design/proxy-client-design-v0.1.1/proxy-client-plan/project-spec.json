@@ -1,0 +1,642 @@
+{
+  "schemaVersion": "1.0.0",
+  "documentVersion": "0.1.1",
+  "date": "2026-10-14",
+  "projectWorkingName": "ProxyClient",
+  "status": "design_only",
+  "implementationExists": false,
+  "applicationBuildRun": false,
+  "runtimeVerified": false,
+  "authority": {
+    "human_design": [
+      "DESIGN.zh-CN.md",
+      "DESIGN.en.md"
+    ],
+    "machine_spec": "project-spec.json",
+    "conflict_policy": "record discrepancy and resolve explicitly; do not silently override mandatory requirements"
+  },
+  "scope": {
+    "requiredFamilies": [
+      "windows",
+      "android",
+      "linux"
+    ],
+    "optionalFamilies": [
+      "docker"
+    ],
+    "localApplicationBuildsRequired": false,
+    "sourceDeliveryRequired": true,
+    "buildLocation": "GitHub Actions"
+  },
+  "defaults": {
+    "apiBaseUrl": "",
+    "webBaseUrl": "",
+    "apiProfile": "auto",
+    "uiMode": "simple",
+    "rememberUiMode": false,
+    "language": "system",
+    "languageFallback": "en",
+    "publish": false,
+    "dockerEnabled": false,
+    "selectedCore": "sing-box"
+  },
+  "dimensions": {
+    "uiMode": [
+      "simple",
+      "professional"
+    ],
+    "trafficEntry": [
+      "system_proxy",
+      "tun",
+      "pac",
+      "local_proxy"
+    ],
+    "routingPolicy": [
+      "rule",
+      "global",
+      "direct"
+    ],
+    "androidAppScope": [
+      "all",
+      "include",
+      "exclude"
+    ]
+  },
+  "requirements": [
+    {
+      "id": "R01",
+      "title": "UI modes and remembrance",
+      "plannedCompletionGate": "G3",
+      "tests": [
+        "T01"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R02",
+      "title": "Empty endpoints and independent configuration",
+      "plannedCompletionGate": "G2",
+      "tests": [
+        "T02"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R03",
+      "title": "Xboard user business operations",
+      "plannedCompletionGate": "G3",
+      "tests": [
+        "T03",
+        "T04"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R04",
+      "title": "Xray and sing-box capabilities",
+      "plannedCompletionGate": "G4",
+      "tests": [
+        "T05"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R05",
+      "title": "Windows system proxy/TUN/PAC",
+      "plannedCompletionGate": "G4",
+      "tests": [
+        "T06",
+        "T08"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R06",
+      "title": "Android VPN and app scopes",
+      "plannedCompletionGate": "G4",
+      "tests": [
+        "T07",
+        "T09"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R07",
+      "title": "Third-party imports and manual nodes",
+      "plannedCompletionGate": "G4",
+      "tests": [
+        "T02",
+        "T10"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R08",
+      "title": "PAC and Geo imports",
+      "plannedCompletionGate": "G4",
+      "tests": [
+        "T11"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R09",
+      "title": "Advanced customization",
+      "plannedCompletionGate": "G4",
+      "tests": [
+        "T05",
+        "T15"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R10",
+      "title": "System-language default and i18n",
+      "plannedCompletionGate": "G4",
+      "tests": [
+        "T14"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R11",
+      "title": "Required architectures",
+      "plannedCompletionGate": "G5",
+      "tests": [
+        "T13"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R12",
+      "title": "Manual build presets",
+      "plannedCompletionGate": "G5",
+      "tests": [
+        "T12"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R13",
+      "title": "Optional Docker architectures",
+      "plannedCompletionGate": "G5",
+      "tests": [
+        "T17"
+      ],
+      "mandatory": false,
+      "status": "planned"
+    },
+    {
+      "id": "R14",
+      "title": "Bilingual docs and AI records",
+      "plannedCompletionGate": "G6",
+      "tests": [
+        "document_coverage"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R15",
+      "title": "Secrets and transaction recovery",
+      "plannedCompletionGate": "G4",
+      "tests": [
+        "T03",
+        "T08",
+        "T15"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    },
+    {
+      "id": "R16",
+      "title": "Lightweight measurable budgets",
+      "plannedCompletionGate": "G6",
+      "tests": [
+        "T16"
+      ],
+      "mandatory": true,
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "candidate": true,
+    "desktopUi": "C++20/wxWidgets/CMake",
+    "business": "Go shared packages and regular desktop service",
+    "desktopCores": "separate pinned Xray/sing-box processes; one selected core",
+    "androidUi": "Kotlin/Compose",
+    "androidNetwork": "VpnService",
+    "androidBindings": "single AAR with shared wrapper and both cores, subject to G1 compatibility probe",
+    "privilegedDesktopOperations": "restricted separate broker with ownership journal"
+  },
+  "targets": [
+    {
+      "id": "windows-amd64",
+      "family": "windows",
+      "arch": "amd64",
+      "required": true,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "zip",
+        "installer"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "MSVC + CMake + Go sidecars"
+    },
+    {
+      "id": "windows-386",
+      "family": "windows",
+      "arch": "386",
+      "required": true,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "zip",
+        "installer"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "MSVC + CMake + Go sidecars"
+    },
+    {
+      "id": "windows-arm64",
+      "family": "windows",
+      "arch": "arm64",
+      "required": true,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "zip",
+        "installer"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "MSVC + CMake + Go sidecars"
+    },
+    {
+      "id": "linux-amd64",
+      "family": "linux",
+      "arch": "amd64",
+      "required": true,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "deb",
+        "tar.gz"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "pinned distribution build environment + CMake + Go"
+    },
+    {
+      "id": "linux-386",
+      "family": "linux",
+      "arch": "386",
+      "required": true,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "deb",
+        "tar.gz"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "pinned distribution build environment + CMake + Go"
+    },
+    {
+      "id": "linux-arm64",
+      "family": "linux",
+      "arch": "arm64",
+      "required": true,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "deb",
+        "tar.gz"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "pinned distribution build environment + CMake + Go"
+    },
+    {
+      "id": "docker-amd64",
+      "family": "docker",
+      "arch": "amd64",
+      "required": false,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "oci-image"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "Buildx multi-platform headless service"
+    },
+    {
+      "id": "docker-386",
+      "family": "docker",
+      "arch": "386",
+      "required": false,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "oci-image"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "Buildx multi-platform headless service"
+    },
+    {
+      "id": "docker-arm64",
+      "family": "docker",
+      "arch": "arm64",
+      "required": false,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "oci-image"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "Buildx multi-platform headless service"
+    },
+    {
+      "id": "android-arm64-v8a",
+      "family": "android",
+      "abi": "arm64-v8a",
+      "arch": "arm64",
+      "goarm": null,
+      "required": true,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "apk"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "Gradle + NDK + single Go binding AAR candidate"
+    },
+    {
+      "id": "android-armeabi-v7a",
+      "family": "android",
+      "abi": "armeabi-v7a",
+      "arch": "arm",
+      "goarm": "7",
+      "required": true,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "apk"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "Gradle + NDK + single Go binding AAR candidate"
+    },
+    {
+      "id": "android-x86",
+      "family": "android",
+      "abi": "x86",
+      "arch": "386",
+      "goarm": null,
+      "required": true,
+      "status": "planned",
+      "build_verified": false,
+      "runtime_verified": false,
+      "artifact_types": [
+        "apk"
+      ],
+      "os_baseline": null,
+      "toolchain_route": "Gradle + NDK + single Go binding AAR candidate"
+    }
+  ],
+  "buildPresets": {
+    "all": {
+      "targets": [
+        "windows-amd64",
+        "windows-386",
+        "windows-arm64",
+        "android-arm64-v8a",
+        "android-armeabi-v7a",
+        "android-x86",
+        "linux-amd64",
+        "linux-386",
+        "linux-arm64"
+      ],
+      "optionalTargets": [
+        "docker-amd64",
+        "docker-386",
+        "docker-arm64"
+      ]
+    },
+    "windows": {
+      "targets": [
+        "windows-amd64",
+        "windows-386",
+        "windows-arm64"
+      ]
+    },
+    "android": {
+      "targets": [
+        "android-arm64-v8a",
+        "android-armeabi-v7a",
+        "android-x86"
+      ],
+      "optionalAbi": "x86_64"
+    },
+    "linux": {
+      "targets": [
+        "linux-amd64",
+        "linux-386",
+        "linux-arm64"
+      ]
+    },
+    "docker": {
+      "targets": [
+        "docker-amd64",
+        "docker-386",
+        "docker-arm64"
+      ],
+      "optional": true
+    },
+    "common": {
+      "targets": [
+        "windows-amd64",
+        "windows-386",
+        "linux-amd64",
+        "linux-386",
+        "android-arm64-v8a",
+        "android-armeabi-v7a"
+      ]
+    },
+    "architecture": {
+      "requiredChoice": [
+        "amd64",
+        "386",
+        "arm64",
+        "all"
+      ],
+      "extraChoice": [
+        "armv7"
+      ],
+      "defaultFamilies": [
+        "windows",
+        "linux"
+      ],
+      "optInFamilies": [
+        "android",
+        "docker"
+      ],
+      "androidMapping": {
+        "amd64": "optional x86_64, fail explicitly if requested but unavailable",
+        "386": "x86",
+        "arm64": "arm64-v8a",
+        "armv7": "armeabi-v7a"
+      },
+      "omitUnavailableSilently": false
+    }
+  },
+  "workflowContract": {
+    "trigger": "workflow_dispatch",
+    "automaticProductionBuildOnPush": false,
+    "defaultDestination": "Actions artifacts",
+    "wrappers": [
+      "build-all.yml",
+      "build-windows.yml",
+      "build-android.yml",
+      "build-linux.yml",
+      "build-docker.yml",
+      "build-arch.yml",
+      "build-common.yml"
+    ],
+    "reusable": [
+      "reusable-desktop.yml",
+      "reusable-android.yml",
+      "reusable-docker.yml"
+    ],
+    "filesImplemented": false,
+    "matrixFailFast": false,
+    "requiredFailureFailsAggregate": true,
+    "unrunRuntimeStatus": "not_run",
+    "useLatestDependencies": false,
+    "releaseAndroidRequiresStableUserKey": true,
+    "inputs": [
+      "source_ref",
+      "preset_or_arch",
+      "include_docker",
+      "build_type",
+      "publish",
+      "release_tag"
+    ]
+  },
+  "stages": [
+    {
+      "id": "G0",
+      "name": "Source/API/license/platform/version audit",
+      "status": "planned"
+    },
+    {
+      "id": "G1",
+      "name": "Architecture/core/network/binding probes",
+      "status": "planned"
+    },
+    {
+      "id": "G2",
+      "name": "Canonical models/business/import/i18n shell",
+      "status": "planned"
+    },
+    {
+      "id": "G3",
+      "name": "Windows/Android usable simple mode",
+      "status": "planned"
+    },
+    {
+      "id": "G4",
+      "name": "Advanced settings and complete platform entry",
+      "status": "planned"
+    },
+    {
+      "id": "G5",
+      "name": "Linux/all-architecture packaging/manual builds",
+      "status": "planned"
+    },
+    {
+      "id": "G6",
+      "name": "Bilingual docs and release closure",
+      "status": "planned"
+    }
+  ],
+  "invariants": [
+    "No hardcoded production endpoint or secrets",
+    "Independent third-party profiles survive panel outages",
+    "UI modes share one repository",
+    "No silent conversion loss",
+    "Only one active connection transaction/core",
+    "Network rollback respects ownership and external edits",
+    "Every required target remains visible",
+    "All facts/build/runtime claims require evidence",
+    "Native profiles belong to their original core",
+    "Docs and changes stay bilingual"
+  ],
+  "definitionOfDone": {
+    "allRequiredTargetsBuildAndRuntimeVerified": true,
+    "bothCoresConnectedPerPlatformFamily": true,
+    "architectureSpecificNetworkDependenciesVerified": true,
+    "openP0P1": 0,
+    "allMandatoryRequirementsAccepted": true,
+    "bilingualDeveloperAndUserDocs": true,
+    "cleanCheckoutManualBuild": true,
+    "emptyEndpointDefaults": true,
+    "optionalDockerMayBeDeferred": true
+  },
+  "unresolved": [
+    "Pinned Xboard commit/routes/auth/DTOs",
+    "Verifiable original Clash Verge and Clash for Android source snapshots",
+    "Combined Android AAR dependency compatibility",
+    "x86 GUI/driver/binding support",
+    "Exact Windows/Linux/Android OS baselines",
+    "Dependency and resource pins",
+    "Project identity and signing configuration",
+    "Reuse license inventory",
+    "Measured resource budgets"
+  ],
+  "nextTask": "G0 source and contract audit, then G1 probes; do not generate full UI before probe decisions",
+  "configurationContract": {
+    "file": "client-config.json",
+    "schema": "client-config.schema.json",
+    "loaderImplemented": false,
+    "publicFieldsOnly": true,
+    "defaultEndpointsEmpty": true,
+    "precedence": [
+      "built_in_fallbacks",
+      "client_config_public_defaults",
+      "user_runtime_overrides"
+    ],
+    "secretStorage": "OS-backed SecretStore, not client-config.json"
+  },
+  "validationOwnership": {
+    "githubBuilds": "manual workflows after implementation",
+    "staticAndContractChecks": "developer_agent",
+    "physicalDeviceTests": "user",
+    "physicalDeviceResults": "not_run",
+    "sourceArchivesVisible": false
+  },
+  "provisionalOsDefaults": {
+    "windows": "Windows 10/11; exact baseline subject to dependency audit",
+    "android": "Evaluate API 26+; not a frozen minSdk promise",
+    "linux": "Ubuntu/Debian; exact baseline pending audit"
+  }
+}

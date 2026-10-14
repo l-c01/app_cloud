@@ -1,0 +1,22 @@
+# TASK-0000: <bounded task / 有界任务>
+
+- Status / 状态: planned
+- Requirement IDs / 需求: Rxx
+- Gate / 阶段: Gx
+- Source SHA / 当前源码: unknown
+- Objective / 目标:
+- In scope / 范围:
+- Out of scope / 边界:
+- Platforms and architectures / 平台架构:
+- Facts and source references / 已知事实与源码定位:
+- Unknowns / 未知项:
+- Affected files/modules / 文件模块:
+- API/schema/IPC impact / 契约影响:
+- Dependencies and license impact / 依赖影响:
+- Implementation steps / 实现步骤:
+- Acceptance test IDs and expected result / 验收:
+- Rollback and network recovery / 回退恢复:
+- Documentation updates in both languages / 双语言文档:
+- Result and evidence paths / 结果证据:
+- Remaining blockers / 剩余阻塞:
+- Next single task / 下一唯一任务:

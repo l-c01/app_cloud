@@ -1,0 +1,140 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "unverified_template",
+  "panelRepository": "https://github.com/cedar2025/Xboard",
+  "panelCommit": null,
+  "operations": [
+    {
+      "operation": "discoverPanel",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "login",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "getAccount",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "getTraffic",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "getSubscriptionDescriptor",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "listAnnouncements",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "listTickets",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "getTicket",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "createTicket",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "replyTicket",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "closeTicket",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    },
+    {
+      "operation": "logout",
+      "method": null,
+      "path": null,
+      "authSemantics": null,
+      "requestSchema": null,
+      "responseSchema": null,
+      "sourceLocation": null,
+      "fixture": null,
+      "verified": false
+    }
+  ]
+}

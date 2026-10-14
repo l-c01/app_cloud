@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "1.0.0",
+  "branding": {
+    "applicationName": "",
+    "displayNames": {
+      "zh-CN": "",
+      "en": ""
+    },
+    "publisher": "",
+    "applicationId": "",
+    "androidPackageId": "",
+    "homepageUrl": "",
+    "supportUrl": "",
+    "privacyPolicyUrl": "",
+    "termsUrl": "",
+    "iconAssetPath": ""
+  },
+  "panel": {
+    "apiBaseUrl": "",
+    "webBaseUrl": "",
+    "apiProfile": "auto",
+    "apiPathPrefix": "",
+    "timeoutSeconds": 15,
+    "allowInsecureHttpForTesting": false,
+    "customHeaders": {},
+    "endpointOverrides": {}
+  },
+  "panelLinks": {
+    "registrationUrl": "",
+    "passwordResetUrl": "",
+    "purchaseUrl": "",
+    "renewalUrl": "",
+    "documentationUrl": ""
+  },
+  "clientDefaults": {
+    "uiMode": "simple",
+    "rememberUiMode": false,
+    "language": "system",
+    "fallbackLanguage": "en",
+    "core": "sing-box",
+    "routingPolicy": "rule",
+    "connectOnLaunch": false,
+    "launchAtLogin": false,
+    "subscriptionRefreshMinutes": 0,
+    "allowLanAccess": false,
+    "localProxyHost": "127.0.0.1",
+    "httpProxyPort": 7890,
+    "socksProxyPort": 7891,
+    "trafficEntry": {
+      "windows": "system_proxy",
+      "android": "tun",
+      "linux": "local_proxy"
+    },
+    "androidAppScope": {
+      "mode": "all",
+      "packages": []
+    },
+    "tun": {
+      "mtu": 1500,
+      "enableIpv6": false,
+      "excludeCidrs": []
+    },
+    "pac": {
+      "listenHost": "127.0.0.1",
+      "port": 7892,
+      "directDomains": [],
+      "proxyDomains": [],
+      "defaultAction": "DIRECT",
+      "geoImports": []
+    }
+  },
+  "testSettings": {
+    "showConnectionDiagnostics": true,
+    "enableApiSettingsEditor": true,
+    "testTargetUrl": ""
+  }
+}

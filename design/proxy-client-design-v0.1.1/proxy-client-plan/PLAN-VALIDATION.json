@@ -1,0 +1,20 @@
+{
+  "checkType": "planning_package_static_validation",
+  "status": "passed",
+  "jsonFilesParsed": 8,
+  "requiredTargets": 9,
+  "optionalDockerTargets": 3,
+  "requirementIds": 16,
+  "productionWorkflowFiles": 0,
+  "applicationCompilation": "not_run",
+  "proxyVpnRuntimeTests": "not_run",
+  "apiEndpointVerification": "pending_G0",
+  "notes": [
+    "Validated target IDs and preset membership",
+    "Checked Markdown code fence balance",
+    "No build/runtime success claimed"
+  ],
+  "configurationSchemaValidation": "json_parsed_and_manual_constraints_checked; full_schema_validation_not_run",
+  "physicalDeviceTests": "user_owned_not_run",
+  "sourceAttachmentAudit": "not_run_sources_not_accessible"
+}

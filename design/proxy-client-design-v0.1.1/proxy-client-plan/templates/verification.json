@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "testId": "Txx",
+  "requirementIds": [
+    "Rxx"
+  ],
+  "sourceSha": null,
+  "targetId": null,
+  "osVersion": null,
+  "coreName": null,
+  "coreVersion": null,
+  "dependencyLockHash": null,
+  "status": "not_run",
+  "steps": [],
+  "expected": null,
+  "actual": null,
+  "evidencePaths": [],
+  "secretsRedacted": true,
+  "runnerOrDevice": null,
+  "limitations": [],
+  "timestamp": null
+}

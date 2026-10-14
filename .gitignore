@@ -1,0 +1,107 @@
+# =============================================================================
+# Xboard 客户端仓库 · 版本管理忽略规则
+#
+# 目录约定：
+#   design/   只放设计文件（文档、契约、Schema、ADR、审计）
+#   src/      源码；src/references 第三方只读参考，src/versions 各版本源码
+#   output/   对外输出（构建产物、报告、导出包）
+#
+# 规则原则：自己写的源码与设计全部入库；第三方快照、构建产物、秘密一律不入库。
+# =============================================================================
+
+# --- 第三方参考源码（只读审计对象，不入版本历史）---
+src/references/**
+
+# --- 对外输出（可再生成，不入库；保留目录占位文件）---
+output/**
+!output/README.md
+!output/.gitkeep
+
+# --- 构建产物 / 中间文件 ---
+build/
+out/
+dist/
+artifacts/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.class
+*.jar
+*.apk
+*.aab
+*.dex
+
+# --- CMake / MSVC / Ninja ---
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CMakeUserPresets.json
+*.vcxproj*
+.vs/
+*.sln
+compile_commands.json
+
+# --- Go ---
+*.test
+*.prof
+__debug_bin*
+vendor/
+
+# --- Gradle / Android / Kotlin ---
+.gradle/
+gradle-app.setting
+local.properties
+captures/
+.kotlin/
+*.hprof
+
+# --- Node（仅备选路线会用到）---
+node_modules/
+.pnpm-store/
+
+# --- 依赖缓存 ---
+.venv/
+.cache/
+tmp/
+
+# --- 秘密与本地凭据（绝不入库）---
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.pfx
+*.p12
+*.pem
+*.key
+secrets/
+local-secrets/
+
+# --- 运行时数据 / 日志 ---
+*.log
+logs/
+*.db
+*.db-journal
+*.db-wal
+*.journal
+*.wal
+
+# --- 编辑器 / 操作系统 ---
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- 工具产生的临时报告 ---
+*.jsonl

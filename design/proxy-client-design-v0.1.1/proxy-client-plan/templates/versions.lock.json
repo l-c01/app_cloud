@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "unresolved_template_not_for_release",
+  "appVersion": null,
+  "sources": {
+    "xboard": {
+      "commit": null
+    },
+    "xray": {
+      "commit": null,
+      "checksum": null
+    },
+    "sing-box": {
+      "commit": null,
+      "checksum": null
+    }
+  },
+  "toolchains": {
+    "go": null,
+    "cmake": null,
+    "wxWidgets": null,
+    "msvc": null,
+    "linux_compiler": null,
+    "jdk": null,
+    "gradle": null,
+    "agp": null,
+    "kotlin": null,
+    "ndk": null,
+    "android_compile_sdk": null,
+    "android_min_sdk": null
+  },
+  "actions": {},
+  "baseImages": {},
+  "ruleResources": [],
+  "releaseBuildMustRejectNullPins": true
+}

@@ -1,0 +1,825 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "verified_from_supplied_snapshot",
+  "panelRepository": "https://github.com/cedar2025/Xboard",
+  "panelSnapshot": "design/Xboard-master",
+  "panelCommit": null,
+  "panelFacts": {
+    "composerName": "xboard/xboard",
+    "php": "^8.2",
+    "laravelFramework": "^12.0",
+    "authStack": "Laravel Sanctum personal access tokens",
+    "sourceLocation": "design/Xboard-master/composer.json"
+  },
+  "verificationNote": "所有 method/path/字段均逐条读取 design/Xboard-master 源码得到，并附 sourceLocation 行号。凡未读取到的内容不以 null 之外的推断填充；推断项在 notes 中标注『推断』。",
+  "envelope": {
+    "success": { "status": "success", "message": "string", "data": "any|null", "error": "null" },
+    "fail": { "status": "fail", "message": "string", "data": "any|null", "error": "any|null" },
+    "httpStatusDerivation": "取 codeResponse[0] 的前三位，例如 [400,...] -> 400，[422,...] -> 422",
+    "codeNotReturnedInBody": true,
+    "sourceLocation": "design/Xboard-master/app/Helpers/ApiResponse.php:44-55",
+    "notEnvelopedExceptions": [
+      {
+        "path": "/api/v1/user/notice/fetch",
+        "returns": "{ data: Notice[], total: number }",
+        "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/NoticeController.php:21-24"
+      },
+      {
+        "path": "/api/v1/user/server/fetch",
+        "returns": "{ data: Node[] } 并带 ETag 响应头；命中 If-None-Match 时返回 304 空 body",
+        "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/ServerController.php:22-29"
+      },
+      {
+        "path": "/api/v1/client/subscribe",
+        "returns": "非 JSON：按客户端类型返回 Base64/Clash YAML/sing-box JSON 等订阅正文；用户不可用时返回 403 且 body 为空",
+        "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Client/ClientController.php:46-52"
+      }
+    ]
+  },
+  "authContexts": [
+    {
+      "id": "public",
+      "description": "无需认证",
+      "header": null,
+      "sourceLocation": "design/Xboard-master/app/Providers/RouteServiceProvider.php:66-86"
+    },
+    {
+      "id": "userBearer",
+      "description": "Laravel Sanctum 守卫，Authorization 头携带 Bearer token；缺失或失效抛 ApiException 403",
+      "header": "Authorization: Bearer <token>",
+      "failureStatus": 403,
+      "failureMessage": "未登录或登陆已过期",
+      "sourceLocation": "design/Xboard-master/app/Http/Middleware/User.php:22-25"
+    },
+    {
+      "id": "subscribeToken",
+      "description": "订阅 token 载体：query 参数 token 或路由参数 token；服务端按 users.token 查询用户，不校验 UUID",
+      "acceptedLocations": ["query:token", "route:{token}"],
+      "failureStatus": 403,
+      "failureMessages": ["token is null", "token is error"],
+      "sourceLocation": "design/Xboard-master/app/Http/Middleware/Client.php:21-28"
+    }
+  ],
+  "operations": [
+    {
+      "operation": "login",
+      "realm": "public",
+      "method": "POST",
+      "path": "/api/v1/passport/auth/login",
+      "auth": "public",
+      "request": {
+        "body": {
+          "email": { "type": "string", "required": true, "validation": "见 AuthLogin Request 类" },
+          "password": { "type": "string", "required": true, "validation": "见 AuthLogin Request 类" }
+        }
+      },
+      "responseData": {
+        "token": "用户订阅 token（users.token），非登录凭据",
+        "auth_data": "字符串，形如 'Bearer <sanctum-plain-text-token>'，已去掉 Sanctum 的 id 前缀",
+        "is_admin": "boolean"
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Passport/AuthController.php:72-85; design/Xboard-master/app/Services/AuthService.php:18-36",
+      "verified": { "path": true, "fields": true },
+      "notes": "客户端必须把 auth_data 原样作为 Authorization 头使用。token 字段是订阅 token，属于秘密，两者不可混用。Sanctum token 过期时间由服务端设置为 now()->addYear()（AuthService.php:24）。"
+    },
+    {
+      "operation": "register",
+      "realm": "public",
+      "method": "POST",
+      "path": "/api/v1/passport/auth/register",
+      "auth": "public",
+      "request": { "note": "见 AuthRegister Request 类；本轮未逐条展开校验规则" },
+      "responseData": { "token": "string", "auth_data": "string", "is_admin": "boolean" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Passport/AuthController.php:57-67",
+      "verified": { "path": true, "fields": true },
+      "notes": "设计基线 R02 允许首轮以用户自填的面板网页完成注册，本接口可后置。"
+    },
+    {
+      "operation": "sendEmailVerify",
+      "realm": "public",
+      "method": "POST",
+      "path": "/api/v1/passport/comm/sendEmailVerify",
+      "auth": "public",
+      "request": {
+        "body": {
+          "email": { "type": "string", "required": true },
+          "captcha": { "type": "object", "required": false, "note": "由 CaptchaService 决定是否必需，取决于面板配置" }
+        }
+      },
+      "responseData": { "note": "success(true)" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Passport/CommController.php:19-63",
+      "verified": { "path": true, "fields": true },
+      "notes": "服务端有 60 秒发送间隔限制与可选的邮箱后缀白名单，失败会返回 [400, 文案]。客户端需原样展示 message 并做本地防抖。"
+    },
+    {
+      "operation": "forgetPassword",
+      "realm": "public",
+      "method": "POST",
+      "path": "/api/v1/passport/auth/forget",
+      "auth": "public",
+      "request": {
+        "body": {
+          "email": { "type": "string", "required": true },
+          "email_code": { "type": "string", "required": true },
+          "password": { "type": "string", "required": true }
+        }
+      },
+      "responseData": { "note": "success(true)" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Passport/AuthController.php:161-174",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "token2Login",
+      "realm": "public",
+      "method": "GET",
+      "path": "/api/v1/passport/auth/token2Login",
+      "auth": "public",
+      "request": {
+        "query": {
+          "verify": { "type": "string", "required": false, "note": "邮件链接登录验证码" },
+          "token": { "type": "string", "required": false, "note": "直跳模式，会 302 到面板网页" },
+          "redirect": { "type": "string", "required": false }
+        }
+      },
+      "responseData": { "note": "verify 模式返回 { data: { token, auth_data, is_admin } }；无参返回 400 { message: 'Invalid request' }；token 模式为 302 重定向" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Passport/AuthController.php:90-131",
+      "verified": { "path": true, "fields": true },
+      "notes": "注意 verify 分支的响应体是 { data: ... }，与标准信封（{status,message,data,error}）不同，属于需要兼容的例外。"
+    },
+    {
+      "operation": "getQuickLoginUrl",
+      "realm": "public",
+      "method": "POST",
+      "path": "/api/v1/passport/auth/getQuickLoginUrl",
+      "auth": "public",
+      "request": {
+        "body": {
+          "auth_data": { "type": "string", "required": false, "note": "也可改用 Authorization 头" },
+          "redirect": { "type": "string", "required": false }
+        }
+      },
+      "responseData": { "note": "success(url)" },
+      "failure": { "401": ["CLIENT_HTTP_UNAUTHORIZED", "CLIENT_HTTP_UNAUTHORIZED_EXPIRED"] },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Passport/AuthController.php:136-156",
+      "verified": { "path": true, "fields": true },
+      "notes": "实现方式为 AuthService::findUserByBearerToken，即真正的 Bearer token 校验。可作为『校验会话是否仍有效』的轻量探测，但需注意它会生成面板侧登录 URL，属于写操作语义。"
+    },
+    {
+      "operation": "getAccount",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/info",
+      "auth": "userBearer",
+      "request": {},
+      "responseData": {
+        "email": "string",
+        "transfer_enable": "number（字节总额度）",
+        "last_login_at": "number|null",
+        "created_at": "string",
+        "banned": "number|boolean",
+        "remind_expire": "number|boolean",
+        "remind_traffic": "number|boolean",
+        "expired_at": "number|null（unix 秒；0/null 视为长期有效）",
+        "balance": "number",
+        "commission_balance": "number",
+        "plan_id": "number|null",
+        "discount": "number|null",
+        "commission_rate": "number|null",
+        "telegram_id": "number|null",
+        "uuid": "string（VLESS/VMess 等协议的用户标识，属秘密）",
+        "avatar_url": "string（服务端按 email md5 生成 gravatar，客户端不经网络请求）"
+      },
+      "failure": { "403": ["未登录或登陆已过期"] },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:88-114",
+      "verified": { "path": true, "fields": true },
+      "notes": "banned/expired_at 需要客户端做状态判定，不要在 UI 上直接显示原始布尔数值。"
+    },
+    {
+      "operation": "getAccountV2",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v2/user/info",
+      "auth": "userBearer",
+      "request": {},
+      "responseData": { "note": "复用 V1 UserController::info，返回结构相同" },
+      "sourceLocation": "design/Xboard-master/app/Http/Routes/V2/UserRoute.php:16",
+      "verified": { "path": true, "fields": true },
+      "notes": "V2 前缀可用于版本适配探测：能访问 /api/v2 说明服务端较新。"
+    },
+    {
+      "operation": "getUserStat",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/getStat",
+      "auth": "userBearer",
+      "request": {},
+      "responseData": {
+        "note": "位置数组，不是对象：[ 未支付订单数, 待处理工单数, 邀请人数 ]",
+        "items": ["pendingOrderCount:number", "pendingTicketCount:number", "inviteeCount:number"]
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:116-129",
+      "verified": { "path": true, "fields": true },
+      "notes": "返回数组是易踩的坑：客户端 DTO 需按索引解析并命名，不能按对象字段读取。"
+    },
+    {
+      "operation": "getSubscriptionDescriptor",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/getSubscribe",
+      "auth": "userBearer",
+      "request": {},
+      "responseData": {
+        "plan_id": "number|null",
+        "token": "string（订阅 token，属秘密）",
+        "expired_at": "number|null",
+        "u": "number（已用上传字节）",
+        "d": "number（已用下载字节）",
+        "transfer_enable": "number（总额度字节）",
+        "email": "string",
+        "uuid": "string（秘密）",
+        "device_limit": "number|null",
+        "speed_limit": "number|null",
+        "next_reset_at": "number|null",
+        "plan": "Plan 对象（仅当 plan_id 存在时附加）",
+        "subscribe_url": "string（完整订阅链接，含 token，属秘密）",
+        "reset_day": "number|null"
+      },
+      "failure": { "400": ["The user does not exist", "Subscription plan does not exist"] },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:131-162; design/Xboard-master/app/Utils/Helper.php::getSubscribeUrl",
+      "verified": { "path": true, "fields": true },
+      "notes": "subscribe_url 由服务端拼接，可能包含查询参数；客户端可直接使用，但必须按秘密处理：不写日志、不导出明文、崩溃报告中脱敏。"
+    },
+    {
+      "operation": "resetSecurity",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/resetSecurity",
+      "auth": "userBearer",
+      "request": {},
+      "responseData": { "note": "success(新的订阅链接字符串)" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:164-173",
+      "verified": { "path": true, "fields": true },
+      "notes": "GET 语义执行写操作（重置 uuid 与 token）。客户端必须要求二次确认，并在成功后立即重新拉取订阅，否则旧订阅失效。"
+    },
+    {
+      "operation": "getTraffic",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/stat/getTrafficLog",
+      "auth": "userBearer",
+      "request": {
+        "query": { "note": "本轮未读取到时间范围参数——服务端固定取本月起点 (now()->startOfMonth())" }
+      },
+      "responseData": { "note": "TrafficLogResource 集合；字段需补读 Resources/TrafficLogResource.php" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/StatController.php:14-25",
+      "verified": { "path": true, "fields": false },
+      "notes": "服务端不提供自定义时间范围，固定返回本月记录，按 record_at 倒序。客户端『用量』面板的权威来源应同时包含 getAccount 的 u/d/transfer_enable。"
+    },
+    {
+      "operation": "listAnnouncements",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/notice/fetch",
+      "auth": "userBearer",
+      "request": {
+        "query": { "current": { "type": "number", "required": false, "default": 1 } }
+      },
+      "responseData": {
+        "data": "Notice[]（字段见 Notice 模型）",
+        "total": "number",
+        "pageSize": "固定 5 条/页（硬编码，不可配置）"
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/NoticeController.php:11-25",
+      "verified": { "path": true, "fields": true },
+      "notes": "非标准信封；仅返回 show=true 的公告，排序为 sort ASC, id DESC；无服务端游标（页码分页）。"
+    },
+    {
+      "operation": "listTickets",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/ticket/fetch",
+      "auth": "userBearer",
+      "request": { "query": { "note": "带 id 参数时返回单条详情，否则返回列表" } },
+      "responseData": {
+        "list": "TicketResource 集合，按 created_at 倒序",
+        "detail": "单个 TicketResource，附加 message 数组；每条 message 带 is_me:boolean"
+      },
+      "failure": { "400": ["Ticket does not exist"], "500": ["服务端错误"] },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/TicketController.php:20-40",
+      "verified": { "path": true, "fields": true },
+      "notes": "同一个端点承担列表与详情两种语义：listTickets 与 getTicket 在本服务端是同一路径。客户端 DTO 需按请求参数分支解析。"
+    },
+    {
+      "operation": "createTicket",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/ticket/save",
+      "auth": "userBearer",
+      "request": {
+        "body": {
+          "subject": { "type": "string", "required": true },
+          "level": { "type": "number", "required": true },
+          "message": { "type": "string", "required": true }
+        }
+      },
+      "responseData": { "note": "success(true)" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/TicketController.php:42-54",
+      "verified": { "path": true, "fields": true },
+      "notes": "提交属非幂等写操作，禁止自动重试（设计基线 §6.1 的要求）。"
+    },
+    {
+      "operation": "replyTicket",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/ticket/reply",
+      "auth": "userBearer",
+      "request": {
+        "body": {
+          "id": { "type": "number", "required": true },
+          "message": { "type": "string", "required": true }
+        }
+      },
+      "responseData": { "note": "success(true)" },
+      "failure": {
+        "400": ["Invalid parameter", "Message cannot be empty", "Ticket does not exist", "The ticket is closed and cannot be replied", "Please wait for the technical enginneer to reply", "Ticket reply failed"]
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/TicketController.php:56-88",
+      "verified": { "path": true, "fields": true },
+      "notes": "面板可开启 ticket_must_wait_reply，开启后用户不能连续发言。客户端应把该失败文案原样展示，不要自行推断规则。"
+    },
+    {
+      "operation": "closeTicket",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/ticket/close",
+      "auth": "userBearer",
+      "request": { "body": { "id": { "type": "number", "required": true } } },
+      "responseData": { "note": "success(true)" },
+      "failure": { "422": ["Invalid parameter"], "400": ["Ticket does not exist"], "500": ["Close failed"] },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/TicketController.php:91-107",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "fetchNodes",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/server/fetch",
+      "auth": "userBearer",
+      "request": {
+        "headers": {
+          "If-None-Match": { "type": "string", "required": false, "note": "与上一次响应 ETag 比对，命中返回 304" }
+        }
+      },
+      "responseData": {
+        "note": "非标准信封：{ data: Node[] }，响应头带 ETag",
+        "nodeFields": {
+          "id": "number",
+          "type": "string（shadowsocks|vmess|trojan|vless|hysteria|tuic|anytls|socks|http|mieru 等，见 Server 模型常量）",
+          "version": "number|null（如 hysteria 1/2）",
+          "name": "string",
+          "rate": "number（计费倍率）",
+          "tags": "string[]",
+          "is_online": "boolean|null",
+          "cache_key": "string",
+          "last_check_at": "number|null"
+        }
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/ServerController.php:14-30; design/Xboard-master/app/Http/Resources/NodeResource.php:17-27",
+      "verified": { "path": true, "fields": true },
+      "notes": "关键：该端点**只暴露展示元数据，不含连接所需的 host/port/password/protocol_settings**。因此纯节点列表接口不足以建立连接，必须配合订阅链接。ETag 可用于条件请求省流，304 需按缓存命中处理。"
+    },
+    {
+      "operation": "getUserCommConfig",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/comm/config",
+      "auth": "userBearer",
+      "request": {},
+      "responseData": {
+        "is_telegram": "number（0/1，是否启用 Telegram 机器人）",
+        "telegram_discuss_link": "string|null",
+        "stripe_pk": "string|null（Stripe 公钥，属公开值）",
+        "withdraw_methods": "string[]（提现方式白名单）",
+        "withdraw_close": "number（0/1，是否关闭提现）",
+        "currency": "string（如 CNY）",
+        "currency_symbol": "string（如 ¥）",
+        "commission_distribution_enable": "number（0/1）",
+        "commission_distribution_l1": "string|null",
+        "commission_distribution_l2": "string|null",
+        "commission_distribution_l3": "string|null"
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/CommController.php:13-29",
+      "verified": { "path": true, "fields": true },
+      "notes": "项目没有独立的『用户公共配置』接口，因此货币与 Telegram 开关需从此端点获取；这是客户端 UI 展示货币符号的权威来源。注意其需要登录，不等同于 guest 版。"
+    },
+    {
+      "operation": "getStripePublicKey",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/comm/getStripePublicKey",
+      "auth": "userBearer",
+      "request": { "body": { "id": { "type": "number", "required": true } } },
+      "responseData": { "note": "success(stripe_pk_live)" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/CommController.php:31-38",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "listKnowledge",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/knowledge/fetch",
+      "auth": "userBearer",
+      "sourceLocation": "design/Xboard-master/app/Http/Routes/V1/UserRoute.php:77",
+      "verified": { "path": true, "fields": false }
+    },
+    {
+      "operation": "getKnowledgeCategories",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/knowledge/getCategory",
+      "auth": "userBearer",
+      "sourceLocation": "design/Xboard-master/app/Http/Routes/V1/UserRoute.php:78",
+      "verified": { "path": true, "fields": false }
+    },
+    {
+      "operation": "checkLogin",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/checkLogin",
+      "auth": "userBearer",
+      "request": {},
+      "responseData": { "is_login": "boolean", "is_admin": "boolean（仅管理员时出现）" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:47-56",
+      "verified": { "path": true, "fields": true },
+      "notes": "轻量会话有效性探测的首选端点：无副作用、返回字段明确。"
+    },
+    {
+      "operation": "listActiveSessions",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/getActiveSession",
+      "auth": "userBearer",
+      "sourceLocation": "design/Xboard-master/app/Http/Routes/V1/UserRoute.php:37",
+      "verified": { "path": true, "fields": false }
+    },
+    {
+      "operation": "removeActiveSession",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/removeActiveSession",
+      "auth": "userBearer",
+      "request": { "body": { "session_id": { "type": "string", "required": true } } },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:40-45",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "changePassword",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/changePassword",
+      "auth": "userBearer",
+      "request": {
+        "body": {
+          "old_password": { "type": "string", "required": true },
+          "new_password": { "type": "string", "required": true }
+        }
+      },
+      "responseData": { "note": "success(true)" },
+      "failure": { "400": ["The old password is wrong", "Save failed"] },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:58-86",
+      "verified": { "path": true, "fields": true },
+      "notes": "服务端会保留当前 token、删除其它全部 token（UserController.php:78-83）。客户端改密后不能丢弃当前会话。"
+    },
+    {
+      "operation": "updateAccountPreferences",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/update",
+      "auth": "userBearer",
+      "request": {
+        "body": {
+          "remind_expire": { "type": "boolean|number", "required": false },
+          "remind_traffic": { "type": "boolean|number", "required": false }
+        }
+      },
+      "responseData": { "note": "success(true)" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:175-190",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "getSubscribeUrlViaToken",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/getQuickLoginUrl",
+      "auth": "userBearer",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:216-222",
+      "verified": { "path": true, "fields": false },
+      "notes": "与 passport 版同名但语义为面板快速登录 URL，不是订阅链接；命名须与 passport 版区分，避免实现时混淆。"
+    },
+    {
+      "operation": "listPlansVerified",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/plan/fetch",
+      "auth": "userBearer",
+      "request": { "query": { "id": { "type": "number", "required": false, "validation": "无校验" } } },
+      "responseData": "PlanResource（带 id 时）或 PlanResource[]（不带 id 时）",
+      "failure": { "400": ["『不存在』与『不可用』共用同一 400 与同一 message"] },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/PlanController.php",
+      "verified": { "path": true, "fields": true },
+      "notes": "设计缺点：无法区分『套餐不存在』与『套餐不可购买』，客户端 UI 不能据此推断原因。"
+    },
+    {
+      "operation": "guestListPlans",
+      "realm": "public",
+      "method": "GET",
+      "path": "/api/v1/guest/plan/fetch",
+      "auth": "public",
+      "request": {},
+      "responseData": "PlanResource[]（Guest 版不接受 id 参数）",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Guest/PlanController.php",
+      "verified": { "path": true, "fields": true },
+      "notes": "未登录也可读取套餐列表，可用于登录前展示；但购买仍需登录。"
+    },
+    {
+      "operation": "guestGetCommConfig",
+      "realm": "public",
+      "method": "GET",
+      "path": "/api/v1/guest/comm/config",
+      "auth": "public",
+      "request": {},
+      "responseData": {
+        "note": "14 个站点配置字段（本轮未逐字段展开），可被 HookManager::filter('guest_comm_config') 插件增删"
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Guest/CommController.php",
+      "verified": { "path": true, "fields": true },
+      "notes": "**discoverPanel 的最佳探测点**：无需认证、无副作用、返回面板身份配置。插件可修改响应，因此客户端必须容忍字段增减，不得因未知字段报错。"
+    },
+    {
+      "operation": "listOrders",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/order/fetch",
+      "auth": "userBearer",
+      "request": { "query": { "status": { "type": "number", "required": false, "validation": "nullable|integer|in:0,1,2,3" } } },
+      "responseData": "OrderResource[]",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/OrderController.php",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "getOrderDetail",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/order/detail",
+      "auth": "userBearer",
+      "request": { "query": { "trade_no": { "type": "string", "required": true, "validation": "required|string" } } },
+      "responseData": "OrderResource + try_out_plan_id + surplus_orders",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/OrderController.php",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "createOrder",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/order/save",
+      "auth": "userBearer",
+      "request": {
+        "body": {
+          "plan_id": { "type": "number", "required": true, "validation": "required + exists 校验" },
+          "period": { "type": "string", "required": true, "validation": "required|in:8 个周期值" },
+          "coupon_code": { "type": "string", "required": false, "validation": "无校验" }
+        }
+      },
+      "responseData": "data 为 trade_no 字符串（标量，不是对象）",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/OrderController.php",
+      "verified": { "path": true, "fields": true },
+      "notes": "非幂等写操作（创建订单），禁止自动重试。"
+    },
+    {
+      "operation": "checkoutOrder",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/order/checkout",
+      "auth": "userBearer",
+      "request": {
+        "body": {
+          "trade_no": { "type": "string", "required": true, "validation": "无校验" },
+          "method": { "type": "string", "required": true, "validation": "无校验" },
+          "token": { "type": "string", "required": false, "validation": "无校验" }
+        }
+      },
+      "responseData": {
+        "note": "**不走标准信封**：直接 response(['type','data'])；免费单为 type=-1, data=true；付费单由支付插件返回"
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/OrderController.php",
+      "verified": { "path": true, "fields": true },
+      "notes": "整条支付链路（下单→结算→轮询→支付方式）在首轮设计中被划为『打开用户自填的面板网页』，因此客户端可后置实现；若后续实现，必须为这个非标准响应单独建 DTO。"
+    },
+    {
+      "operation": "checkOrderStatus",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/order/check",
+      "auth": "userBearer",
+      "request": { "query": { "trade_no": { "type": "string", "required": true, "validation": "无校验" } } },
+      "responseData": "data 为 status 整数",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/OrderController.php",
+      "verified": { "path": true, "fields": true },
+      "notes": "支付结果轮询点。客户端轮询需退避并设上限，不可高频请求。"
+    },
+    {
+      "operation": "getPaymentMethods",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/order/getPaymentMethod",
+      "auth": "userBearer",
+      "request": {},
+      "responseData": "Payment 模型集合（无 Resource），仅 select 6 列：id, name, payment, icon, handling_fee_fixed, handling_fee_percent",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/OrderController.php",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "cancelOrder",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/order/cancel",
+      "auth": "userBearer",
+      "request": { "body": { "trade_no": { "type": "string", "required": true, "validation": "仅 empty 判断" } } },
+      "responseData": "true",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/OrderController.php",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "checkCoupon",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/coupon/check",
+      "auth": "userBearer",
+      "request": {
+        "body": {
+          "code": { "type": "string", "required": true, "validation": "仅 empty 判断" },
+          "plan_id": { "type": "number", "required": false, "validation": "无校验" },
+          "period": { "type": "string", "required": false, "validation": "无校验" }
+        }
+      },
+      "responseData": "CouponResource（limit_plan_ids / limit_period 为空时返回 null）",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/CouponController.php",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "checkGiftCard",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/gift-card/check",
+      "auth": "userBearer",
+      "request": { "body": { "code": { "type": "string", "required": true, "validation": "GiftCardCheckRequest::rules() 为空数组，即无校验" } } },
+      "responseData": "code_info / reward_preview / can_redeem / reason（无 Resource）",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/GiftCardController.php",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "redeemGiftCard",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/gift-card/redeem",
+      "auth": "userBearer",
+      "request": { "body": { "code": { "type": "string", "required": true, "validation": "required|string|min:8|max:32" } } },
+      "responseData": "message / rewards / invite_rewards / template_name",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/GiftCardController.php",
+      "verified": { "path": true, "fields": true },
+      "notes": "非幂等写操作，禁止自动重试。"
+    },
+    {
+      "operation": "giftCardHistory",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/gift-card/history",
+      "auth": "userBearer",
+      "request": {
+        "query": {
+          "page": { "type": "number", "required": false, "validation": "integer|min:1" },
+          "per_page": { "type": "number", "required": false, "validation": "integer|min:1|max:100，默认 15" }
+        }
+      },
+      "responseData": "**不走标准信封**：{ data: [], pagination: {} }",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/GiftCardController.php",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "giftCardDetail",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/gift-card/detail",
+      "auth": "userBearer",
+      "request": { "query": { "id": { "type": "number", "required": true, "validation": "required|integer|exists:v2_gift_card_usage,id" } } },
+      "responseData": "记录详情（template 对象；invite_user 打码；**code 为明文**）",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/GiftCardController.php",
+      "verified": { "path": true, "fields": true },
+      "notes": "同一资源在 history 里打码（前 8 位 + ****）、在 detail 里明文，服务端不一致。客户端需保证详情页截图/导出时脱敏。"
+    },
+    {
+      "operation": "giftCardTypes",
+      "realm": "userBearer",
+      "method": "GET",
+      "path": "/api/v1/user/gift-card/types",
+      "auth": "userBearer",
+      "request": {},
+      "responseData": "types: { 1: 通用, 2: 套餐, 3: 盲盒 }",
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/GiftCardController.php",
+      "verified": { "path": true, "fields": true }
+    },
+    {
+      "operation": "fetchSubscription",
+      "realm": "subscribeToken",
+      "method": "GET",
+      "path": "/api/v1/client/subscribe",
+      "auth": "subscribeToken",
+      "request": {
+        "query": {
+          "token": { "type": "string", "required": true, "note": "用户的订阅 token" },
+          "types": { "type": "string", "required": false, "note": "以 | , ｜ 分隔的协议过滤，如 'vmess|vless'；为空或 'all' 表示全部" },
+          "filter": { "type": "string", "required": false, "note": "关键词过滤；长度 > 20 时被忽略；匹配节点 name（不区分大小写）或 tags" },
+          "flag": { "type": "string", "required": false, "note": "客户端标识，也可由 User-Agent 头提供" }
+        }
+      },
+      "responseData": {
+        "note": "按客户端 flag 匹配到协议类后输出对应格式：Base64 节点列表 / Clash YAML / sing-box JSON / ClashMeta YAML 等。响应不是 JSON 信封。"
+      },
+      "failure": {
+        "403": { "body": "empty", "cause": "UserService::isAvailable 判定用户不可用（到期、流量用尽、被封禁等）" }
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Client/ClientController.php:34-88",
+      "verified": { "path": true, "fields": true },
+      "notes": "客户端实现要点：(1) token 可走 query；(2) 403 空 body 必须映射为具体业务错误（套餐到期/流量用尽/被封禁），不能显示为『网络错误』；(3) flag 决定服务端输出格式，客户端应按已选核心主动声明 flag，避免解析错格式；(4) 服务端会按 show_info_to_server_enable 在前几条注入伪节点（剩余流量/套餐到期/重置天数），客户端必须过滤这些非真实节点。源码位置 ClientController.php:193-221。"
+    },
+    {
+      "operation": "clientGetConfig",
+      "realm": "subscribeToken",
+      "method": "GET",
+      "path": "/api/v1/client/app/getConfig",
+      "auth": "subscribeToken",
+      "request": { "query": { "token": { "type": "string", "required": true } } },
+      "responseData": { "note": "Clash YAML 文本（仅含 shadowsocks/vmess/trojan，且 shadowsocks 仅支持 4 种 AEAD cipher）" },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Client/AppController.php:14-60",
+      "verified": { "path": true, "fields": true },
+      "notes": "能力受限的老接口：不覆盖 vless/hysteria 等。不推荐作为主路径，仅作为兼容回退。V2 版同名接口需单独读取。"
+    },
+    {
+      "operation": "clientGetVersion",
+      "realm": "subscribeToken",
+      "method": "GET",
+      "path": "/api/v1/client/app/getVersion",
+      "auth": "subscribeToken",
+      "request": {
+        "headers": { "User-Agent": { "type": "string", "required": false, "note": "含 tidalab/4.0.0 或 tunnelab/4.0.0 时返回单平台结构" } }
+      },
+      "responseData": {
+        "multiPlatform": {
+          "windows_version": "string|null",
+          "windows_download_url": "string|null",
+          "macos_version": "string|null",
+          "macos_download_url": "string|null",
+          "android_version": "string|null",
+          "android_download_url": "string|null"
+        },
+        "singlePlatform": { "version": "string|null", "download_url": "string|null" }
+      },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/Client/AppController.php:62-89",
+      "verified": { "path": true, "fields": true },
+      "notes": "这是 Xboard 的『自助更新』接口，按面板配置返回下载地址。本项目为独立客户端，是否使用需产品决策；若不使用，应在设计中说明不依赖该接口。"
+    },
+    {
+      "operation": "transferCommissionToBalance",
+      "realm": "userBearer",
+      "method": "POST",
+      "path": "/api/v1/user/transfer",
+      "auth": "userBearer",
+      "request": { "body": { "transfer_amount": { "type": "number", "required": true } } },
+      "responseData": { "note": "success(true)" },
+      "failure": { "400": ["The user does not exist", "Insufficient commission balance", "Transfer failed"] },
+      "sourceLocation": "design/Xboard-master/app/Http/Controllers/V1/User/UserController.php:192-214",
+      "verified": { "path": true, "fields": true },
+      "notes": "服务端使用 DB::transaction + lockForUpdate 保证一致性；客户端仍需禁止自动重试。"
+    }
+  ],
+  "operationGaps": [
+    "knowledgeFetch / knowledgeGetCategory / inviteSave / inviteFetch / inviteDetails 的请求与响应字段",
+    "getTraffic 的 TrafficLogResource 字段",
+    "plan/order/knowledge/invite/traffic/coupon 各 Resource 的完整字段展开",
+    "V2 版 Client AppController 与 V1 的差异",
+    "guest/comm/config 的 14 个字段逐项列出",
+    "Server 模型 protocol_settings 的完整字段集合（见 design/contracts/node-protocol-fields.md，由节点审计任务产出）"
+  ],
+  "knownServerInconsistencies": [
+    "order/checkout 与 gift-card/history 不使用标准信封，客户端必须为两者单独定义 DTO 与解析分支。",
+    "order/save 的 data 是 trade_no 字符串、order/check 是整数、order/cancel 是 true：data 类型随 operation 变化，泛型解析层必须允许标量并做类型断言。",
+    "order/getPaymentMethod 与 gift-card/* 直接返回模型/数组，未经过 Resource 层，字段名与面板实现绑定。",
+    "gift-card/detail 返回完整明文兑换码，gift-card/history 打码为前 8 位 + ****；客户端需统一按秘密处理。",
+    "plan/fetch 对『套餐不存在』与『套餐不可用』返回同一 400 与同一 message，客户端无法区分原因。",
+    "多处参数无服务端校验（plan/fetch.id、order/checkout 三参数、order/check|cancel 的 trade_no、coupon/check 的 code/plan_id/period、gift-card/check 的 code）：客户端必须自行校验，不能依赖服务端报错。",
+    "passport/auth/token2Login 的 verify 分支返回 { data: ... } 而非标准信封。",
+    "user/notice/fetch 的 pageSize 硬编码为 5，客户端无法调整。",
+    "所有 fail 均以 HTTP 状态码 = code 前三位输出；ApiException 默认 code 为 400，未登录/过期抛 403。"
+  ],
+  "nextAuditTask": "补齐 operationGaps，产出每个 operation 的 DTO Schema（design/schemas/panel/），并生成脱敏固件样例（tests/fixtures/panel/）"
+}

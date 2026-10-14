@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "sourceSha": null,
+  "gate": "G0",
+  "status": "planned",
+  "completedRequirements": [],
+  "buildPassedTargets": [],
+  "runtimePassedTargets": [],
+  "blockedTargets": [],
+  "deferredOptionalTargets": [],
+  "openDefects": [],
+  "latestAdr": null,
+  "latestChange": null,
+  "latestHandoff": null,
+  "nextTask": "Pin sources and audit Xboard user API contract",
+  "unknowns": [
+    "See project-spec.json unresolved list"
+  ]
+}

@@ -1,0 +1,46 @@
+# 行尾与二进制规范化
+# 目的：Windows 桌面端与 Linux/Android 构建共用一份源码，避免行尾差异污染历史。
+* text=auto eol=lf
+
+# 明确按文本处理的源码与文档
+*.c      text
+*.cc     text
+*.cpp    text
+*.h      text
+*.hpp    text
+*.go     text
+*.kt     text
+*.kts    text
+*.java   text
+*.md     text
+*.json   text
+*.yml    text
+*.yaml   text
+*.xml    text
+*.cmake  text
+CMakeLists.txt text
+*.sh     text eol=lf
+*.ps1    text eol=crlf
+*.rc     text
+
+# 必须保持原样的二进制与资源
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.webp   binary
+*.ttf    binary
+*.otf    binary
+*.woff   binary
+*.woff2  binary
+*.zip    binary
+*.gz     binary
+*.tar    binary
+*.7z     binary
+*.db     binary
+*.dat    binary
+*.geo    binary
+
+# 依赖锁文件在 diff 中折叠显示
+**/versions.lock.json -diff linguist-generated

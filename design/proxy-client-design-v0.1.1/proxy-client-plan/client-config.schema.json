@@ -1,0 +1,436 @@
+{
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "branding": {
+      "type": "object",
+      "properties": {
+        "applicationName": {
+          "type": "string"
+        },
+        "displayNames": {
+          "type": "object",
+          "properties": {
+            "zh-CN": {
+              "type": "string"
+            },
+            "en": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "zh-CN",
+            "en"
+          ],
+          "additionalProperties": false
+        },
+        "publisher": {
+          "type": "string"
+        },
+        "applicationId": {
+          "type": "string"
+        },
+        "androidPackageId": {
+          "type": "string"
+        },
+        "homepageUrl": {
+          "type": "string"
+        },
+        "supportUrl": {
+          "type": "string"
+        },
+        "privacyPolicyUrl": {
+          "type": "string"
+        },
+        "termsUrl": {
+          "type": "string"
+        },
+        "iconAssetPath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "applicationName",
+        "displayNames",
+        "publisher",
+        "applicationId",
+        "androidPackageId",
+        "homepageUrl",
+        "supportUrl",
+        "privacyPolicyUrl",
+        "termsUrl",
+        "iconAssetPath"
+      ],
+      "additionalProperties": false
+    },
+    "panel": {
+      "type": "object",
+      "properties": {
+        "apiBaseUrl": {
+          "type": "string"
+        },
+        "webBaseUrl": {
+          "type": "string"
+        },
+        "apiProfile": {
+          "type": "string"
+        },
+        "apiPathPrefix": {
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "allowInsecureHttpForTesting": {
+          "type": "boolean"
+        },
+        "customHeaders": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Public non-secret header values only. Runtime credentials must use SecretStore."
+        },
+        "endpointOverrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "method",
+              "path"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^/"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Leave empty until verified against the target panel source."
+        }
+      },
+      "required": [
+        "apiBaseUrl",
+        "webBaseUrl",
+        "apiProfile",
+        "apiPathPrefix",
+        "timeoutSeconds",
+        "allowInsecureHttpForTesting",
+        "customHeaders",
+        "endpointOverrides"
+      ],
+      "additionalProperties": false
+    },
+    "panelLinks": {
+      "type": "object",
+      "properties": {
+        "registrationUrl": {
+          "type": "string"
+        },
+        "passwordResetUrl": {
+          "type": "string"
+        },
+        "purchaseUrl": {
+          "type": "string"
+        },
+        "renewalUrl": {
+          "type": "string"
+        },
+        "documentationUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "registrationUrl",
+        "passwordResetUrl",
+        "purchaseUrl",
+        "renewalUrl",
+        "documentationUrl"
+      ],
+      "additionalProperties": false
+    },
+    "clientDefaults": {
+      "type": "object",
+      "properties": {
+        "uiMode": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "professional"
+          ]
+        },
+        "rememberUiMode": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fallbackLanguage": {
+          "type": "string",
+          "enum": [
+            "en",
+            "zh-CN"
+          ]
+        },
+        "core": {
+          "type": "string",
+          "enum": [
+            "xray",
+            "sing-box"
+          ]
+        },
+        "routingPolicy": {
+          "type": "string",
+          "enum": [
+            "rule",
+            "global",
+            "direct"
+          ]
+        },
+        "connectOnLaunch": {
+          "type": "boolean"
+        },
+        "launchAtLogin": {
+          "type": "boolean"
+        },
+        "subscriptionRefreshMinutes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "allowLanAccess": {
+          "type": "boolean"
+        },
+        "localProxyHost": {
+          "type": "string"
+        },
+        "httpProxyPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "socksProxyPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "trafficEntry": {
+          "type": "object",
+          "properties": {
+            "windows": {
+              "type": "string",
+              "enum": [
+                "system_proxy",
+                "tun",
+                "pac",
+                "local_proxy"
+              ]
+            },
+            "android": {
+              "type": "string",
+              "enum": [
+                "tun",
+                "local_proxy"
+              ]
+            },
+            "linux": {
+              "type": "string",
+              "enum": [
+                "system_proxy",
+                "tun",
+                "pac",
+                "local_proxy"
+              ]
+            }
+          },
+          "required": [
+            "windows",
+            "android",
+            "linux"
+          ],
+          "additionalProperties": false
+        },
+        "androidAppScope": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "all",
+                "include",
+                "exclude"
+              ]
+            },
+            "packages": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "mode",
+            "packages"
+          ],
+          "additionalProperties": false
+        },
+        "tun": {
+          "type": "object",
+          "properties": {
+            "mtu": {
+              "type": "integer",
+              "minimum": 576,
+              "maximum": 9000
+            },
+            "enableIpv6": {
+              "type": "boolean"
+            },
+            "excludeCidrs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "mtu",
+            "enableIpv6",
+            "excludeCidrs"
+          ],
+          "additionalProperties": false
+        },
+        "pac": {
+          "type": "object",
+          "properties": {
+            "listenHost": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "directDomains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "proxyDomains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "defaultAction": {
+              "type": "string",
+              "enum": [
+                "DIRECT",
+                "PROXY"
+              ]
+            },
+            "geoImports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "source",
+                  "category",
+                  "sha256"
+                ],
+                "properties": {
+                  "source": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-fA-F0-9]{64}$"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "listenHost",
+            "port",
+            "directDomains",
+            "proxyDomains",
+            "defaultAction",
+            "geoImports"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "uiMode",
+        "rememberUiMode",
+        "language",
+        "fallbackLanguage",
+        "core",
+        "routingPolicy",
+        "connectOnLaunch",
+        "launchAtLogin",
+        "subscriptionRefreshMinutes",
+        "allowLanAccess",
+        "localProxyHost",
+        "httpProxyPort",
+        "socksProxyPort",
+        "trafficEntry",
+        "androidAppScope",
+        "tun",
+        "pac"
+      ],
+      "additionalProperties": false
+    },
+    "testSettings": {
+      "type": "object",
+      "properties": {
+        "showConnectionDiagnostics": {
+          "type": "boolean"
+        },
+        "enableApiSettingsEditor": {
+          "type": "boolean"
+        },
+        "testTargetUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "showConnectionDiagnostics",
+        "enableApiSettingsEditor",
+        "testTargetUrl"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "branding",
+    "panel",
+    "panelLinks",
+    "clientDefaults",
+    "testSettings"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProxyClient public configuration design",
+  "description": "Proposed contract; no runtime configuration loader is implemented."
+}
