@@ -16,17 +16,34 @@
 | 源码规模 | Go 12,300 行 / C++ 5,609 行 / Kotlin 844 行 |
 | 核心分发 | **已决定并落地**：官方预构建二进制 + SHA256 校验 + 原子替换（ADR-0003） |
 | 应用源码 | 🟢 桌面端与 Android 骨架均已完成 |
-| 本机可做验证 | 🟢 **9/9 通过**（见 [`output/reports/report-G5-0.1.0-20261015.md`](../../output/reports/report-G5-0.1.0-20261015.md)） |
-| 编译证据 | **无**（`not_run`；本机无 Go / C++ / JDK / Android SDK，编译与测试在 CI） |
-| 运行证据 | **无**（`not_run`；未在任何真实设备上运行过） |
+| 本机可做验证 | 🟢 **10/10 通过**（见 [`output/reports/report-G5-0.1.0-20261015.md`](../../output/reports/report-G5-0.1.0-20261015.md)） |
+| 编译证据 | 🟢 **CI 全绿**：7/7 作业通过（run #10，提交 `a034b88`）。Go 与 C++ 均编译通过，两侧单元测试全部通过，桌面 GUI 构建成功 |
+| 运行证据 | 🔴 **仍为 `not_run`**：从未在任何真实设备上运行过，未连接过真实面板，未拉起过真实核心 |
 | 未决阻塞项 | 项目许可证、软件名与包名、Go module 正式路径、核心版本冻结、参考源码 commit |
 
 ### 一句话
 
-**设计完整、可交付到 GitHub 手动编译；本机可做的验证全部通过，
-但全部代码从未经过编译器。**
+**代码已编译通过、测试全绿；运行期行为仍未验证。**
 
-这是一个**可以开始手动构建**的状态，不是一个可以发布的状态。
+设计完整、可交付手动构建；CI 的 7 个作业在 Linux 与 Windows 上全部通过。
+但这批代码**从未在任何真实设备上运行过**，也从未连接过真实面板或核心——
+"能编译、测试通过"与"能用"之间仍有距离。
+
+### CI 全绿（2026-10-15，run #10）
+
+| 作业 | 结果 | 证明了什么 |
+|---|---|---|
+| Go formatting | PASS | 全部 Go 源码符合 gofmt |
+| Go static pre-checks | PASS | 跟踪文件、跨包符号、C++ 结构、工作流、文档链接、i18n 键 |
+| Go build / vet / test (linux) | PASS | Go 编译通过、`vet` 无问题、全部单元测试通过 |
+| Go build / test (windows) | PASS | Windows 专属文件（`//go:build windows`）也编译并测试通过 |
+| Desktop core library and tests | PASS | C++ `pcx_core` 编译通过，`ctest` 全部用例通过 |
+| Desktop GUI build (linux) | PASS | wxWidgets 可执行文件构建成功（`-Werror`） |
+| Design JSON, config schema and i18n | PASS | 设计 JSON、出厂配置、翻译键一致性 |
+
+**仍未证明的**：连接真实 Xboard 面板、生成的核心配置是否被 Xray/sing-box 接受、
+系统网络接管在真机上是否生效、Android 的 VPN 是否代理流量。
+这些都需要运行期验证，见 [验证说明](../../docs/zh-CN/dev/verification.md)。
 
 ### 如何自行复核
 

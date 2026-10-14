@@ -5,9 +5,14 @@
 第二个问题比第一个重要。一份只列「全部通过」的报告是没有信息量的——
 它没有告诉读者哪些结论**不能**从中得出。
 
-> **最重要的一句话：全部代码从未被编译过。**
-> 本机没有 Go / C++ / JDK / Android SDK 工具链，
-> 所有编译与单元测试都在 GitHub Actions 里进行。
+> **最重要的一句话：代码已编译通过、测试全绿，但从未在真实设备上运行过。**
+>
+> 本机没有 Go / C++ / JDK / Android SDK 工具链，因此编译与单元测试全部在
+> GitHub Actions 里进行。**2026-10-15 的 CI 运行 7 个作业全部通过**
+> （Linux 与 Windows 双平台）。
+>
+> 「编译通过」与「能用」之间仍有距离：未连接过真实面板、
+> 未让核心检查过生成的配置、未在真机上验证过网络接管。
 
 ---
 
@@ -52,28 +57,35 @@
 
 ---
 
-## 3. 只能在 CI 里执行的检查
+## 3. CI 里的编译与测试结果
 
-本机没有工具链，因此以下检查**从未在本机运行过**，只有在 GitHub Actions
-里跑过才能得到结论。
+> **2026-10-15 · CI 运行 #10 · 提交 `a034b88` · 7/7 通过**
 
 | 检查 | 位置 | 状态 |
 |---|---|---|
-| `gofmt` 格式 | `ci.yml` → format | **not_run** |
-| `go build ./...` | `ci.yml` → go-checks-linux / windows | **not_run** |
-| `go mod tidy` 一致性 | 同上 | **not_run** |
-| `go vet ./...` | 同上 | **not_run** |
-| `go test ./...` | 同上 | **not_run** |
-| `go test -race` | 同上 | **not_run** |
-| CMake 配置与构建 `pcx_core` | `ci.yml` → desktop-core | **not_run** |
-| C++ 单元测试（`ctest`） | 同上 | **not_run** |
-| 桌面 GUI 构建 | `ci.yml` → desktop-gui | **not_run** |
-| 多目标交叉编译 | `verify-targets.yml` | **not_run** |
-| 安装包构建 | `build-*.yml` | **not_run** |
-| Android APK 构建 | `reusable-android.yml` | **not_run** |
+| `gofmt` 格式 | `ci.yml` → format | ✅ **PASS** |
+| `go build ./...` | `ci.yml` → go-checks-linux / windows | ✅ **PASS**（两个平台） |
+| `go mod tidy` 一致性 | 同上 | ✅ **PASS** |
+| `go vet ./...` | 同上 | ✅ **PASS** |
+| `go test ./...` | 同上 | ✅ **PASS**（14 个包全部通过） |
+| `go test -race` | 同上 | ✅ **PASS** |
+| CMake 配置与构建 `pcx_core` | `ci.yml` → desktop-core | ✅ **PASS** |
+| C++ 单元测试（`ctest`） | 同上 | ✅ **PASS** |
+| 桌面 GUI 构建 | `ci.yml` → desktop-gui | ✅ **PASS**（wxWidgets 3.2，`-Werror`） |
+| 多目标交叉编译 | `verify-targets.yml` | ⬜ 未运行 |
+| 安装包构建 | `build-*.yml` | ⬜ 未运行 |
+| Android APK 构建 | `reusable-android.yml` | ⬜ 未运行 |
 
-**「not_run」一律不得写成「通过」。** 这是设计基线的硬要求：
-未执行的检查只有一个合法状态，就是「未执行」。
+**「未运行」一律不得写成「通过」。** 这是设计基线的硬要求：
+未执行的检查只有一个合法状态，就是「未执行」。上表后三行仍然如此。
+
+从首次推送到全绿共用了 10 轮 CI，每轮都暴露出成批、彼此无关的缺陷。
+它们有一个共同特征：**本机的检查全部读磁盘、做静态匹配，
+而这些都是「运行或编译时才会暴露」的问题**——
+路径解析、类型转换、算法语义、IPv6 解析、事件类型绑定。
+
+能在本机发现的，都已经补成了检查（跟踪文件、CMake 相对路径、
+YAML 块标量、文档链接、工作流结构）。其余只能靠 CI。
 
 ---
 
