@@ -185,10 +185,16 @@ func (c *Client) do(ctx context.Context, op, method, p string, body any, authHea
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		kind := KindNetworkUnreachable
+		// 调用方主动取消：不是故障，重试没有意义。
 		if errors.Is(err, context.Canceled) {
-			kind = KindUnknown
+			return nil, &Error{
+				Op:        op,
+				Kind:      KindUnknown,
+				Message:   "request canceled by caller",
+				Retryable: false,
+			}
 		}
+		kind := KindNetworkUnreachable
 		return nil, &Error{Op: op, Kind: kind, Message: "request failed: " + err.Error(), Retryable: retryableFor(kind)}
 	}
 	defer func() {
@@ -196,10 +202,20 @@ func (c *Client) do(ctx context.Context, op, method, p string, body any, authHea
 		_ = resp.Body.Close()
 	}()
 
-	limited := io.LimitReader(resp.Body, maxResponseBytes)
+	// 多读 1 字节用于判断是否被截断：静默截断会伪装成「不是 Xboard」，属误导性错误。
+	limited := io.LimitReader(resp.Body, maxResponseBytes+1)
 	rawBody, readErr := io.ReadAll(limited)
 	if readErr != nil {
 		return nil, &Error{Op: op, Kind: KindNetworkUnreachable, Message: "read response failed: " + readErr.Error(), Retryable: true}
+	}
+	if int64(len(rawBody)) > maxResponseBytes {
+		return nil, &Error{
+			Op:         op,
+			Kind:       KindUnknown,
+			HTTPStatus: resp.StatusCode,
+			Message:    "response exceeds the size limit",
+			Retryable:  false,
+		}
 	}
 
 	// 订阅类端点返回非 JSON，本包的 4 个接口都应返回 JSON 信封。
