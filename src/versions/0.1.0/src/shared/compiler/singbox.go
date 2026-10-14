@@ -90,6 +90,12 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 			cfg.Outbounds = append(cfg.Outbounds, ob)
 		}
 	}
+	// 代理组出站。
+	//
+	// 放在节点出站之后：组要引用节点，而 sing-box 对出站顺序没有要求，
+	// 但把「组的定义」排在「它可能引用的节点」之后读起来更顺。
+	cfg.Outbounds = append(cfg.Outbounds, singboxGroupOutbounds(req.Options, report)...)
+
 	// TUN 入站（仅当选项要求时）。
 	//
 	// 放在这里而不是 cfg 字面量里，是因为它的存在与否取决于选项，
@@ -123,7 +129,7 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 		userRules := 0
 		if opts := req.Options; opts != nil {
 			for _, r := range opts.Rules {
-				if m := singboxRouteRule(r, selected, report); m != nil {
+				if m := singboxRouteRule(r, req.Options, selected, report); m != nil {
 					rules = append(rules, m)
 					userRules++
 				}
@@ -270,6 +276,122 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 	return section
 }
 
+// groupOutboundType 把领域的代理组类型映射到 sing-box 的出站类型。
+//
+// 两个「没有直接等价物」的类型都在这里显式说明，而不是悄悄降级：
+//
+//   - fallback（故障转移）：sing-box 没有独立的 fallback 出站。
+//     用 urltest 近似，但它选的是**延迟最低**而不是**第一个可用**，
+//     行为不完全相同。调用方会就此报告一条提示。
+//   - balance（负载均衡）：sing-box 同样没有等价物。近似成 selector
+//     会退化为「只用一个节点」，与用户对负载均衡的预期相差很远。
+//     因此**不生成**，由调用方报告并跳过。
+var groupOutboundType = map[domain.ProxyGroupType]string{
+	domain.GroupSelect:   "selector",
+	domain.GroupURLTest:  "urltest",
+	domain.GroupFallback: "urltest",
+}
+
+// singboxGroupOutbounds 依据选项构造代理组出站。
+//
+// 返回的出站按配置顺序排列。**不生成负载均衡组**（理由见上表），
+// 但会写进报告——静默丢掉一个用户配置的组，会让「规则里引用的组不存在」
+// 变成一个查不出来的问题。
+func singboxGroupOutbounds(opts *domain.Options, report *Report) []map[string]any {
+	if opts == nil || len(opts.Groups) == 0 {
+		return nil
+	}
+
+	var out []map[string]any
+	for _, g := range opts.Groups {
+		if g.Name == "" {
+			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
+				"忽略一个没有名字的代理组")
+			continue
+		}
+
+		typ, ok := groupOutboundType[g.Type]
+		if !ok {
+			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
+				"代理组 %q 的类型 %q 在 sing-box 里没有等价物，已跳过该组", g.Name, string(g.Type))
+			continue
+		}
+		if g.Type == domain.GroupFallback {
+			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
+				"代理组 %q 的「故障转移」已按「自动选择」生成：sing-box 没有独立的故障转移出站，"+
+					"它会选延迟最低的节点而不是第一个可用的节点", g.Name)
+		}
+
+		ob := map[string]any{
+			"type": typ,
+			"tag":  g.Name,
+		}
+
+		// 成员列表。
+		//
+		// include_all 与显式成员**不能同时给**：前者表示「包含全部节点」，
+		// 后者是一份具名清单。同时给出会被核心拒绝，而错误信息
+		// 与「你想表达的其实是哪一个」相距很远。
+		if g.IncludeAll {
+			ob["outbounds"] = []string{"direct"}
+			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
+				"代理组 %q 使用了「包含全部节点」，但节点集合要到运行时才确定，"+
+					"本次只放入直连出站；请改用显式成员列表", g.Name)
+		} else if len(g.Members) > 0 {
+			ob["outbounds"] = g.Members
+		} else {
+			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
+				"代理组 %q 没有任何成员，已跳过该组", g.Name)
+			continue
+		}
+
+		// url 与 interval 只对 urltest 有意义。给 selector 加上它们
+		// 是无效配置。
+		if typ == "urltest" {
+			if g.TestURL != "" {
+				ob["url"] = g.TestURL
+			}
+			if g.TestInterval > 0 {
+				ob["interval"] = fmt.Sprintf("%ds", g.TestInterval)
+			}
+		}
+
+		out = append(out, ob)
+	}
+	return out
+}
+
+// hasGroup 报告选项里是否定义了指定名字的代理组。
+func hasGroup(opts *domain.Options, name string) bool {
+	if opts == nil {
+		return false
+	}
+	for _, g := range opts.Groups {
+		if g.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// groupNames 返回已定义组名的列表，用于把「组名写错了」变成
+// 一条能直接照着改的提示，而不是让用户去翻配置。
+func groupNames(opts *domain.Options) string {
+	if opts == nil || len(opts.Groups) == 0 {
+		return "无"
+	}
+	names := make([]string, 0, len(opts.Groups))
+	for _, g := range opts.Groups {
+		if g.Name != "" {
+			names = append(names, g.Name)
+		}
+	}
+	if len(names) == 0 {
+		return "无"
+	}
+	return strings.Join(names, "、")
+}
+
 type singboxRoute struct {
 	Rules []map[string]any `json:"rules,omitempty"`
 	Final string           `json:"final,omitempty"`
@@ -295,7 +417,7 @@ var ruleMatcherKey = map[domain.RuleType]string{
 // 返回 nil 表示这条规则**无法生成**，调用方应当跳过它。
 // 无法生成的原因会写进报告——静默丢弃一条用户亲手写的规则，
 // 会让「我明明加了规则却没生效」变成一个查不出来的问题。
-func singboxRouteRule(r domain.Rule, selected *domain.Node, report *Report) map[string]any {
+func singboxRouteRule(r domain.Rule, opts *domain.Options, selected *domain.Node, report *Report) map[string]any {
 	key, ok := ruleMatcherKey[r.Type]
 	if !ok {
 		// rule_set 不在上面的映射里：它需要规则集资源，而资源尚未接入。
@@ -320,11 +442,21 @@ func singboxRouteRule(r domain.Rule, selected *domain.Node, report *Report) map[
 	case domain.ActionProxy:
 		rule["outbound"] = outboundTag(selected)
 	case domain.ActionGroup:
-		// 代理组尚未接入生成器。指向一个不存在的出站标签，
-		// 核心会拒绝启动，而错误信息与「组还没做」相距很远。
-		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
-			"规则动作 %q 请指定代理组，但代理组尚未接入，该条规则已跳过", string(r.Action))
-		return nil
+		// 指向一个不存在的出站标签，核心会拒绝启动，
+		// 而错误信息与「规则里写的组名不对」相距很远。
+		// 因此先在这里核对组是否存在。
+		if r.GroupName == "" {
+			report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+				"规则动作 %q 需要指定代理组，但组名为空，该条规则已跳过", string(r.Action))
+			return nil
+		}
+		if !hasGroup(opts, r.GroupName) {
+			report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+				"规则引用的代理组 %q 不存在（已定义的组：%s），该条规则已跳过",
+				r.GroupName, groupNames(opts))
+			return nil
+		}
+		rule["outbound"] = r.GroupName
 	default:
 		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
 			"未知的规则动作 %q，该条规则已跳过", string(r.Action))

@@ -1,6 +1,6 @@
 ﻿Verification run
   repository : D:\workai\xbaord
-  started    : 2026-10-15 05:02:30 +08:00
+  started    : 2026-10-15 05:03:42 +08:00
   powershell : 5.1.26100.9444 (Desktop)
 
 ================================================================
@@ -30,7 +30,7 @@ Go cross-package symbols
 ================================================================
 Indexed 14 internal package(s).
 
-Checked 303 internal reference(s).
+Checked 312 internal reference(s).
 RESULT: PASS - all internal package references resolve.
 exit code: 0
 
