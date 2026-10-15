@@ -67,6 +67,54 @@ Android 的 IPC 客户端——凡是「两个模块约定一件事」的地方�
 这条**不是读代码发现的**，而是新加的 `TestWiringApplyFailureRollsBack`
 第一次运行就失败，直接指向了那行判据。
 
+### 第五处（最严重）：真实核心**拒绝了我们生成的每一份配置**
+
+拿到锁定的官方预构建核心（sing-box 1.14.3）并用 `sing-box check` 校验之后，
+发现生成的配置**根本起不来**。而在这之前，我们自己的测试是**全绿**的。
+
+这类缺陷只能靠真实核心发现：我们所有测试断言的都只是**自己写的字段名**，
+而字段名对不对，只有核心说了算。
+
+用真实核心逐项复核（每种协议、每种传输、REALITY/uTLS/flow、以及各选项开关）
+查出**五个**会让核心拒绝整份配置的问题：
+
+| # | 问题 | 核心的报错 |
+|---|---|---|
+| 1 | fake-ip 被当成默认名称服务器 | `default server cannot be fakeip` |
+| 2 | 按域名连接的 DoH 服务器没有 `domain_resolver` | `missing domain resolver for domain server address` |
+| 3 | 出站没有 `route.default_domain_resolver` | `missing route.default_domain_resolver` |
+| 4 | 嗅探写在入站上（1.13 起移除的旧字段） | `legacy inbound fields ... removed in sing-box 1.13.0` |
+| 5 | REALITY 节点缺少 uTLS 指纹 | `uTLS is required by reality client` |
+
+第 1、3 两条特别值得记：它们都由**出厂默认值**触发，也就是
+「装好之后第一次点连接」就会遇到。第 4 条同样由默认值触发（嗅探默认开）。
+
+第 5 条是另一种形状：订阅里的 REALITY 节点常常不带 `fingerprint`
+（那通常是服务端公开参数），于是用户拿到的是一个
+「列表里看得见、一点连接就起不来」的节点。已补默认指纹 `chrome`。
+
+### 让这件事不再退化
+
+- 新增 `TestEveryClaimedProtocolIsAcceptedByRealSingBox` /
+  `TestEveryClaimedTransportIsAcceptedByRealSingBox` /
+  `TestClaimedNodeFeaturesAreAcceptedByRealSingBox` /
+  `TestOptionTogglesAreAcceptedByRealSingBox`，把**能力表声称支持的每一项**
+  都真的生成一份配置交给核心。表里写 true、配置却被拒绝是最糟的组合。
+- 能力表据此可以（也终于可以）写实测值：`verifiedAgainst: "1.14.3"`。
+  它**只**证明「配置被核心接受」，**不**证明流量真的能穿过代理。
+- **CI 新增第 8 个作业 `core-conformance`**：用仓库自己的
+  `fetch-cores.ps1` 按 `versions.lock.json` 的锁定版本与 sha256 下载核心，
+  再跑上面这批校验。因此核心版本一变更，这个作业就会替我们复核。
+  它还显式检查「校验用例没有被 SKIP」——**一个静默跳过的验证
+  比没有验证更危险，因为它看起来是绿的**。
+
+### 因此：CI 现在是 8 个作业，不是 7 个
+
+目标里写的是「每批改动需通过 CI 7/7」。第 8 个作业是**新增的验证能力**，
+不是原有作业的替换。判断标准按「全绿」而非字面的 7。
+
+
+
 ### 接入方式与平台能力必须对得上（Android 侧的一处默认值错误）
 
 两个事实放在一起会出问题：
