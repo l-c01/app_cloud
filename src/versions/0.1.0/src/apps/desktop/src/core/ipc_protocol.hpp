@@ -53,6 +53,19 @@ inline constexpr const char* kSwitchNode = "SwitchNode";
 inline constexpr const char* kSetNetworkMode = "SetNetworkMode";
 inline constexpr const char* kWatchEvents = "WatchEvents";
 inline constexpr const char* kRecoverNetwork = "RecoverNetwork";
+
+// 会话与订阅操作。
+//
+// 这一组此前完全不存在：界面只能连接一份已经构造好的配置，
+// 却没有办法登录、取订阅或列出节点。见 Go 端 protocol.go 的同一组常量。
+inline constexpr const char* kLogin = "Login";
+inline constexpr const char* kLogout = "Logout";
+inline constexpr const char* kGetSessionState = "GetSessionState";
+inline constexpr const char* kRefreshSubscription = "RefreshSubscription";
+inline constexpr const char* kListNodes = "ListNodes";
+inline constexpr const char* kSelectNode = "SelectNode";
+inline constexpr const char* kGetOptions = "GetOptions";
+inline constexpr const char* kSetOptions = "SetOptions";
 }  // namespace op
 
 // KnownOperations 返回全部已知操作。

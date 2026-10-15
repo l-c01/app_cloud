@@ -44,6 +44,22 @@ const (
 	OpSetNetworkMode  Operation = "SetNetworkMode"
 	OpWatchEvents     Operation = "WatchEvents"
 	OpRecoverNetwork  Operation = "RecoverNetwork"
+
+	// 会话与订阅操作。
+	//
+	// 这一组此前**完全不存在**：界面只能连接一份已经构造好的配置，
+	// 却没有办法登录、取订阅或列出节点。对「能用的客户端」来说这是
+	// 最根本的缺口，因此补在这里。
+	//
+	// 命名与既有操作保持一致（大驼峰动词短语）。
+	OpLogin               Operation = "Login"
+	OpLogout              Operation = "Logout"
+	OpGetSessionState     Operation = "GetSessionState"
+	OpRefreshSubscription Operation = "RefreshSubscription"
+	OpListNodes           Operation = "ListNodes"
+	OpSelectNode          Operation = "SelectNode"
+	OpGetOptions          Operation = "GetOptions"
+	OpSetOptions          Operation = "SetOptions"
 )
 
 // KnownOperations 返回全部已知操作，用于能力声明与校验。
@@ -52,6 +68,8 @@ func KnownOperations() []Operation {
 		OpGetCapabilities, OpValidateProfile, OpCompileProfile,
 		OpStart, OpStop, OpGetRuntimeState, OpSwitchNode,
 		OpSetNetworkMode, OpWatchEvents, OpRecoverNetwork,
+		OpLogin, OpLogout, OpGetSessionState, OpRefreshSubscription,
+		OpListNodes, OpSelectNode, OpGetOptions, OpSetOptions,
 	}
 }
 
@@ -274,4 +292,135 @@ type ConflictInfo struct {
 	// 两者都不含凭据，可以安全地展示给用户。
 	Expected string `json:"expected"`
 	Actual   string `json:"actual"`
+}
+
+// ---------------------------------------------------------------------------
+// 会话与订阅的载荷
+// ---------------------------------------------------------------------------
+//
+// 安全约定（贯穿本节）：这些结构会被序列化后交给界面进程，
+// 因此**一律不得**包含面板会话凭据、订阅链接或节点密码。
+// 需要凭据的地方只在服务进程内部使用。
+
+// LoginParams 是 Login 的参数。
+//
+// Password 只在内存与这一次请求里存在：服务端收到后立刻交给
+// secrets.Store 或直接用于登录，**不写入日志、不回显、不落盘**
+// （除非用户明确勾选记住密码，见 RememberPassword）。
+type LoginParams struct {
+	// PanelURL 是面板地址；为空表示沿用当前会话的地址。
+	PanelURL string `json:"panelUrl,omitempty"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	// AllowInsecureHTTP 允许 http:// 面板地址，仅用于本地测试。
+	AllowInsecureHTTP bool `json:"allowInsecureHttp,omitempty"`
+	// RememberPassword 为真时才把密码写进安全存储；默认不保存。
+	RememberPassword bool `json:"rememberPassword,omitempty"`
+}
+
+// AccountView 是登录/恢复后返回的账户摘要。
+//
+// 与 session.AccountInfo 一致：不含密码、不含原始 auth_data。
+type AccountView struct {
+	Email           string   `json:"email,omitempty"`
+	UUID            string   `json:"uuid,omitempty"`
+	Banned          bool     `json:"banned"`
+	Expired         bool     `json:"expired"`
+	ExpiredAtUnix   int64    `json:"expiredAtUnix,omitempty"`
+	TransferEnable  int64    `json:"transferEnable,omitempty"`
+	UploadedBytes   int64    `json:"uploadedBytes,omitempty"`
+	DownloadedBytes int64    `json:"downloadedBytes,omitempty"`
+	Balance         float64  `json:"balance,omitempty"`
+	PlanName        string   `json:"planName,omitempty"`
+	Warnings        []string `json:"warnings,omitempty"`
+}
+
+// SessionState 是 GetSessionState 的返回值。
+//
+// 它刻意不返回任何凭据。界面据此决定显示登录页还是主界面。
+type SessionState struct {
+	// LoggedIn 表示是否持有可用会话。
+	LoggedIn bool `json:"loggedIn"`
+	// PanelURL 是当前面板地址（用户填的，不是凭据）。
+	PanelURL string `json:"panelUrl,omitempty"`
+	// Account 在未登录或取不到时为 nil。
+	Account *AccountView `json:"account,omitempty"`
+	// Subscription 描述最近一次订阅状态；从未拉取过时为 nil。
+	Subscription *SubscriptionView `json:"subscription,omitempty"`
+	// SecureStorage 表示本平台是否具备安全存储。
+	//
+	// 为 false 时界面必须提示「本次可用，但不会记住登录」——
+	// 否则用户会以为下次启动仍是登录状态。
+	SecureStorage bool `json:"secureStorage"`
+}
+
+// SubscriptionView 描述订阅状态。
+//
+// 字段与 session.SubscriptionInfo 对齐，另外补上套餐名。
+type SubscriptionView struct {
+	NodeCount      int       `json:"nodeCount"`
+	RejectedCount  int       `json:"rejectedCount"`
+	Warnings       []string  `json:"warnings,omitempty"`
+	SelectedNodeID string    `json:"selectedNodeId,omitempty"`
+	LastSyncUnix   int64     `json:"lastSyncUnix,omitempty"`
+	PlanName       string    `json:"planName,omitempty"`
+	Usage          UsageView `json:"usage"`
+}
+
+// UsageView 是账户用量。
+//
+// Present 为 false 时界面必须隐藏用量，而不是显示 0——
+// 「用量 0」与「不知道用量」是两件事。
+type UsageView struct {
+	Present    bool  `json:"present"`
+	Upload     int64 `json:"upload"`
+	Download   int64 `json:"download"`
+	Total      int64 `json:"total"`
+	ExpireUnix int64 `json:"expireUnix,omitempty"`
+	Remaining  int64 `json:"remaining,omitempty"`
+}
+
+// NodeView 是一个节点的界面表示。
+//
+// **不含 password / uuid 等连接凭据**：节点的连接参数是秘密，
+// 界面只需要能显示和选择它。
+type NodeView struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Protocol string `json:"protocol"`
+	Server   string `json:"server"`
+	Port     int    `json:"port"`
+	Selected bool   `json:"selected"`
+}
+
+// NodeList 是 ListNodes 的返回值。
+type NodeList struct {
+	Nodes []NodeView `json:"nodes"`
+}
+
+// SelectNodeParams 是 SelectNode 的参数。
+//
+// 允许按名字或 ID（二选一）：界面习惯用名字，而名字可能重名，
+// 此时服务端返回 node_name_ambiguous 并要求改用 ID。
+type SelectNodeParams struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+// SelectNodeResult 返回最终选定的节点 ID。
+//
+// 回传 ID 是必要的：界面按名字请求，而实际生效的是 ID；
+// 不回传的话界面只能自己猜解析结果。
+type SelectNodeResult struct {
+	SelectedNodeID string `json:"selectedNodeId"`
+}
+
+// OptionsResult 是 GetOptions/SetOptions 的返回值。
+//
+// 用 json.RawMessage 承载选项模型，而不是在这里复制一份字段：
+// 选项模型在 shared/domain 里定义且会被 C++ 侧镜像，
+// 在协议层再抄一遍会让每次加选项都要改三个地方。
+type OptionsResult struct {
+	// Options 是 domain.Options 的 JSON 形式。
+	Options json.RawMessage `json:"options"`
 }

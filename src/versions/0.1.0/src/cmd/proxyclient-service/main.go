@@ -40,7 +40,9 @@ import (
 	"proxyclient/runtime/core"
 	"proxyclient/runtime/coreupdater"
 	"proxyclient/runtime/ipc"
+	"proxyclient/runtime/session"
 	"proxyclient/shared/compiler"
+	"proxyclient/shared/domain"
 	"proxyclient/shared/secrets"
 )
 
@@ -176,6 +178,25 @@ func run() error {
 	cancelRecover()
 
 	// ---------------------------------------------------------------
+	// 会话（面板登录与订阅）
+	// ---------------------------------------------------------------
+	//
+	// 凭据存储：平台级的安全存储实现尚未落地（Windows DPAPI /
+	// Linux Secret Service / Android Keystore，见 STATUS.md 第 27 项）。
+	//
+	// 这里**刻意使用 NewUnavailableStore 而不是 MemoryStore**：
+	// 两者都「存不住」，但 Unavailable 会向界面如实报告
+	// Available()==false，于是界面能提示「本次可用，但不会记住登录」。
+	// 用 MemoryStore 的话进程内看起来一切正常，用户却会在下次启动时
+	// 突然发现要重新登录，且不知道为什么。
+	//
+	// 平台实现落地后，只需替换这一行。
+	sessionStore := secrets.NewUnavailableStore()
+	sessions := session.NewManager(session.Config{
+		Store: sessionStore,
+	})
+
+	// ---------------------------------------------------------------
 	// IPC 服务
 	// ---------------------------------------------------------------
 	handler := &serviceHandler{
@@ -185,6 +206,7 @@ func run() error {
 		runner:      runner,
 		scrubber:    scrubber,
 		version:     version,
+		sessions:    sessions,
 	}
 
 	// 句柄文件与套接字放在同一目录（该目录权限已收紧为 0700）。
@@ -243,6 +265,15 @@ type serviceHandler struct {
 	runner      *coreRunner
 	scrubber    *secrets.Scrubber
 	version     string
+
+	// sessions 持有「当前是哪台面板的会话」。
+	//
+	// 服务端持有节点列表与会话，这与 SwitchNode 的注释（「服务端不持有
+	// 节点列表」）并不矛盾：那条注释说的是**不持有第二份副本**——
+	// 节点仍然只有一份，只是它现在住在会话里，而不是界面上。
+	// 让服务端持有它的理由是：拉订阅、存凭据、按订阅刷新都需要
+	// 一个比界面进程活得更久的地方，而界面是最可能崩的那个进程。
+	sessions *session.Manager
 
 	// lastMode 记录最近一次使用的接入方式，供 SetNetworkMode 与重连使用。
 	lastMode string
@@ -320,6 +351,30 @@ func (h *serviceHandler) Handle(ctx context.Context, op ipc.Operation, params js
 			Message:    "WatchEvents is pushed by the service, not called",
 			Retryable:  false,
 		}
+
+	case ipc.OpLogin:
+		return h.login(ctx, params)
+
+	case ipc.OpLogout:
+		return h.logout()
+
+	case ipc.OpGetSessionState:
+		return h.sessionState(), nil
+
+	case ipc.OpRefreshSubscription:
+		return h.refreshSubscription(ctx)
+
+	case ipc.OpListNodes:
+		return h.listNodes()
+
+	case ipc.OpSelectNode:
+		return h.selectNode(params)
+
+	case ipc.OpGetOptions:
+		return h.options()
+
+	case ipc.OpSetOptions:
+		return h.setOptions(params)
 
 	default:
 		return nil, &ipc.RPCError{
@@ -517,6 +572,279 @@ func (h *serviceHandler) badParams(op string, err error) *ipc.RPCError {
 		MessageKey: "ipc.malformed",
 		Message:    h.scrubber.Scrub(fmt.Sprintf("%s: %v", op, err)),
 		Retryable:  false,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 会话与订阅
+// ---------------------------------------------------------------------------
+
+// sessionRPCError 把会话层的错误转成 IPC 错误结构。
+//
+// 分类映射放在这里而不是让界面判断 Kind：
+// 界面是两套（桌面 + Android），映射只能有一份。
+func (h *serviceHandler) sessionRPCError(op string, err *session.Error) *ipc.RPCError {
+	code := ipc.CodeInternal
+	retryable := false
+	switch err.Kind {
+	case session.KindInvalidConfig, session.KindNodeNotFound,
+		session.KindNoNodes, session.KindNoSubscription:
+		code = ipc.CodeInvalidParams
+	case session.KindNotAuthenticated, session.KindUnauthorized:
+		code = ipc.CodeUnauthorized
+	case session.KindNetwork:
+		code = ipc.CodeInternal
+		// 网络失败值得重试——这是少数几个重试有意义的情形。
+		retryable = true
+	case session.KindStorageUnavailable:
+		code = ipc.CodeInternal
+	}
+
+	msg := err.Message
+	if msg == "" {
+		msg = err.MessageKey
+	}
+	return &ipc.RPCError{
+		Code:        code,
+		MessageKey:  err.MessageKey,
+		Message:     h.scrubber.Scrub(msg),
+		FieldPath:   err.FieldPath,
+		Retryable:   retryable,
+		OperationID: op,
+	}
+}
+
+// login 建立面板会话。
+func (h *serviceHandler) login(ctx context.Context, params json.RawMessage) (any, *ipc.RPCError) {
+	var req ipc.LoginParams
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, h.badParams("login", err)
+	}
+
+	sess, serr := h.sessions.EnsureSession(req.PanelURL, req.AllowInsecureHTTP)
+	if serr != nil {
+		return nil, h.sessionRPCError("login", serr)
+	}
+
+	// 登录结果不在这里直接用：随后统一由 sessionStateFor 组装返回，
+	// 这样「登录」与「恢复会话」两条路径返回的结构必然一致。
+	if _, serr := sess.Login(ctx, req.Email, req.Password); serr != nil {
+		return nil, h.sessionRPCError("login", serr)
+	}
+
+	// 登录后把新凭据登记进脱敏器。不登记的话，核心日志里一旦回显
+	// 会话串就会被原样写进日志文件。
+	h.registerSessionSecrets(sess)
+
+	return h.sessionStateFor(sess), nil
+}
+
+// logout 清除会话与持久化凭据。
+func (h *serviceHandler) logout() (any, *ipc.RPCError) {
+	sess := h.sessions.Session()
+	if sess == nil {
+		// 本来就没登录：按成功处理，而不是报错。
+		// 用户点「退出登录」时想要的结果已经达成了。
+		return h.sessionState(), nil
+	}
+	if serr := sess.Logout(); serr != nil {
+		return nil, h.sessionRPCError("logout", serr)
+	}
+	return h.sessionStateFor(sess), nil
+}
+
+// sessionState 返回当前会话状态。
+func (h *serviceHandler) sessionState() ipc.SessionState {
+	return h.sessionStateFor(h.sessions.Session())
+}
+
+// sessionStateFor 组装会话状态。sess 可为 nil（尚未设置面板地址）。
+func (h *serviceHandler) sessionStateFor(sess *session.Session) ipc.SessionState {
+	state := ipc.SessionState{
+		PanelURL: h.sessions.PanelURL(),
+	}
+	if sess == nil {
+		return state
+	}
+	state.LoggedIn = sess.LoggedIn()
+	state.SecureStorage = h.sessions.SecureStorage()
+
+	if acct := sess.Account(); acct != nil {
+		state.Account = &ipc.AccountView{
+			Email:           acct.Email,
+			UUID:            acct.UUID,
+			Banned:          acct.Banned,
+			Expired:         acct.Expired,
+			ExpiredAtUnix:   acct.ExpiredAtUnix,
+			TransferEnable:  acct.TransferEnable,
+			UploadedBytes:   acct.UploadedBytes,
+			DownloadedBytes: acct.DownloadedBytes,
+			Balance:         acct.Balance,
+			PlanName:        sess.PlanName(),
+			Warnings:        acct.Warnings,
+		}
+	}
+
+	if nodes := sess.ListNodes(); len(nodes) > 0 {
+		state.Subscription = subscriptionView(sess, nodes)
+	}
+	return state
+}
+
+// subscriptionView 把会话的订阅状态转成 IPC 结构。
+func subscriptionView(sess *session.Session, nodes []session.NodeSummary) *ipc.SubscriptionView {
+	view := &ipc.SubscriptionView{
+		NodeCount:      len(nodes),
+		SelectedNodeID: sess.SelectedNodeID(),
+		PlanName:       sess.PlanName(),
+	}
+	if info := sess.SubscriptionInfo(); info != nil {
+		view.RejectedCount = info.RejectedCount
+		view.Warnings = info.Warnings
+		view.LastSyncUnix = info.LastSyncUnix
+		view.Usage = ipc.UsageView{
+			Present:    info.Usage.Present,
+			Upload:     info.Usage.Upload,
+			Download:   info.Usage.Download,
+			Total:      info.Usage.Total,
+			ExpireUnix: info.Usage.ExpireUnix,
+			Remaining:  info.Usage.Remaining,
+		}
+	}
+	return view
+}
+
+// refreshSubscription 拉取订阅并更新节点。
+func (h *serviceHandler) refreshSubscription(ctx context.Context) (any, *ipc.RPCError) {
+	sess := h.sessions.Session()
+	if sess == nil {
+		return nil, h.sessionRPCError("refreshSubscription",
+			session.ErrNotConfigured())
+	}
+
+	if _, serr := sess.RefreshSubscription(ctx); serr != nil {
+		return nil, h.sessionRPCError("refreshSubscription", serr)
+	}
+	h.registerSessionSecrets(sess)
+	return h.sessionStateFor(sess), nil
+}
+
+// listNodes 返回节点列表。
+func (h *serviceHandler) listNodes() (any, *ipc.RPCError) {
+	sess := h.sessions.Session()
+	if sess == nil {
+		return ipc.NodeList{Nodes: []ipc.NodeView{}}, nil
+	}
+	nodes := sess.ListNodes()
+	out := make([]ipc.NodeView, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, ipc.NodeView{
+			ID:       n.ID,
+			Name:     n.Name,
+			Protocol: n.Protocol,
+			Server:   n.Server,
+			Port:     n.Port,
+			Selected: n.Selected,
+		})
+	}
+	return ipc.NodeList{Nodes: out}, nil
+}
+
+// selectNode 选定一个节点。
+func (h *serviceHandler) selectNode(params json.RawMessage) (any, *ipc.RPCError) {
+	var req ipc.SelectNodeParams
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, h.badParams("selectNode", err)
+	}
+	sess := h.sessions.Session()
+	if sess == nil {
+		return nil, h.sessionRPCError("selectNode", session.ErrNotConfigured())
+	}
+
+	// ID 优先：界面已知 ID 时不应经过名字，避免同名节点被选错。
+	if req.ID != "" {
+		if serr := sess.SelectNodeByID(req.ID); serr != nil {
+			return nil, h.sessionRPCError("selectNode", serr)
+		}
+		return ipc.SelectNodeResult{SelectedNodeID: req.ID}, nil
+	}
+	if req.Name == "" {
+		return nil, &ipc.RPCError{
+			Code:       ipc.CodeInvalidParams,
+			MessageKey: "session.error.node_not_found",
+			Message:    "selectNode requires either id or name",
+			FieldPath:  "id",
+			Retryable:  false,
+		}
+	}
+	id, serr := sess.SelectNode(req.Name)
+	if serr != nil {
+		return nil, h.sessionRPCError("selectNode", serr)
+	}
+	return ipc.SelectNodeResult{SelectedNodeID: id}, nil
+}
+
+// options 返回选项模型。
+func (h *serviceHandler) options() (any, *ipc.RPCError) {
+	sess := h.sessions.Session()
+	var opts domain.Options
+	if sess == nil {
+		// 未登录也要能读默认选项：界面要能先把选项画出来。
+		opts = domain.DefaultOptions()
+	} else {
+		opts = sess.Options()
+	}
+	encoded, err := json.Marshal(opts)
+	if err != nil {
+		return nil, h.internal("getOptions", err)
+	}
+	return ipc.OptionsResult{Options: encoded}, nil
+}
+
+// setOptions 整体替换选项模型。
+func (h *serviceHandler) setOptions(params json.RawMessage) (any, *ipc.RPCError) {
+	var req ipc.OptionsResult
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, h.badParams("setOptions", err)
+	}
+	var opts domain.Options
+	if len(req.Options) > 0 {
+		if err := json.Unmarshal(req.Options, &opts); err != nil {
+			return nil, &ipc.RPCError{
+				Code:       ipc.CodeInvalidParams,
+				MessageKey: "ipc.malformed",
+				Message:    h.scrubber.Scrub(fmt.Sprintf("setOptions: %v", err)),
+				FieldPath:  "options",
+				Retryable:  false,
+			}
+		}
+	} else {
+		opts = domain.DefaultOptions()
+	}
+
+	sess := h.sessions.Session()
+	if sess == nil {
+		return nil, h.sessionRPCError("setOptions", session.ErrNotConfigured())
+	}
+	sess.SetOptions(opts)
+
+	encoded, err := json.Marshal(opts)
+	if err != nil {
+		return nil, h.internal("setOptions", err)
+	}
+	return ipc.OptionsResult{Options: encoded}, nil
+}
+
+// registerSessionSecrets 把当前会话的凭据登记进脱敏器。
+//
+// 每次登录或刷新订阅后都要重新登记：节点密码与订阅链接都会变，
+// 而旧的登记项留着只会让脱敏器越来越慢。
+func (h *serviceHandler) registerSessionSecrets(sess *session.Session) {
+	if sess == nil {
+		return
+	}
+	for _, v := range sess.Secrets() {
+		h.scrubber.Add(v)
 	}
 }
 

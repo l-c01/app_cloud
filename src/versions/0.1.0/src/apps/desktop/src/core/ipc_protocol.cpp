@@ -55,7 +55,11 @@ std::vector<std::string> KnownOperations() {
     return {op::kGetCapabilities, op::kValidateProfile, op::kCompileProfile,
             op::kStart,           op::kStop,           op::kGetRuntimeState,
             op::kSwitchNode,      op::kSetNetworkMode, op::kWatchEvents,
-            op::kRecoverNetwork};
+            op::kRecoverNetwork,
+            // 会话与订阅
+            op::kLogin,           op::kLogout,         op::kGetSessionState,
+            op::kRefreshSubscription, op::kListNodes,  op::kSelectNode,
+            op::kGetOptions,      op::kSetOptions};
 }
 
 // ---------------------------------------------------------------------------

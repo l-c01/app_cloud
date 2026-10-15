@@ -546,7 +546,131 @@ func TestOperationKnown(t *testing.T) {
 		t.Error("unknown operation reported as known")
 	}
 	// 能力清单与操作集合必须一致，避免声明了做不到的能力。
-	if len(KnownOperations()) != 10 {
-		t.Errorf("expected 10 documented operations, got %d", len(KnownOperations()))
+	//
+	// 这个数字是**有意的**：它强迫每次新增操作时都要回来改一次，
+	// 从而提醒改的人同步 C++ 镜像与文档
+	// （tools/scripts/check-ipc-contract.ps1 也会独立发现漏改）。
+	if len(KnownOperations()) != 18 {
+		t.Errorf("expected 18 documented operations, got %d", len(KnownOperations()))
+	}
+}
+
+// 会话与订阅的操作必须都在已知集合里。
+//
+// 单列这条是因为这一组是后补的：它们曾经完全不存在，
+// 而「界面上有按钮、服务端不认识这个操作」正是最难查的一类问题。
+func TestSessionOperationsAreKnown(t *testing.T) {
+	want := []Operation{
+		OpLogin, OpLogout, OpGetSessionState, OpRefreshSubscription,
+		OpListNodes, OpSelectNode, OpGetOptions, OpSetOptions,
+	}
+	for _, op := range want {
+		if !op.Known() {
+			t.Errorf("会话操作 %q 应当被认作已知操作", op)
+		}
+	}
+}
+
+// 会话状态里绝不能出现凭据。
+//
+// 这条是安全属性：SessionState 会被原样序列化后交给界面进程。
+// 一旦有人「顺手」把会话 token 或订阅链接加进去，凭据就离开了
+// 服务进程，而界面侧没有任何理由需要它们。
+func TestSessionStateCarriesNoCredentials(t *testing.T) {
+	state := SessionState{
+		LoggedIn: true,
+		PanelURL: "https://panel.example.com",
+		Account: &AccountView{
+			Email:    "u@example.com",
+			UUID:     "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+			PlanName: "Standard",
+		},
+		Subscription: &SubscriptionView{
+			NodeCount:      2,
+			SelectedNodeID: "proxy-abc",
+			Usage:          UsageView{Present: true, Total: 100, Remaining: 60},
+		},
+		SecureStorage: true,
+	}
+
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal SessionState: %v", err)
+	}
+	text := string(encoded)
+
+	// 这些字段名一旦出现就说明结构被改坏了。
+	for _, forbidden := range []string{
+		"password", "Password",
+		"sessionToken", "auth_data", "authData",
+		"subscribeUrl", "subscribeURL", "subscriptionUrl",
+		`"token"`,
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("会话状态里不应出现 %q：\n%s", forbidden, text)
+		}
+	}
+	// 而正常的展示字段必须还在，否则上面的断言可以靠「什么都不返回」通过。
+	for _, required := range []string{"loggedIn", "panelUrl", "email", "nodeCount", "secureStorage"} {
+		if !strings.Contains(text, required) {
+			t.Errorf("会话状态里应当包含 %q：\n%s", required, text)
+		}
+	}
+}
+
+// LoginParams 能正确往返：界面按这些字段名发送参数。
+func TestLoginParamsRoundTrip(t *testing.T) {
+	raw := []byte(`{"panelUrl":"https://p.example.com","email":"u@example.com",` +
+		`"password":"secret","allowInsecureHttp":true,"rememberPassword":false}`)
+
+	var params LoginParams
+	if err := json.Unmarshal(raw, &params); err != nil {
+		t.Fatalf("unmarshal LoginParams: %v", err)
+	}
+	if params.PanelURL != "https://p.example.com" {
+		t.Errorf("panelUrl = %q", params.PanelURL)
+	}
+	if params.Email != "u@example.com" {
+		t.Errorf("email = %q", params.Email)
+	}
+	if params.Password != "secret" {
+		t.Errorf("password 未被解析")
+	}
+	if !params.AllowInsecureHTTP {
+		t.Errorf("allowInsecureHttp 未被解析")
+	}
+	if params.RememberPassword {
+		t.Errorf("rememberPassword 默认应为 false")
+	}
+}
+
+// SelectNode 的结果必须回传解析后的 ID。
+//
+// 界面按名字请求，而实际生效的是 ID；不回传的话界面只能自己猜。
+func TestSelectNodeResultRoundTrip(t *testing.T) {
+	encoded, err := json.Marshal(SelectNodeResult{SelectedNodeID: "proxy-1234"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(encoded) != `{"selectedNodeId":"proxy-1234"}` {
+		t.Errorf("SelectNodeResult 的线格式变了：%s", encoded)
+	}
+}
+
+// 节点视图不得包含连接凭据。
+func TestNodeViewCarriesNoCredentials(t *testing.T) {
+	view := NodeView{
+		ID: "proxy-1", Name: "日本 01", Protocol: "trojan",
+		Server: "jp.example.com", Port: 443, Selected: true,
+	}
+	encoded, err := json.Marshal(view)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	text := string(encoded)
+	for _, forbidden := range []string{"password", "uuid", "method", "flow"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("节点视图里不应出现 %q：\n%s", forbidden, text)
+		}
 	}
 }
