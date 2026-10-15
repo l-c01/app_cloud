@@ -512,6 +512,28 @@ func (h *serviceHandler) start(ctx context.Context, params json.RawMessage) (any
 		compileReq = built
 	}
 
+	// 接入方式。三层回退，顺序有意义：
+	//
+	//   1. 调用方显式给出（req.Mode）；
+	//   2. 本次进程内最后一次 SetNetworkMode 的选择；
+	//   3. **会话选项里的 TrafficEntry**（界面上「流量接入方式」那一项）。
+	//
+	// 第 3 层是必须的，不能省。planForMode("") 返回**空计划**，也就是
+	// 「不接管任何网络设置」——于是核心起来了、状态显示「已连接」，
+	// 但系统代理根本没被改动，用户的流量一点都没走代理。
+	// 而界面从来不发 mode（它只发「连接」），所以缺了这一层时，
+	// 默认路径上**永远不会有任何接管**，而且看起来一切正常。
+	//
+	// 用选项模型而不是让界面多发一个字段：同一件事只能有一个来源，
+	// 否则界面显示的接入方式与实际接管的可能不一致。
+	mode := req.Mode
+	if mode == "" {
+		mode = h.lastMode
+	}
+	if mode == "" {
+		mode = h.sessions.TrafficEntry()
+	}
+
 	// 就绪地址：调用方没给就按入站配置推出来。
 	//
 	// **不能默认留空。** 留空意味着「不校验就绪」，于是服务会在核心还没
@@ -526,11 +548,11 @@ func (h *serviceHandler) start(ctx context.Context, params json.RawMessage) (any
 	}
 
 	h.runner.setReadyAddress(readyAddress)
-	h.lastMode = req.Mode
+	h.lastMode = mode
 
 	if err := h.coordinator.Connect(ctx, coordinator.ConnectRequest{
 		Compile: compileReq,
-		Mode:    req.Mode,
+		Mode:    mode,
 	}); err != nil {
 		rpcErr := h.internal("start", err)
 		rpcErr.MessageKey = coordinator.MessageKeyFor(err)
@@ -543,7 +565,10 @@ func (h *serviceHandler) start(ctx context.Context, params json.RawMessage) (any
 		// 明确告诉客户端「就绪是否被验证过」：只看「启动成功」
 		// 会把「进程起来了但还没监听」当成可用。
 		"readyVerified": readyVerified,
-		"state":         h.runtimeState(),
+		// 回传实际使用的接入方式：界面据此显示「用哪种方式接管的」，
+		// 而不是显示它自己以为的那个。
+		"mode":  mode,
+		"state": h.runtimeState(),
 	}, nil
 }
 
