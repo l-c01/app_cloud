@@ -71,6 +71,7 @@
     "netmgr.scope.pac": "PAC 只影响读取系统 PAC 设置的应用；规则由本地 PAC 服务提供",
     "netmgr.scope.tun": "TUN 接管虚拟网卡流量；是否需要管理员权限、以及哪些流量被排除取决于平台实现",
     "netmgr.scope.none": "未改动系统网络设置",
+    "netmgr.notify_failed": "代理设置已写入，但通知系统刷新失败；部分正在运行的应用可能仍在使用旧设置，重启这些应用即可生效",
 
     "subscription.unavailable": "订阅不可用（可能已到期、流量用尽或账号被封禁）",
     "subscription.unauthorized": "订阅链接无效或已失效",
