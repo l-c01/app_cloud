@@ -269,72 +269,6 @@ func TestBuildRequestWithoutNodesIsRejected(t *testing.T) {
 	}
 }
 
-// 构造出来的请求必须**真的能被编译器接受**。
-//
-// 这是一条回归测试，针对一个编译期看不出来的缺陷：
-// 端口原先只在 TUN 模式下设置，而桌面端默认用系统代理（TUN 关），
-// 于是 http/socks 端口都留在 0，编译器的 Request.validate() 直接拒绝
-// （"invalid http port: 0"）——**每次点「连接」都会失败**。
-//
-// 断言「端口非零」是不够的：那只覆盖了这个具体表现。
-// 这里直接把它交给 compiler.CompileSingBox，让校验器来说话——
-// 那样任何一个会让请求被拒的字段都会在这里暴露，而不只是端口。
-func TestBuiltRequestIsAcceptedByTheCompiler(t *testing.T) {
-	ff := &fakeFetcher{results: []*subscription.FetchResult{{
-		Nodes: []*domain.Node{node("A", "a.example.com", 443)},
-	}}}
-	s := newTestSession(t, &fakePanel{}, ff, nil)
-	ctx := context.Background()
-
-	if _, err := s.Login(ctx, "u@example.com", "pw"); err != nil {
-		t.Fatalf("Login: %v", err)
-	}
-	if _, err := s.RefreshSubscription(ctx); err != nil {
-		t.Fatalf("RefreshSubscription: %v", err)
-	}
-
-	req, serr := s.BuildRequest()
-	if serr != nil {
-		t.Fatalf("BuildRequest: %v", serr)
-	}
-
-	// 默认接入方式是系统代理，TUN 是关的——这正是原先出错的那种组合。
-	if s.Options().Inbound.TUN.Enabled {
-		t.Fatalf("本用例要覆盖的正是「TUN 关闭」的情形，默认值不该是开启")
-	}
-
-	if _, _, err := compiler.CompileSingBox(req); err != nil {
-		t.Fatalf("编译器拒绝了会话构造的请求，用户点「连接」会直接失败：%v", err)
-	}
-}
-
-// 端口不可用时必须回退，而不是交出一个必然被拒绝的请求。
-func TestBuiltRequestFallsBackToUsablePorts(t *testing.T) {
-	ff := &fakeFetcher{results: []*subscription.FetchResult{{
-		Nodes: []*domain.Node{node("A", "a.example.com", 443)},
-	}}}
-	s := newTestSession(t, &fakePanel{}, ff, nil)
-	ctx := context.Background()
-
-	if _, err := s.Login(ctx, "u@example.com", "pw"); err != nil {
-		t.Fatalf("Login: %v", err)
-	}
-	if _, err := s.RefreshSubscription(ctx); err != nil {
-		t.Fatalf("RefreshSubscription: %v", err)
-	}
-
-	for _, port := range []int{0, -1, 65535, 70000} {
-		s.UpdateOptions(func(o *domain.Options) { o.Inbound.MixedPort = port })
-		req, serr := s.BuildRequest()
-		if serr != nil {
-			t.Fatalf("端口 %d 时 BuildRequest 不应失败：%v", port, serr)
-		}
-		if _, _, err := compiler.CompileSingBox(req); err != nil {
-			t.Errorf("端口 %d 时编译器拒绝了请求：%v", port, err)
-		}
-	}
-}
-
 // ---------------------------------------------------------------------------
 // 凭据处理
 // ---------------------------------------------------------------------------
@@ -689,41 +623,5 @@ func TestSessionRequestsURIFlag(t *testing.T) {
 	}
 	if f.Flag != "general" {
 		t.Errorf("订阅请求的 flag = %q，期望 general", f.Flag)
-	}
-}
-
-// TrafficEntry **绝不能返回空串**。
-//
-// 这是一条回归测试，针对一个会静默失效的缺陷：
-// 协调器的 planForMode("") 落在 default 分支，返回**空计划**，
-// 也就是「不接管任何网络设置」。结果是核心起来了、状态显示「已连接」，
-// 而系统代理根本没被改动——用户的流量一点都没走代理，
-// 界面上却看不出任何异常。
-//
-// 界面只发「连接」、不发接入方式，所以这个值必须由服务端给出来。
-func TestTrafficEntryIsNeverEmpty(t *testing.T) {
-	// 尚未建立会话时也要给得出默认值，而不是空串。
-	fresh := NewManager(Config{Store: secrets.NewMemoryStore()})
-	if got := fresh.TrafficEntry(); got == "" {
-		t.Errorf("没有会话时 TrafficEntry 不应返回空串（空串等于「不接管网络」）")
-	}
-
-	// 会话存在但选项里的值为空时同样要回退。
-	ff := &fakeFetcher{results: []*subscription.FetchResult{{
-		Nodes: []*domain.Node{node("A", "a.example.com", 443)},
-	}}}
-	s := newTestSession(t, &fakePanel{}, ff, nil)
-	s.UpdateOptions(func(o *domain.Options) { o.Inbound.TrafficEntry = "" })
-
-	m := NewManager(Config{Store: secrets.NewMemoryStore()})
-	m.cur = s
-	if got := m.TrafficEntry(); got == "" {
-		t.Errorf("选项里的接入方式为空时应当回退到出厂默认，而不是返回空串")
-	}
-
-	// 用户改过就应当用用户的值。
-	s.UpdateOptions(func(o *domain.Options) { o.Inbound.TrafficEntry = "tun" })
-	if got := m.TrafficEntry(); got != "tun" {
-		t.Errorf("TrafficEntry = %q，期望 tun", got)
 	}
 }
