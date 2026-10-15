@@ -200,11 +200,101 @@ func TestParseTrojanWithWebSocketTLS(t *testing.T) {
 }
 
 func TestParseURIRejectsUnsupportedScheme(t *testing.T) {
-	if _, err := ParseURI("hysteria2://x@h:443"); err == nil {
+	// 注意：这里**不能**再用 hysteria2 当例子了。
+	//
+	// 这条断言原先写的就是 `hysteria2://x@h:443`——它把「我们还不支持
+	// hysteria2」固化成了一个正确的期望。实现之后那条断言变成了
+	// 「实现是错误的」，于是必须改。留下这段说明是因为：
+	// **把已知缺口写成断言是合理的，但实现之后一定要回来改它**，
+	// 否则测试会挡着正确的改动。
+	if _, err := ParseURI("tuic://x@h:443"); err == nil {
 		t.Fatal("expected error for unsupported scheme")
 	}
 	if _, err := ParseURI("not-a-uri"); err == nil {
 		t.Fatal("expected error for URI without scheme")
+	}
+}
+
+// Hysteria2 此前**完全无法使用**：解析器不认这个 scheme，
+// 于是订阅里这类节点被整条丢掉（真实订阅里就有 2 个）。
+//
+// 用例的字段构成照抄真实订阅里的链接，因此它验证的是真实形状，
+// 不是我想象出来的形状。
+func TestParseHysteria2(t *testing.T) {
+	// 真实形状：hysteria2://<password>@host:port?sni=...&insecure=0#<name>
+	uri := "hysteria2://secret-pw@hy.example.com:42555?sni=hy.example.com&insecure=0#" +
+		url.QueryEscape("[Hy2]us-Hysteria")
+
+	n, err := ParseURI(uri)
+	if err != nil {
+		t.Fatalf("ParseURI: %v", err)
+	}
+	if n.Protocol != domain.ProtocolHysteria2 {
+		t.Errorf("protocol = %q，期望 hysteria2", n.Protocol)
+	}
+	if n.Password != "secret-pw" {
+		t.Errorf("password = %q，期望 secret-pw", n.Password)
+	}
+	if n.Server != "hy.example.com" || n.Port != 42555 {
+		t.Errorf("endpoint = %s:%d，期望 hy.example.com:42555", n.Server, n.Port)
+	}
+	// hysteria2 自带 TLS：URI 里没有 security 参数也必须当成加密，
+	// 不能因为缺参数就把节点当明文。
+	if n.Security != domain.SecurityTLS {
+		t.Errorf("security = %q，期望 tls（该协议永远走 TLS）", n.Security)
+	}
+	if n.Name != "[Hy2]us-Hysteria" {
+		t.Errorf("name = %q", n.Name)
+	}
+	if n.TLS.AllowInsecure {
+		t.Errorf("insecure=0 时不应打开证书校验豁免")
+	}
+}
+
+func TestParseHysteria2DefaultsSNIToServer(t *testing.T) {
+	n, err := ParseURI("hysteria2://pw@hy.example.com:443#n")
+	if err != nil {
+		t.Fatalf("ParseURI: %v", err)
+	}
+	if n.TLS.ServerName != "hy.example.com" {
+		t.Errorf("缺少 sni 时应当用服务器地址兜底，实际 %q", n.TLS.ServerName)
+	}
+}
+
+func TestParseHysteria2RequiresPassword(t *testing.T) {
+	// 空密码会让核心以「认证失败」告终，而那个错误看起来像服务端的问题。
+	if _, err := ParseURI("hysteria2://@hy.example.com:443#n"); err == nil {
+		t.Error("缺少密码时应当报错")
+	}
+}
+
+func TestParseHysteria2Insecure(t *testing.T) {
+	n, err := ParseURI("hysteria2://pw@hy.example.com:443?insecure=1#n")
+	if err != nil {
+		t.Fatalf("ParseURI: %v", err)
+	}
+	if !n.TLS.AllowInsecure {
+		t.Error("insecure=1 时应当打开证书校验豁免")
+	}
+}
+
+// obfs 与 obfs-password 必须成对；只给一个时不能生成半个配置。
+func TestParseHysteria2ObfsPairing(t *testing.T) {
+	full, err := ParseURI("hysteria2://pw@h.example.com:443?obfs=salamander&obfs-password=s3cr3t#n")
+	if err != nil {
+		t.Fatalf("ParseURI: %v", err)
+	}
+	if full.Quarantine["obfs"] != "salamander" || full.Quarantine["obfs-password"] != "s3cr3t" {
+		t.Errorf("成对的 obfs 应当被保留，实际 %v", full.Quarantine)
+	}
+
+	// 只有 obfs，没有密码：仍然保留（可见），但不构成可用组合。
+	half, err := ParseURI("hysteria2://pw@h.example.com:443?obfs=salamander#n")
+	if err != nil {
+		t.Fatalf("ParseURI: %v", err)
+	}
+	if half.Quarantine["obfs"] != "salamander" {
+		t.Errorf("半套 obfs 也应当被记录而不是丢掉，实际 %v", half.Quarantine)
 	}
 }
 

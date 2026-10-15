@@ -52,6 +52,8 @@ func ParseURI(uri string) (*domain.Node, error) {
 		node, err = parseVLESS(rest)
 	case "trojan":
 		node, err = parseTrojan(rest)
+	case "hysteria2", "hy2":
+		node, err = parseHysteria2(rest)
 	default:
 		return nil, fmt.Errorf("unsupported node URI scheme: %s", scheme)
 	}
@@ -293,6 +295,74 @@ func parseTrojan(rest string) (*domain.Node, error) {
 	return n, nil
 }
 
+// parseHysteria2 解析 hysteria2://password@host:port?params#name。
+//
+// 用真实订阅验证过（2026-10-16）：这种链接确实存在，而且此前**完全无法使用**——
+// 解析器只认 ss/vmess/vless/trojan，遇到 hysteria2 直接报
+// 「unsupported node URI scheme」，于是订阅里这类节点被整条丢掉。
+//
+// 与其它协议的三个关键差别：
+//
+//  1. **它自带 TLS，永远不可能是明文**。URI 里没有 security 参数，
+//     也不能因为缺少它就把节点当成未加密——因此这里直接设为 tls，
+//     而不是交给 applySecurityFromQuery 去猜。
+//  2. 认证信息是**密码**，不是 UUID，而且必须非空：
+//     空的密码会让核心以「认证失败」告终，而那个错误看起来像服务端的问题。
+//  3. obfs 是可选的，且 obfs-password 与 obfs 必须成对出现才有效。
+func parseHysteria2(rest string) (*domain.Node, error) {
+	u, err := url.Parse("hysteria2://" + rest)
+	if err != nil {
+		return nil, fmt.Errorf("hysteria2: invalid URI: %w", err)
+	}
+	if u.User == nil || u.User.Username() == "" {
+		return nil, fmt.Errorf("hysteria2: missing password")
+	}
+
+	port, err := parsePort(u.Port())
+	if err != nil {
+		return nil, fmt.Errorf("hysteria2: %w", err)
+	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("hysteria2: missing server")
+	}
+
+	q := u.Query()
+	n := &domain.Node{
+		Name:     fragmentName(u),
+		Protocol: domain.ProtocolHysteria2,
+		Server:   u.Hostname(),
+		Port:     port,
+		Password: u.User.Username(),
+		// 见上：不是「默认按 tls 处理」，而是这个协议本身就走 TLS。
+		Security: domain.SecurityTLS,
+	}
+	// sni / insecure / alpn 与其它协议同名，复用同一套解析。
+	applySecurityFromQuery(n, q)
+
+	// sni 缺省时用服务器地址：核心需要一个 SNI，而空 SNI 会让
+	// 握手与证书校验都落到不确定的行为上。
+	if n.TLS.ServerName == "" {
+		n.TLS.ServerName = u.Hostname()
+	}
+
+	// obfs 与 obfs-password 必须成对；只给一个时不生成，
+	// 而是把它记进隔离区——半个 obfs 配置会让握手静默失败。
+	obfs := q.Get("obfs")
+	obfsPassword := firstNonEmpty(q.Get("obfs-password"), q.Get("obfs_password"))
+	switch {
+	case obfs != "" && obfsPassword != "":
+		n.QuarantineField("obfs", obfs)
+		n.QuarantineField("obfs-password", obfsPassword)
+	case obfs != "":
+		n.QuarantineField("obfs", obfs)
+	case obfsPassword != "":
+		n.QuarantineField("obfs-password", obfsPassword)
+	}
+
+	// 连接参数（mport 等）保留在隔离区，不在本版本实现。
+	return n, nil
+}
+
 // transportOptionsFromQuery 从查询参数提取传输选项。
 //
 // 服务端在 vless/trojan 的 query 中使用 type/path/host/serviceName/mode 等键。
@@ -308,6 +378,27 @@ func transportOptionsFromQuery(q url.Values) domain.TransportOptions {
 
 // applySecurityFromQuery 依据 query 设置 TLS / Reality 参数。
 func applySecurityFromQuery(n *domain.Node, q url.Values) {
+	// **先解析与 security 无关的那几项**，再按 security 决定加密方式。
+	//
+	// 顺序很要紧：security 为空时下面的 switch 会直接 return，
+	// 而 `insecure=1` 与 security 没有任何关系——它是「跳过证书校验」。
+	// 原先的写法把 insecure 放在 return 之后，于是**只要链接里没有
+	// security 参数，insecure 就被静默忽略**。
+	//
+	// 这一点在 hysteria2 上立刻变成真实缺陷：那种链接根本不带 security，
+	// 于是 `insecure=1`（自签证书节点的常见配置）永远不生效，
+	// 表现是「同一个节点别的客户端能连，这里连不上」。
+	if v := q.Get("allowInsecure"); v == "1" || strings.EqualFold(v, "true") {
+		n.TLS.AllowInsecure = true
+	}
+	if v := q.Get("insecure"); v == "1" || strings.EqualFold(v, "true") {
+		n.TLS.AllowInsecure = true
+	}
+	n.TLS.ServerName = firstNonEmpty(n.TLS.ServerName, q.Get("sni"), q.Get("peer"))
+	if alpn := q.Get("alpn"); alpn != "" {
+		n.TLS.ALPN = splitAndTrim(alpn, ",")
+	}
+
 	security := strings.ToLower(q.Get("security"))
 	switch security {
 	case "reality":
@@ -323,17 +414,7 @@ func applySecurityFromQuery(n *domain.Node, q url.Values) {
 		return
 	}
 
-	n.TLS.ServerName = firstNonEmpty(q.Get("sni"), q.Get("peer"))
 	n.TLS.Fingerprint = q.Get("fp")
-	if v := q.Get("allowInsecure"); v == "1" || strings.EqualFold(v, "true") {
-		n.TLS.AllowInsecure = true
-	}
-	if v := q.Get("insecure"); v == "1" || strings.EqualFold(v, "true") {
-		n.TLS.AllowInsecure = true
-	}
-	if alpn := q.Get("alpn"); alpn != "" {
-		n.TLS.ALPN = splitAndTrim(alpn, ",")
-	}
 	n.TLS.RealityPublicKey = q.Get("pbk")
 	n.TLS.RealityShortID = q.Get("sid")
 }
