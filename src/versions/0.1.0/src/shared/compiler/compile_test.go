@@ -59,8 +59,7 @@ func baseRequest(nodes ...*domain.Node) *Request {
 		Nodes: nodes,
 		Inbound: InboundOptions{
 			Listen:    "127.0.0.1",
-			HTTPPort:  7890,
-			SocksPort: 7891,
+			MixedPort: 7890,
 		},
 		Policy: PolicyGlobal,
 	}
@@ -278,8 +277,12 @@ func TestRequestValidation(t *testing.T) {
 		mutate func(*Request)
 	}{
 		{"unknown core", func(r *Request) { r.Core = "mihomo" }},
-		{"same ports", func(r *Request) { r.Inbound.SocksPort = r.Inbound.HTTPPort }},
-		{"zero http port", func(r *Request) { r.Inbound.HTTPPort = 0 }},
+		// 「两个端口必须不同」这条校验随旧结构一起去掉了：
+		// 现在只有一个 mixed 端口，没有「两个端口」可言。
+		// 越界与零值仍然要拦。
+		{"zero port", func(r *Request) { r.Inbound.MixedPort = 0 }},
+		{"port too large", func(r *Request) { r.Inbound.MixedPort = 70000 }},
+		{"negative port", func(r *Request) { r.Inbound.MixedPort = -1 }},
 		{"empty listen", func(r *Request) { r.Inbound.Listen = "" }},
 		{"unknown policy", func(r *Request) { r.Policy = "smart" }},
 		{"empty policy", func(r *Request) { r.Policy = "" }},

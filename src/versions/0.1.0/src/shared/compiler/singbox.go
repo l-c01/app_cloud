@@ -67,20 +67,26 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 		DNS: singboxDNSSection(req.dnsOptions()),
 		Inbounds: []map[string]any{
 			{
-				"type":        "http",
-				"tag":         "http-in",
+				// **一个 mixed 入站，而不是 http + socks 两个。**
+				//
+				// 事实依据：sing-box 注册了 C.TypeMixed
+				// （option/inbound.go 的
+				// `inbound.Register[option.HTTPMixedInboundOptions](registry, C.TypeMixed, ...)`），
+				// 同一个端口同时提供 HTTP 与 SOCKS。
+				//
+				// 为什么必须改：界面里用户只看到一个「混合端口」，
+				// 而生成器此前悄悄用掉两个端口（port 与 port+1）。
+				// 用户按自己的端口规划填了 7890，实际却占用了 7891——
+				// 当 7891 属于别的程序时核心起不来，而配置文件里
+				// 根本看不出「另一个端口是从哪来的」。
+				"type":        "mixed",
+				"tag":         "mixed-in",
 				"listen":      listen,
-				"listen_port": req.Inbound.HTTPPort,
-			},
-			{
-				"type":        "socks",
-				"tag":         "socks-in",
-				"listen":      listen,
-				"listen_port": req.Inbound.SocksPort,
+				"listen_port": req.Inbound.MixedPort,
 			},
 		},
 	}
-	report.InboundPorts = map[string]int{"socks": req.Inbound.SocksPort, "http": req.Inbound.HTTPPort}
+	report.InboundPorts = map[string]int{"mixed": req.Inbound.MixedPort, "http": req.Inbound.MixedPort, "socks": req.Inbound.MixedPort}
 
 	selected := selectNode(req, report, usable)
 
