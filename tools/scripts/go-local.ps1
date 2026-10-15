@@ -26,22 +26,22 @@
     build, test, vet or fmt. Defaults to 'test'.
 
 .PARAMETER Args
-    Extra arguments passed through to the Go command. Pass them by NAME:
-    `-Args ./...`. Passing them positionally after -Command binds them to
-    this parameter only when -ToolchainDir is not also supplied, which makes
-    the invocation fail confusingly (the toolchain path gets overwritten by
-    the first package pattern).
+    Extra arguments passed through to the Go command.
+
+.PARAMETER ToolchainDir
+    Where the Go toolchain lives. Defaults to D:\workai\toolchain.
 
 .EXAMPLE
-    & ./tools/scripts/go-local.ps1 -Command test -Args ./...
+    & ./tools/scripts/go-local.ps1 -Command test ./...
 
 .EXAMPLE
-    & ./tools/scripts/go-local.ps1 -Command vet -Args ./...
+    & ./tools/scripts/go-local.ps1 -Command vet ./...
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('build', 'test', 'vet', 'fmt')]
     [string]$Command = 'test',
+    [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$Args = @(),
     [string]$ToolchainDir = 'D:\workai\toolchain'
 )
