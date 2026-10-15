@@ -241,6 +241,185 @@ struct RuntimeState {
 };
 
 // ---------------------------------------------------------------------------
+// 会话与订阅的载荷
+//
+// 安全约定（与 Go 端同一节一致）：这些结构会被服务端序列化后交给界面进程，
+// 因此**一律不得**包含面板会话凭据、订阅链接或节点密码。
+// 界面侧同样不得把它们写进日志——日志可能被用户复制后公开。
+// ---------------------------------------------------------------------------
+
+// LoginParams 是 Login 的参数。
+//
+// password 只在内存与这一次请求里存在：**不写日志、不回显、不入 preferences**。
+// 是否持久化由服务端按 remember_password 决定（默认 false，
+// 也就是「关了程序就要重新登录」）。
+struct LoginParams {
+    // panel_url 为空表示沿用当前会话的地址。
+    std::string panel_url;
+    std::string email;
+    std::string password;
+    // allow_insecure_http 允许 http:// 面板地址，仅用于本地测试。
+    bool allow_insecure_http = false;
+    // remember_password 为真时才请服务端把密码写进安全存储。
+    bool remember_password = false;
+
+    // ToJson 生成请求参数。
+    //
+    // 空字段不写出（与 Go 的 omitempty 一致）：panelUrl 留空时省略它，
+    // 服务端才会沿用当前地址；写成空串会被当成「把地址改成空」。
+    Json ToJson() const;
+};
+
+// AccountView 是登录/恢复后返回的账户摘要。
+struct AccountView {
+    std::string email;
+    std::string uuid;
+    bool banned = false;
+    bool expired = false;
+    std::int64_t expired_at_unix = 0;
+    std::int64_t transfer_enable = 0;
+    std::int64_t uploaded_bytes = 0;
+    std::int64_t downloaded_bytes = 0;
+    double balance = 0.0;
+    std::string plan_name;
+    std::vector<std::string> warnings;
+
+    static AccountView Parse(const Json& source);
+
+    // UploadedAndDownloaded 返回已用流量。
+    //
+    // 单独一个方法是因为「已用」有两个来源：账户摘要里的
+    // uploaded + downloaded，以及订阅用量里的 upload + download。
+    // 把加法写在一个地方，可以避免两处算出不同的数字。
+    std::int64_t UsedBytes() const;
+};
+
+// UsageView 是账户用量。
+//
+// present 为 false 时界面必须**隐藏**用量，而不是显示 0——
+// 「用量 0」与「不知道用量」是两件事。
+struct UsageView {
+    bool present = false;
+    std::int64_t upload = 0;
+    std::int64_t download = 0;
+    std::int64_t total = 0;
+    std::int64_t expire_unix = 0;
+    std::int64_t remaining = 0;
+
+    static UsageView Parse(const Json& source);
+
+    // UsedBytes 返回已用流量（上传 + 下载）。
+    std::int64_t UsedBytes() const;
+};
+
+// SubscriptionView 描述订阅状态。
+struct SubscriptionView {
+    int node_count = 0;
+    // rejected_count 是被拒绝的节点数。**必须显示出来**：
+    // 服务端会把协议不支持或字段缺失的节点丢掉，静默丢弃会让用户
+    // 以为「订阅里就是少了几个节点」。
+    int rejected_count = 0;
+    std::vector<std::string> warnings;
+    std::string selected_node_id;
+    std::int64_t last_sync_unix = 0;
+    std::string plan_name;
+    UsageView usage;
+
+    static SubscriptionView Parse(const Json& source);
+
+    // EffectivePlanName 返回应当显示的套餐名。
+    //
+    // 订阅与账户两处都带套餐名，取值可能一个有一个没有。
+    // 判定写在这里，避免界面各写一遍而给出不一致的答案。
+    std::string EffectivePlanName() const;
+};
+
+// SessionState 是 GetSessionState 的返回值。
+//
+// 它刻意不返回任何凭据。界面据此决定显示登录页还是主界面。
+struct SessionState {
+    // logged_in 表示是否持有可用会话。
+    bool logged_in = false;
+    // panel_url 是当前面板地址（用户填的，不是凭据）。
+    std::string panel_url;
+    std::optional<AccountView> account;
+    std::optional<SubscriptionView> subscription;
+    // secure_storage 表示本平台是否具备安全存储。
+    //
+    // 为 false 时界面**必须**提示「本次可用，但不会记住登录」——
+    // 否则用户会以为下次启动仍是登录状态。
+    bool secure_storage = false;
+
+    static SessionState Parse(const Json& source);
+
+    // RememberWarningRequired 报告是否需要显示「不会记住登录」的提示。
+    //
+    // 条件写在这里而不是散在界面代码里：登录页与专业模式都要显示它，
+    // 两处各写一遍必然漂移。
+    bool RememberWarningRequired() const { return !secure_storage; }
+};
+
+// NodeView 是一个节点的界面表示。
+//
+// **不含 password / uuid 等连接凭据**：节点的连接参数是秘密，
+// 界面只需要能显示和选择它。
+struct NodeView {
+    std::string id;
+    std::string name;
+    std::string protocol;
+    std::string server;
+    int port = 0;
+    bool selected = false;
+
+    static NodeView Parse(const Json& source);
+
+    // Label 返回列表里显示的一行文字。
+    //
+    // 协议与地址都放进去：同名节点在面板里很常见，
+    // 只显示名字会让用户无法区分自己选的是哪一个。
+    std::string Label() const;
+};
+
+// NodeList 是 ListNodes 的返回值。
+struct NodeList {
+    std::vector<NodeView> nodes;
+
+    static NodeList Parse(const Json& source);
+
+    // SelectedIndex 返回被标记为选中的节点下标；没有时返回 -1。
+    //
+    // 返回 -1 而不是 0：服务端可能一个都没标记（比如选中的节点
+    // 已被订阅淘汰），此时界面应当保持不选中，而不是跳到第一个。
+    int SelectedIndex() const;
+};
+
+// SelectNodeParams 是 SelectNode 的参数。
+//
+// 允许按名字或 ID（二选一）：界面习惯用名字，而名字可能重名，
+// 此时服务端返回 node_name_ambiguous 并要求改用 ID。
+struct SelectNodeParams {
+    std::string id;
+    std::string name;
+
+    // ToJson 生成请求参数；两者都为空时返回空对象，
+    // 由服务端按 invalid_params 拒绝，而不是在这里编造一个取值。
+    Json ToJson() const;
+
+    // IsUsable 报告参数里至少有一个标识。
+    bool IsUsable() const { return !id.empty() || !name.empty(); }
+};
+
+// SelectNodeResult 返回最终选定的节点 ID。
+//
+// 回传 ID 是必要的：界面按名字请求，而实际生效的是 ID；
+// 不回传的话界面只能自己猜解析结果。
+struct SelectNodeResult {
+    std::string selected_node_id;
+
+    static SelectNodeResult Parse(const Json& source);
+};
+
+// ---------------------------------------------------------------------------
 // 辅助
 // ---------------------------------------------------------------------------
 
