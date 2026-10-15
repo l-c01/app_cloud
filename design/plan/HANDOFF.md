@@ -201,17 +201,25 @@ gofmt 要求去掉注释里成对的反引号。三次都已修掉，
 | 预构建二进制 + 进程 | 独立进程 + `--vpn-service` / fd 继承 | 需要核心支持从 fd 接管，且要处理进程生命周期与权限 |
 | tun2socks 桥接 | 应用内把 TUN 流量转成 SOCKS 交给核心 | 多一层转发、多一份依赖，性能与故障面都变差 |
 
-**在没有真实 Android 设备与真实核心的情况下，无法验证任何一条**，
-而猜一个接口会得到「编译通过、运行即崩」的代码——
-这正是 `ui-options.md` 第 0 节批评的伪选项在平台层的等价物。
+**这个问题已经查清并决定了，见 [`ADR-0006`](../adr/ADR-0006-Android-核心集成方式.md)。**
+要点：**采用 AAR（gomobile）内嵌**，并自己实现 sing-box 的
+`adapter.PlatformInterface`——它的 `OpenInterface(options *tun.Options, ...)`
+就是 fd 的入口，`AutoDetectInterfaceControl(fd)` 是回调
+`VpnService.protect(fd)` 的挂载点。
 
-**因此建议的下一步**（需要用户的真实设备与核心）：
-1. 先读 `src/references/ClashMetaForAndroid-main` 看一个真实的 Android 代理客户端
-   是怎么把 VpnService 交给内核的（那是可核实的事实，不是猜测）；
-2. 据此定下路线，写进 ADR；
-3. 再实现，并在真实设备上验证「流量真的走了代理」。
+两条查证出来的关键事实（此前被忽略）：
+- **fd 不是配置里的键**：参考实现里它是 `LC.Tun{FileDescriptor: fd}` 这样的
+  **API 参数**（`ClashMetaForAndroid/core/.../native/tun/tun.go:54-65`），
+  因此「fd 怎么进去」取决于用哪个 Go API，而不是生成什么 JSON；
+- **`option/tun.go` 里没有 `file_descriptor` 字段**（逐字段核对过），
+  所以「在配置里加一个 fd 字段」既不可能也不必要。
 
-**在那之前，Android 的这一格必须继续标记为未实现。**
+**但实现仍未开始，Android 的 TUN 必须继续标记为未实现。**
+ADR 里列了实现前的 4 项检查清单（其中第一项是「对着真实 SDK 确认
+libbox 到底导出了哪些入口」——本仓库的参考源码里**没有** sing-box 的
+Android 客户端实现，只有文档目录），以及代价：需要 gomobile 与 NDK、
+CI 变慢、**本机完全没有 JDK/NDK/SDK/真机因此无法验证**。
+
 不要把「VPN 能建立」写成「Android 能用」。
 
 ### 2.2b 后端仍缺的两项（都有明确原因，不是遗漏）
