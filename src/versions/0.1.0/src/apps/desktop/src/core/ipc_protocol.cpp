@@ -6,6 +6,7 @@
 #include <sstream>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -295,6 +296,178 @@ bool RuntimeState::NeedsAttention() const {
     // 这三个状态都需要用户或维护者介入，不能当作普通状态展示。
     return state == "recovery_required" || state == "failed" ||
            !conflicts.empty();
+}
+
+// ---------------------------------------------------------------------------
+// 会话与订阅的载荷
+// ---------------------------------------------------------------------------
+
+Json LoginParams::ToJson() const {
+    Json out = Json::object();
+    // panelUrl 留空时不写：省略表示「沿用当前地址」，
+    // 写成空串会被服务端当成「把地址改成空」。
+    if (!panel_url.empty()) {
+        out["panelUrl"] = panel_url;
+    }
+    out["email"] = email;
+    out["password"] = password;
+    // 两个布尔同样按 omitempty 处理：false 是默认值，不必写出去。
+    if (allow_insecure_http) {
+        out["allowInsecureHttp"] = true;
+    }
+    if (remember_password) {
+        out["rememberPassword"] = true;
+    }
+    return out;
+}
+
+std::int64_t AccountView::UsedBytes() const {
+    // 两个字段都是 int64，相加不会溢出到未定义行为；
+    // 面板给出的数值不会是负数，这里不做钳制。
+    return uploaded_bytes + downloaded_bytes;
+}
+
+AccountView AccountView::Parse(const Json& source) {
+    AccountView out;
+    out.email = GetStringField(source, "email");
+    out.uuid = GetStringField(source, "uuid");
+    out.banned = GetBool(source, "banned");
+    out.expired = GetBool(source, "expired");
+    out.expired_at_unix = GetInt(source, "expiredAtUnix");
+    out.transfer_enable = GetInt(source, "transferEnable");
+    out.uploaded_bytes = GetInt(source, "uploadedBytes");
+    out.downloaded_bytes = GetInt(source, "downloadedBytes");
+    // balance 是浮点：JSON 里可能是整数写法（0 而不是 0.0），
+    // 因此不能直接取 double 了事，否则整数值会被当成类型不符而丢掉。
+    if (const auto it = source.find("balance");
+        it != source.end() && it->is_number()) {
+        out.balance = it->get<double>();
+    }
+    out.plan_name = GetStringField(source, "planName");
+    out.warnings = GetStringArray(source, "warnings");
+    return out;
+}
+
+std::int64_t UsageView::UsedBytes() const { return upload + download; }
+
+UsageView UsageView::Parse(const Json& source) {
+    UsageView out;
+    out.present = GetBool(source, "present");
+    out.upload = GetInt(source, "upload");
+    out.download = GetInt(source, "download");
+    out.total = GetInt(source, "total");
+    out.expire_unix = GetInt(source, "expireUnix");
+    out.remaining = GetInt(source, "remaining");
+    return out;
+}
+
+SubscriptionView SubscriptionView::Parse(const Json& source) {
+    SubscriptionView out;
+    out.node_count = static_cast<int>(GetInt(source, "nodeCount"));
+    out.rejected_count = static_cast<int>(GetInt(source, "rejectedCount"));
+    out.warnings = GetStringArray(source, "warnings");
+    out.selected_node_id = GetStringField(source, "selectedNodeId");
+    out.last_sync_unix = GetInt(source, "lastSyncUnix");
+    out.plan_name = GetStringField(source, "planName");
+    // usage 是结构体而不是可空字段：缺失时解析成 present=false 的零值，
+    // 界面据此隐藏用量。这正是 present 存在的意义。
+    out.usage = UsageView::Parse(GetObject(source, "usage"));
+    return out;
+}
+
+std::string SubscriptionView::EffectivePlanName() const {
+    // 订阅里的套餐名优先：它来自最近一次拉取，比账户摘要更新。
+    if (!plan_name.empty()) {
+        return plan_name;
+    }
+    return {};
+}
+
+SessionState SessionState::Parse(const Json& source) {
+    SessionState out;
+    out.logged_in = GetBool(source, "loggedIn");
+    out.panel_url = GetStringField(source, "panelUrl");
+    out.secure_storage = GetBool(source, "secureStorage");
+    // account 与 subscription 是可空字段：缺失表示「未知」，
+    // 与「有但全为零」不是一回事，因此这里保留 nullopt。
+    if (const auto it = source.find("account");
+        it != source.end() && it->is_object()) {
+        out.account = AccountView::Parse(*it);
+    }
+    if (const auto it = source.find("subscription");
+        it != source.end() && it->is_object()) {
+        out.subscription = SubscriptionView::Parse(*it);
+    }
+    return out;
+}
+
+std::string NodeView::Label() const {
+    // 名字为空时用 ID 兜底：列表里出现一行空白，用户无法选择它。
+    std::string label = name.empty() ? id : name;
+    if (!protocol.empty()) {
+        label += "  [" + protocol;
+        if (!server.empty()) {
+            label += " " + server;
+            if (port > 0) {
+                label += ":" + std::to_string(port);
+            }
+        }
+        label += "]";
+    }
+    return label;
+}
+
+NodeView NodeView::Parse(const Json& source) {
+    NodeView out;
+    out.id = GetStringField(source, "id");
+    out.name = GetStringField(source, "name");
+    out.protocol = GetStringField(source, "protocol");
+    out.server = GetStringField(source, "server");
+    out.port = static_cast<int>(GetInt(source, "port"));
+    out.selected = GetBool(source, "selected");
+    return out;
+}
+
+NodeList NodeList::Parse(const Json& source) {
+    NodeList out;
+    if (const auto it = source.find("nodes");
+        it != source.end() && it->is_array()) {
+        out.nodes.reserve(it->size());
+        for (const auto& item : *it) {
+            if (item.is_object()) {
+                out.nodes.push_back(NodeView::Parse(item));
+            }
+        }
+    }
+    return out;
+}
+
+int NodeList::SelectedIndex() const {
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].selected) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+Json SelectNodeParams::ToJson() const {
+    Json out = Json::object();
+    // id 与 name 都是 omitempty：空的那个不写出去，
+    // 否则服务端会拿到两个标识而无法判断以哪个为准。
+    if (!id.empty()) {
+        out["id"] = id;
+    }
+    if (!name.empty()) {
+        out["name"] = name;
+    }
+    return out;
+}
+
+SelectNodeResult SelectNodeResult::Parse(const Json& source) {
+    SelectNodeResult out;
+    out.selected_node_id = GetStringField(source, "selectedNodeId");
+    return out;
 }
 
 // ---------------------------------------------------------------------------
