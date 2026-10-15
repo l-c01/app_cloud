@@ -27,13 +27,23 @@ PCX_TEST(ProtocolConstantsMatchTheGoSide) {
 
 PCX_TEST(KnownOperationsMatchTheGoSide) {
     const auto operations = pcx::ipc::KnownOperations();
-    // Go 端 KnownOperations 返回 10 个操作。
-    PCX_CHECK_EQ(operations.size(), std::size_t(10));
+    // Go 端 KnownOperations 返回 18 个操作。
+    //
+    // 这个数字是**有意的**：它强迫每次新增操作时都要回来改一次，
+    // 从而提醒改的人同时更新 Go 端、C++ 镜像与文档。
+    // tools/scripts/check-ipc-contract.ps1 也会独立发现漏改，
+    // 但那条检查只在开发机上跑，而本用例在 CI 里一定跑。
+    PCX_CHECK_EQ(operations.size(), std::size_t(18));
 
     const std::vector<std::string> expected = {
-        "GetCapabilities", "ValidateProfile", "CompileProfile", "Start",
-        "Stop",            "GetRuntimeState", "SwitchNode",    "SetNetworkMode",
-        "WatchEvents",     "RecoverNetwork"};
+        "GetCapabilities", "ValidateProfile",     "CompileProfile",
+        "Start",           "Stop",                "GetRuntimeState",
+        "SwitchNode",      "SetNetworkMode",      "WatchEvents",
+        "RecoverNetwork",
+        // 会话与订阅：这一组此前完全不存在，界面因此无法登录或取订阅。
+        "Login",           "Logout",              "GetSessionState",
+        "RefreshSubscription", "ListNodes",       "SelectNode",
+        "GetOptions",      "SetOptions"};
     for (const auto& name : expected) {
         bool found = false;
         for (const auto& actual : operations) {
