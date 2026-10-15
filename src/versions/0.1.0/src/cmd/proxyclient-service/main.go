@@ -295,10 +295,17 @@ type startParams struct {
 type switchNodeParams struct {
 	// Compile 是带新选中节点的完整编译请求。
 	//
-	// 之所以要求完整请求而不是只给一个节点 ID：服务端不持有节点列表
-	// （那是客户端的资产），只给 ID 会让服务必须维护一份副本，
-	// 两份副本不一致时会出现「切换到了不存在的节点」。
+	// 它**可为 nil**：登录、订阅与节点集合现在都住在服务端会话里
+	// （runtime/session），界面只需要说「切到这个节点」。
+	// 要求界面回传一份完整请求等于要求它维护节点集合的第二份副本，
+	// 而两份副本不一致时会出现「切到了不存在的节点」。
 	Compile *compiler.Request `json:"compile"`
+	// NodeID 是要切换到的节点 ID；Compile 为 nil 时使用。
+	//
+	// 字段名与 SelectNodeParams 及 SelectNodeResult 的 selectedNodeId 保持一致：
+	// 同一个概念在协议里只应有一种拼写，否则界面很容易发对一个、
+	// 发错另一个，而错的那个表现为「服务端说参数无效」。
+	NodeID string `json:"nodeId,omitempty"`
 }
 
 type setModeParams struct {
@@ -484,20 +491,32 @@ func (h *serviceHandler) start(ctx context.Context, params json.RawMessage) (any
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, h.badParams("start", err)
 	}
-	if req.Compile == nil {
-		return nil, &ipc.RPCError{
-			Code:       ipc.CodeInvalidParams,
-			MessageKey: "core.config_rejected",
-			Message:    "a compile request is required to start",
-			Retryable:  false,
+
+	// 编译请求可以来自两处，优先级明确：
+	//
+	//   1. 调用方显式给出（req.Compile）——保留给「用一份手写的请求连接」
+	//      这类场景，也是既有测试与老客户端走的路径；
+	//   2. 否则由**服务端会话**构造（登录 → 拉订阅 → 选项 → 编译请求）。
+	//
+	// 必须支持第 2 条：登录、订阅与选项现在都住在服务端
+	// （见 runtime/session），界面只需说「连接」。界面并不知道
+	// 节点集合与选项的最新状态，让它自己拼一份请求等于要求它
+	// 维护第二份副本，而两份副本不一致时会出现
+	// 「界面显示 A、实际连 B」。
+	compileReq := req.Compile
+	if compileReq == nil {
+		built, serr := h.buildRequestFromSession()
+		if serr != nil {
+			return nil, h.sessionRPCError("start", serr)
 		}
+		compileReq = built
 	}
 
 	h.runner.setReadyAddress(req.ReadyAddress)
 	h.lastMode = req.Mode
 
 	if err := h.coordinator.Connect(ctx, coordinator.ConnectRequest{
-		Compile: req.Compile,
+		Compile: compileReq,
 		Mode:    req.Mode,
 	}); err != nil {
 		rpcErr := h.internal("start", err)
@@ -515,18 +534,56 @@ func (h *serviceHandler) start(ctx context.Context, params json.RawMessage) (any
 	}, nil
 }
 
+// buildRequestFromSession 用服务端会话构造一次编译请求。
+//
+// 会话不存在或还没拉订阅时返回分类明确的错误，
+// 而不是让调用方拿到一份空节点列表去猜。
+func (h *serviceHandler) buildRequestFromSession() (*compiler.Request, *session.Error) {
+	sess := h.sessions.Session()
+	if sess == nil {
+		return nil, session.ErrNotConfigured()
+	}
+	return sess.BuildRequest()
+}
+
 func (h *serviceHandler) switchNode(ctx context.Context, params json.RawMessage) (any, *ipc.RPCError) {
 	var req switchNodeParams
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, h.badParams("switchNode", err)
 	}
-	if req.Compile == nil {
-		return nil, &ipc.RPCError{
-			Code:       ipc.CodeInvalidParams,
-			MessageKey: "core.config_rejected",
-			Message:    "switching a node requires a full compile request",
-			Retryable:  false,
+	// 两条路径，与 start 一致：
+	//   1. 调用方给出完整请求（老客户端与既有测试）；
+	//   2. 只给出节点 ID（现在的界面），由服务端在会话里选定该节点后
+	//      构造请求。
+	compileReq := req.Compile
+	if compileReq == nil {
+		if req.NodeID == "" {
+			return nil, &ipc.RPCError{
+				Code:       ipc.CodeInvalidParams,
+				MessageKey: "session.error.node_not_found",
+				Message:    "switching a node requires either a compile request or a nodeId",
+				FieldPath:  "nodeId",
+				Retryable:  false,
+			}
 		}
+		sess := h.sessions.Session()
+		if sess == nil {
+			return nil, h.sessionRPCError("switchNode", session.ErrNotConfigured())
+		}
+		// 注意顺序：先选定再构造请求，否则请求里带的还是旧节点。
+		//
+		// 已选中同一个节点时跳过：NodeIDByRef 会加锁，而 SetOptions
+		// 与它共享同一把锁，重复调用没有意义。
+		if sess.SelectedNodeID() != req.NodeID {
+			if serr := sess.SelectNodeByID(req.NodeID); serr != nil {
+				return nil, h.sessionRPCError("switchNode", serr)
+			}
+		}
+		built, serr := sess.BuildRequest()
+		if serr != nil {
+			return nil, h.sessionRPCError("switchNode", serr)
+		}
+		compileReq = built
 	}
 
 	// 切换节点是一次完整的重连：断开 → 用新节点重新编译并连接。
@@ -536,7 +593,7 @@ func (h *serviceHandler) switchNode(ctx context.Context, params json.RawMessage)
 		return nil, h.internal("switchNode/disconnect", err)
 	}
 	if err := h.coordinator.Connect(ctx, coordinator.ConnectRequest{
-		Compile: req.Compile,
+		Compile: compileReq,
 		Mode:    h.lastMode,
 	}); err != nil {
 		rpcErr := h.internal("switchNode/connect", err)
