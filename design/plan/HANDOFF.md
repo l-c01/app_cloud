@@ -168,17 +168,23 @@ gofmt 要求去掉注释里成对的反引号。三次都已修掉，
 
 #### Windows
 
-`platform/winproxy` 已经能写注册表，但**写完没有通知系统刷新**。
-缺的是 `wininet.dll` 的：
+`platform/winproxy` 已经能写注册表，写入后的 wininet 刷新通知
+（TODO(R05)）**已补上**：`notify_windows.go` 调 `InternetSetOptionW`
+两次（SETTINGS_CHANGED 让系统重读设置、REFRESH 让已加载 wininet
+的进程重建连接状态）。只调其一会表现为「新开的程序走代理、
+已经开着的浏览器不走」这类很难归因的现象。
 
-```
-InternetSetOptionW(nil, INTERNET_OPTION_SETTINGS_CHANGED, nil, 0)
-InternetSetOptionW(nil, INTERNET_OPTION_REFRESH, nil, 0)
-```
+**但真正的问题不是缺通知，而是整个包没有调用点。**
+`platform/winproxy` 有 444 行测试、CI 全绿、代码也写对了，
+可是**没有任何代码 import 它**：`platformBackend()` 在 Windows 上
+落到 `NoopBackend`，系统代理接管是**死代码**。
+已新增 `platform/netmgr/windows.go` 把通用键翻译成 winproxy 的键并接通，
+`platformBackend()` 加了 windows 分支。
 
-缺这一步时，**已经在运行的应用不会立即使用新代理**——
-用户点了「连接」却发现浏览器还是直连，然后会去怀疑核心。
-需要一个 `//go:build windows` 文件 + 非 Windows 的桩。
+**教训（很重要）**：一个只有测试、没有调用点的实现是最容易骗过人的状态。
+该包自己的测试全过，CI 全绿，端到端功能却不存在。
+判断「某功能是否可用」要顺着**调用链**查到起点，
+而不是看那个包的测试是否通过。见第 4 节坑表。
 
 #### Android：这里有一个**必须先决定**的问题（不要猜）
 
@@ -450,6 +456,7 @@ push 会触发 `ci.yml`（7 个作业）。
 | **测试用了错误的策略** | 断言 `route.rule_set` 的用例复用了 global 策略的辅助函数，结果恒为空列表，看起来像生成器坏了 | 规则集与用户规则**只在规则模式下生成**。测 route 的用例必须显式用 rule 策略 |
 | **写死的计数留在测试文件里** | 新增 8 个 IPC 操作后，`protocol.go`、C++ 镜像都改了，但 Go 与 C++ **测试里写死的操作数**没改。本地全套检查（含 IPC 契约检查）全绿，CI 的 C++ 单测才失败 | 契约检查只读**协议源文件**；计数在**测试文件**里它就看不到。已加 `check-ipc-operation-count.ps1` 同时读三处。**教训：检查器覆盖的是它读的那些文件，不是你以为的那一类问题** |
 | **参数位置绑定被静默覆盖** | `go-local.ps1 -Command build ./...` 把 `./...` 绑到了 `-ToolchainDir`，脚本报「找不到工具链」，看起来像环境坏了 | PowerShell 的 `ValueFromRemainingArguments` 会与后面的具名参数打架。改成必须显式 `-Args ./...`，并在注释里写清为什么 |
+| **有测试、没有调用点** | `platform/winproxy` 实现完整、444 行测试全过，但**没有任何代码 import 它**；Windows 落在 NoopBackend，系统代理接管是死代码。该包自己的测试永远发现不了 | 判断「功能是否可用」要顺着**调用链**查到起点，而不是看那个包的测试。对每个「我以为做完了」的功能，问一句：**谁调用它**？ |
 
 ---
 
