@@ -316,6 +316,19 @@ type LoginParams struct {
 	AllowInsecureHTTP bool `json:"allowInsecureHttp,omitempty"`
 	// RememberPassword 为真时才把密码写进安全存储；默认不保存。
 	RememberPassword bool `json:"rememberPassword,omitempty"`
+
+	// SubscriptionURL 让用户**不需要面板账号**也能使用：给一个订阅链接即可。
+	//
+	// 与 Email/Password 的关系是「二选一」：
+	//   - 只给 SubscriptionURL：订阅链接模式（不调用面板登录接口）；
+	//   - 给 Email/Password：正常登录，随后由面板下发订阅地址。
+	//
+	// 存在这条路的理由：真实用户常常只有一个从面板复制的订阅链接，
+	// 他既没有也不需要账号密码。此前没有这条路径，这类用户在订阅那一栏
+	// 上完全走不通，而错误只说「尚未登录」——他会去找一个自己没有的账号。
+	//
+	// 它同时是登录的**恢复路径**：会话过期后只要链接还在就能刷节点。
+	SubscriptionURL string `json:"subscriptionUrl,omitempty"`
 }
 
 // AccountView 是登录/恢复后返回的账户摘要。
