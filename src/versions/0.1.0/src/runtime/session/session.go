@@ -50,6 +50,18 @@ type Config struct {
 	UserAgent string
 	// Now 便于测试注入时间；为 nil 时用 time.Now。
 	Now func() time.Time
+
+	// Panel 与 Fetcher 允许替换面板客户端与订阅拉取器。
+	//
+	// 生产代码**应当留空**：留空时 New 会按 PanelURL 构造真实的客户端。
+	// 存在的理由是贯通测试（runtime/coordinator/wiring_test.go）——
+	// 那条测试要验证的是「会话 → 编译器 → 协调器」之间的接线，
+	// 因此只在最外层用假实现：假面板、假订阅，而中间全是真的。
+	// 没有这两个注入点，那条测试就只能连着真实网络跑。
+	//
+	// 注入时 HTTPClient 会被忽略（由注入者自行决定怎么发请求）。
+	Panel   Subscriber
+	Fetcher Fetcher
 }
 
 // Session 持有一次「面板会话 + 订阅 + 选项」的完整状态。
@@ -112,12 +124,19 @@ func New(cfg Config) (*Session, error) {
 
 	// 面板地址先规范化再作为命名空间：凭据按服务器隔离，
 	// 换面板不会读到上一台服务器的凭据。
-	client, err := panel.NewClient(cfg.PanelURL, cfg.AllowInsecureHTTP, panel.WithHTTPClient(cfg.HTTPClient))
-	if err != nil {
-		return nil, newError(KindInvalidConfig, "session.error.panel_url_invalid").
-			withField("panelUrl").
-			withDetail("%v", err).
-			withCause(err)
+	//
+	// 注入的面板客户端优先：贯通测试需要在不起 HTTP 服务的前提下
+	// 走完整条链路。地址仍然要校验，因为命名空间依赖它。
+	client := cfg.Panel
+	if client == nil {
+		real, err := panel.NewClient(cfg.PanelURL, cfg.AllowInsecureHTTP, panel.WithHTTPClient(cfg.HTTPClient))
+		if err != nil {
+			return nil, newError(KindInvalidConfig, "session.error.panel_url_invalid").
+				withField("panelUrl").
+				withDetail("%v", err).
+				withCause(err)
+		}
+		client = real
 	}
 
 	ns, err := secrets.NewNamespaced(cfg.Store, normalizeNamespace(cfg.PanelURL))
@@ -128,13 +147,17 @@ func New(cfg Config) (*Session, error) {
 			withCause(err)
 	}
 
-	fetcher := subscription.NewFetcher(cfg.HTTPClient)
-	fetcher.UserAgent = cfg.UserAgent
-	// 显式向 Xboard 请求节点 URI 列表（flag=general）。
-	//
-	// 不请求的话服务端可能返回 Clash YAML，而那个格式本版本尚未实现；
-	// 与其让用户遇到「格式不支持」，不如一开始就要求服务端给能用的格式。
-	fetcher.Flag = "general"
+	fetcher := cfg.Fetcher
+	if fetcher == nil {
+		real := subscription.NewFetcher(cfg.HTTPClient)
+		real.UserAgent = cfg.UserAgent
+		// 显式向 Xboard 请求节点 URI 列表（flag=general）。
+		//
+		// 不请求的话服务端可能返回 Clash YAML，而那个格式本版本尚未实现；
+		// 与其让用户遇到「格式不支持」，不如一开始就要求服务端给能用的格式。
+		real.Flag = "general"
+		fetcher = real
+	}
 
 	nowFn := cfg.Now
 	if nowFn == nil {
