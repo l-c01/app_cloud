@@ -11,11 +11,10 @@
 // HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings。
 // 使用固定命令与固定参数，代理值在写入前经过严格校验，不接受任意命令行。
 //
-// 写入注册表后还会调用 wininet.dll 的 InternetSetOption 通知系统刷新
-// （见 notify_windows.go）。缺少这一步时，已经运行中的应用不会立即
-// 使用新代理——用户看到的是「连上了但浏览器还是打不开」。
-// 通知失败**不会**让接管失败：注册表已经写好了，多数情况仍然可用，
-// 因此结果记在 NotifyError() 里由界面提示，而不是回滚整次接管。
+// 已知缺口（必须补齐后才算完成 R05）：
+// 写入注册表后还需调用 wininet.dll 的 InternetSetOption 通知系统刷新，
+// 否则部分应用不会立即感知变化。该调用需要 Windows 专属实现，
+// 见文件末尾的说明与 TODO。
 package winproxy
 
 import (
@@ -528,15 +527,13 @@ func registryNameFor(key string) (string, bool) {
 	}
 }
 
-// 通知系统刷新代理设置这一步已经实现，见 notify_windows.go。
+// TODO(R05)：写入注册表之后需要通知系统刷新代理设置。
 //
-// 这里保留说明是因为「为什么必须通知」不看代码是想不到的：
-// 只改注册表时，**已经运行中的应用**（浏览器、IM 等）会继续用旧代理，
-// 表现为「刚点连接时好使，过了几分钟又不行了」或者干脆没反应。
+// 方法是在 Windows 上调用 wininet.dll 的：
 //
-//	windows: InternetSetOptionW(nil, INTERNET_OPTION_SETTINGS_CHANGED, nil, 0)
-//	         InternetSetOptionW(nil, INTERNET_OPTION_REFRESH, nil, 0)
+//	InternetSetOptionW(nil, INTERNET_OPTION_SETTINGS_CHANGED, nil, 0)
+//	InternetSetOptionW(nil, INTERNET_OPTION_REFRESH, nil, 0)
 //
-// 两次都要调用：前者告诉系统「设置变了」，后者让已经建立的连接重新读取。
-// 该调用需要 syscall 与 wininet.dll，因此放在 Windows 专属文件里，
-// 不混进本文件的跨平台逻辑。
+// 缺少这一步时，部分应用（尤其是已经运行中的）不会立即使用新代理。
+// 该调用需要 Windows 专属文件与 syscall，且必须在 Windows CI 作业中编译验证，
+// 因此单独实现，不混进本文件的跨平台逻辑里。
