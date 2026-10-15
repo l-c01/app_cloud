@@ -368,14 +368,24 @@ func (c *Coordinator) Connect(ctx context.Context, req ConnectRequest) error {
 
 	// 失败路径统一走这里，保证「要么成功，要么恢复到已知状态」。
 	//
-	// 关键点：只有在**确实改过网络**时才写恢复日志并恢复。
+	// 关键点：只有在**确实动过网络**时才写恢复日志并恢复。
 	// 如果在编译/启动阶段就失败却写一条空日志，会覆盖上一次崩溃遗留的记录，
 	// 导致真正需要恢复的网络设置永久丢失。
+	//
+	// 判据是 `snapshot` 而不是 `applied`，这一点很要紧：
+	// **`Apply` 失败不等于什么都没改。** 平台层可能已经写了前几项设置
+	// （例如先设了 http 再写 socks 时失败）才返回错误，此时 `applied` 因为
+	// 是随错误一起返回的而仍是 nil。用 `applied` 当判据就会跳过回滚，
+	// 把用户的机器留在「代理指向一个不存在的端口」的状态——也就是断网。
+	//
+	// `snapshot` 非空意味着「我们已经取到了改动前的状态，并且就要动手改」，
+	// 这正是该准备回滚的时刻。恢复时传 applied 为空是**正确**的：
+	// 它表示「不知道改到哪一步了」，平台层据此做整段还原。
 	fail := func(stage string, cause error) error {
 		_ = c.setState(gen, StateRecovering)
 
 		var recoveryErr error
-		if len(applied) > 0 {
+		if len(snapshot) > 0 {
 			entry.Stage = StateRecovering
 			entry.Applied = applied
 			c.recordJournal(&entry, gen, StateRecovering, running, req.Mode)
