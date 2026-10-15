@@ -107,7 +107,7 @@ MainFrame::MainFrame(app::AppContext& context)
 
 void MainFrame::BuildMenuBar() {
     auto* file_menu = new wxMenu();
-    file_menu->Append(wxID_LOGOUT, wxString::FromUTF8(context_.T(UiKey("menu.logout"))));
+    file_menu->Append(kIdLogout, wxString::FromUTF8(context_.T(UiKey("menu.logout"))));
     file_menu->Append(wxID_REFRESH,
                       wxString::FromUTF8(context_.T(UiKey("menu.refresh_subscription"))));
     file_menu->AppendSeparator();
@@ -117,7 +117,7 @@ void MainFrame::BuildMenuBar() {
     view_menu->AppendRadioItem(wxID_VIEW_LIST, wxString::FromUTF8(context_.T("ui.mode.simple")));
     view_menu->AppendRadioItem(wxID_VIEW_DETAILS,
                                wxString::FromUTF8(context_.T("ui.mode.professional")));
-    view_menu->AppendRadioItem(wxID_VIEW_OPTIONS,
+    view_menu->AppendRadioItem(kIdViewOptions,
                                wxString::FromUTF8(context_.T(UiKey("mode.options"))));
     view_menu->AppendSeparator();
     // 「记住模式」用可勾选项而不是让用户去配置文件里改：
@@ -139,9 +139,9 @@ void MainFrame::BuildMenuBar() {
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         ApplyMode(app::UiMode::Professional, /*persist=*/true);
         ApplyProPage(ProPage::Options);
-    }, wxID_VIEW_OPTIONS);
+    }, kIdViewOptions);
 
-    Bind(wxEVT_MENU, [this](wxCommandEvent&) { RequestLogout(); }, wxID_LOGOUT);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { RequestLogout(); }, kIdLogout);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { RequestRefreshSubscription(); }, wxID_REFRESH);
 
     // 「退出」菜单走 Close()，而不是直接把 OnClose 绑到菜单事件上。
@@ -225,7 +225,7 @@ void MainFrame::ApplyMode(app::UiMode mode, bool persist) {
     if (auto* bar = GetMenuBar(); bar != nullptr) {
         bar->Check(wxID_VIEW_LIST, simple);
         bar->Check(wxID_VIEW_DETAILS, !simple && pro_page_ == ProPage::Overview);
-        bar->Check(wxID_VIEW_OPTIONS, !simple && pro_page_ == ProPage::Options);
+        bar->Check(kIdViewOptions, !simple && pro_page_ == ProPage::Options);
     }
 
     SyncVisibility();
@@ -245,7 +245,7 @@ void MainFrame::ApplyProPage(ProPage page) {
 
     if (auto* bar = GetMenuBar(); bar != nullptr) {
         bar->Check(wxID_VIEW_DETAILS, professional && !options);
-        bar->Check(wxID_VIEW_OPTIONS, professional && options);
+        bar->Check(kIdViewOptions, professional && options);
     }
 
     if (options) {
@@ -278,7 +278,7 @@ void MainFrame::SyncVisibility() {
 
     if (auto* bar = GetMenuBar(); bar != nullptr) {
         // 未登录时把与会话相关的菜单项禁用，而不是让它们点了报错。
-        bar->Enable(wxID_LOGOUT, signed_in);
+        bar->Enable(kIdLogout, signed_in);
         bar->Enable(wxID_REFRESH, signed_in);
     }
 

@@ -40,6 +40,20 @@ enum class ProPage {
     Options,
 };
 
+// 菜单与工具栏的自定义命令 ID。
+//
+// **必须自己定义**：wxID_LOGOUT 与 wxID_VIEW_OPTIONS 在 wxWidgets 里
+// 并不存在（wxID_VIEW_* 只有 LIST / DETAILS 等少数几个）。
+// 直接写这两个名字会在编译期报「was not declared in this scope」。
+//
+// 从 wxID_HIGHEST 起分配而不是从 1：1 以下已被 wxWidgets 的标准 ID 占用
+// （wxID_OPEN、wxID_EXIT 等），撞上的表现是菜单项触发了别的命令——
+// 那种问题比编译错误难查得多。
+enum : int {
+    kIdLogout = wxID_HIGHEST + 1,
+    kIdViewOptions,
+};
+
 class MainFrame : public wxFrame {
 public:
     MainFrame(app::AppContext& context);

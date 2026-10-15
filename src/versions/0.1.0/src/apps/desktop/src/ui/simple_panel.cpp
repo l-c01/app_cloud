@@ -109,17 +109,23 @@ void SimplePanel::BuildLayout() {
     //
     // 每平台都有的一项。默认「规则分流」由服务端与出厂配置决定，
     // 界面这里只负责显示与提交。
-    routing_box_ = new wxRadioBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition,
-                                  wxDefaultSize, wxArrayString(), 1, wxRA_SPECIFY_COLS);
-    // 三个取值都必须能被一眼看见；下拉框会让「当前是直连」这种
-    // 需要警惕的状态藏在一个合上的框里。
+    //
+    // 选项必须在**构造时**一次给全：wxRadioBox 没有 Append()
+    // （只有 wxItemContainer 那一族才有）。先建空框再逐个 Append
+    // 会直接编译失败，而错误落在 Append 上，看起来像用错了控件类型。
+    //
+    // 用 ui.policy.* 而不是新造一组文案：路由模式的取值与专业模式里的
+    // 路由策略是同一组，两套翻译必然漂移成两句不同的话。
     routing_values_ = {domain::route_mode::kRule, domain::route_mode::kGlobal,
                        domain::route_mode::kDirect};
+    wxArrayString routing_labels;
     for (const auto& value : routing_values_) {
-        // 用 ui.policy.* 而不是新造一组文案：路由模式的取值与专业模式里的
-        // 路由策略是同一组，两套翻译必然漂移成两句不同的话。
-        routing_box_->Append(wxString::FromUTF8(context_.T("ui.policy." + value)));
+        routing_labels.Add(wxString::FromUTF8(context_.T("ui.policy." + value)));
     }
+    // 三个取值都必须能被一眼看见；下拉框会让「当前是直连」这种
+    // 需要警惕的状态藏在一个合上的框里。
+    routing_box_ = new wxRadioBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                                  wxDefaultSize, routing_labels, 1, wxRA_SPECIFY_COLS);
     root->Add(routing_box_, 0, wxEXPAND | wxLEFT | wxRIGHT, 24);
 
     routing_hint_text_ = new wxStaticText(this, wxID_ANY, wxEmptyString);
