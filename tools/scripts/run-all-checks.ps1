@@ -3,15 +3,20 @@
     Run every check that can be performed without a compiler, and write a log.
 
 .DESCRIPTION
-    This machine has no Go, C++, JDK or Android SDK toolchain, so compilation and
-    unit tests happen in CI. Everything else can and should be run here, and this
-    script is the single entry point for that.
+    This machine has no C++ or Android toolchain, so those compile in CI. Go is
+    installed inside the workspace (D:\workai\toolchain) and is covered by an
+    optional formatting check here, plus the full build/vet/test entry point in
+    tools/scripts/go-local.ps1. Everything that needs no compiler is run here,
+    and this script is the single entry point for that.
 
     It writes the complete raw output to a log file so the result can be cited as
     evidence rather than summarised from memory.
 
     The script deliberately does NOT stop at the first failure: a run should show
     every problem at once, not one problem per invocation.
+
+    A check that cannot run reports SKIP, which is shown separately from PASS.
+    A check that silently passes when it never ran is worse than no check.
 
     NOTE: this file is intentionally ASCII-only.
     Windows PowerShell 5.1 reads BOM-less .ps1 files using the ANSI code page,
@@ -67,6 +72,7 @@ $checks = @(
     @{ Label = 'Tracked source files';         Script = 'check-tracked-files.ps1' }
     @{ Label = 'Go unused imports';            Script = 'check-go-imports.ps1' }
     @{ Label = 'Go cross-package symbols';     Script = 'check-go-symbols.ps1' }
+    @{ Label = 'Go formatting (if Go present)'; Script = 'check-go-gofmt.ps1' }
     @{ Label = 'C++ structural consistency';   Script = 'check-cpp-structure.ps1' }
     @{ Label = 'Workflow structure';           Script = 'check-workflows.ps1' }
     @{ Label = 'Go <-> C++ IPC contract';      Script = 'check-ipc-contract.ps1' }
@@ -143,8 +149,22 @@ foreach ($check in $checks) {
     $log.Add("exit code: $exitCode")
     $log.Add('')
 
+    # A check that reports SKIP did NOT verify anything. That is different from
+    # PASS, and the distinction is preserved rather than flattened: a check that
+    # silently passes when it never ran makes an unverified repo look verified,
+    # which is the one failure mode this harness must never have.
+    $skipped = $false
+    foreach ($line in $output) {
+        if ($line.ToString() -match '^SKIP:') { $skipped = $true; break }
+    }
+
     if ($exitCode -ne 0) { $failed += $check.Label }
-    $results += [pscustomobject]@{ Label = $check.Label; Exit = $exitCode; Note = '' }
+    $results += [pscustomobject]@{
+        Label   = $check.Label
+        Exit    = $exitCode
+        Note    = ''
+        Skipped = $skipped
+    }
 
     if (-not $Quiet) {
         Write-Host ("--- {0}" -f $check.Label)
@@ -159,14 +179,19 @@ $log.Add('================================================================')
 $log.Add('SUMMARY')
 $log.Add('================================================================')
 foreach ($r in $results) {
-    $log.Add(("  {0,-32} {1}" -f $r.Label, $(if ($r.Exit -eq 0) { 'PASS' } else { "FAIL ($($r.Exit))" })))
+    $status = if ($r.Exit -ne 0) { "FAIL ($($r.Exit))" } elseif ($r.Skipped) { 'SKIP' } else { 'PASS' }
+    $log.Add(("  {0,-32} {1}" -f $r.Label, $status))
 }
+$skippedCount = @($results | Where-Object { $_.Skipped }).Count
 $log.Add('')
 $log.Add("  passed: $($results.Count - $failed.Count) / $($results.Count)")
+if ($skippedCount -gt 0) {
+    $log.Add("  NOTE: $skippedCount check(s) reported SKIP and verified nothing.")
+}
 $log.Add('')
-$log.Add('  NOTE: none of this compiles anything. The C++ and Go sources have')
-$log.Add('        never been through a compiler on this machine. Compilation and')
-$log.Add('        unit tests run in GitHub Actions; their status is not_run locally.')
+$log.Add('  These checks do not compile C++ or Kotlin. Go compilation and unit')
+$log.Add('  tests run locally when the workspace toolchain is installed')
+$log.Add('  (tools/scripts/go-local.ps1); otherwise they are not_run.')
 
 $log | Set-Content -Path $LogPath -Encoding UTF8
 
@@ -175,16 +200,20 @@ Write-Host '================================================================'
 Write-Host 'SUMMARY'
 Write-Host '================================================================'
 foreach ($r in $results) {
-    $status = if ($r.Exit -eq 0) { 'PASS' } else { "FAIL ($($r.Exit))" }
-    $colour = if ($r.Exit -eq 0) { 'Green' } else { 'Red' }
+    if ($r.Exit -ne 0) { $status = "FAIL ($($r.Exit))"; $colour = 'Red' }
+    elseif ($r.Skipped) { $status = 'SKIP'; $colour = 'Yellow' }
+    else { $status = 'PASS'; $colour = 'Green' }
     Write-Host ("  {0,-32} {1}" -f $r.Label, $status) -ForegroundColor $colour
 }
 Write-Host ''
 Write-Host ("  passed: {0} / {1}" -f ($results.Count - $failed.Count), $results.Count)
+if ($skippedCount -gt 0) {
+    Write-Host ("  skipped: {0} (verified nothing)" -f $skippedCount) -ForegroundColor Yellow
+}
 Write-Host ("  log   : {0}" -f (Split-Path -Leaf $LogPath))
 Write-Host ''
-Write-Host '  NOTE: none of this compiles anything. Compilation and unit tests run'
-Write-Host '        in GitHub Actions and are not_run locally.' -ForegroundColor Yellow
+Write-Host '  These checks do not compile C++. Kotlin is built in CI only.' -ForegroundColor Yellow
+Write-Host '  Go build/vet/test: & ./tools/scripts/go-local.ps1 -Command test ./...' -ForegroundColor Yellow
 
 if ($failed.Count -eq 0) { exit 0 }
 exit 1
