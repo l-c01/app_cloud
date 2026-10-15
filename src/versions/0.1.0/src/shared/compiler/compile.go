@@ -12,9 +12,7 @@ package compiler
 
 import (
 	"fmt"
-	"net"
 	"sort"
-	"strconv"
 	"strings"
 
 	"proxyclient/shared/domain"
@@ -170,36 +168,6 @@ type InboundOptions struct {
 	SocksPort int
 	// AllowLanAccess 为真时入口监听所有网卡。
 	AllowLanAccess bool
-}
-
-// ReadyAddress 返回「核心开始监听后应当可连接」的地址，用于就绪校验。
-//
-// 为什么放在这里而不是放服务进程里：它是**由入站配置唯一决定的**，
-// 没有任何运行时状态参与，因此可以被单测覆盖；而放在 main 包里只能靠
-// 真的起一次核心来验证——本轮就有一个同类缺陷（端口为 0）逃到了
-// 运行期才暴露。
-//
-// 优先用 HTTP 端口：系统代理与 TUN 都会把流量导到它上面，
-// 它可用就等于「代理真的能接收连接」。两者都为 0（配置无效）时返回空串，
-// 表示无法推导——调用方不要把空串当成「就绪」，那等于不校验。
-//
-// 监听地址是通配地址（0.0.0.0 / ::）时换成 127.0.0.1：拨号到一个通配
-// 地址在部分平台上并不等于拨到本机，而校验就绪只需要证明
-// 「有人在这个端口上听」。
-func (o InboundOptions) ReadyAddress() string {
-	port := o.HTTPPort
-	if port <= 0 {
-		port = o.SocksPort
-	}
-	if port <= 0 || port > 65535 {
-		return ""
-	}
-	host := strings.TrimSpace(o.Listen)
-	switch host {
-	case "", "0.0.0.0", "::", "[::]":
-		host = "127.0.0.1"
-	}
-	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // OutboundPolicy 是路由策略，对应设计基线里的三维度之一。
