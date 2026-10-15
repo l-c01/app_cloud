@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -51,18 +50,6 @@ type Config struct {
 	UserAgent string
 	// Now 便于测试注入时间；为 nil 时用 time.Now。
 	Now func() time.Time
-
-	// Panel 与 Fetcher 允许替换面板客户端与订阅拉取器。
-	//
-	// 生产代码**应当留空**：留空时 New 会按 PanelURL 构造真实的客户端。
-	// 存在的理由是贯通测试（runtime/coordinator/wiring_test.go）——
-	// 那条测试要验证的是「会话 → 编译器 → 协调器」之间的接线，
-	// 因此只在最外层用假实现：假面板、假订阅，而中间全是真的。
-	// 没有这两个注入点，那条测试就只能连着真实网络跑。
-	//
-	// 注入时 HTTPClient 会被忽略（由注入者自行决定怎么发请求）。
-	Panel   Subscriber
-	Fetcher Fetcher
 }
 
 // Session 持有一次「面板会话 + 订阅 + 选项」的完整状态。
@@ -125,19 +112,12 @@ func New(cfg Config) (*Session, error) {
 
 	// 面板地址先规范化再作为命名空间：凭据按服务器隔离，
 	// 换面板不会读到上一台服务器的凭据。
-	//
-	// 注入的面板客户端优先：贯通测试需要在不起 HTTP 服务的前提下
-	// 走完整条链路。地址仍然要校验，因为命名空间依赖它。
-	client := cfg.Panel
-	if client == nil {
-		real, err := panel.NewClient(cfg.PanelURL, cfg.AllowInsecureHTTP, panel.WithHTTPClient(cfg.HTTPClient))
-		if err != nil {
-			return nil, newError(KindInvalidConfig, "session.error.panel_url_invalid").
-				withField("panelUrl").
-				withDetail("%v", err).
-				withCause(err)
-		}
-		client = real
+	client, err := panel.NewClient(cfg.PanelURL, cfg.AllowInsecureHTTP, panel.WithHTTPClient(cfg.HTTPClient))
+	if err != nil {
+		return nil, newError(KindInvalidConfig, "session.error.panel_url_invalid").
+			withField("panelUrl").
+			withDetail("%v", err).
+			withCause(err)
 	}
 
 	ns, err := secrets.NewNamespaced(cfg.Store, normalizeNamespace(cfg.PanelURL))
@@ -148,17 +128,13 @@ func New(cfg Config) (*Session, error) {
 			withCause(err)
 	}
 
-	fetcher := cfg.Fetcher
-	if fetcher == nil {
-		real := subscription.NewFetcher(cfg.HTTPClient)
-		real.UserAgent = cfg.UserAgent
-		// 显式向 Xboard 请求节点 URI 列表（flag=general）。
-		//
-		// 不请求的话服务端可能返回 Clash YAML，而那个格式本版本尚未实现；
-		// 与其让用户遇到「格式不支持」，不如一开始就要求服务端给能用的格式。
-		real.Flag = "general"
-		fetcher = real
-	}
+	fetcher := subscription.NewFetcher(cfg.HTTPClient)
+	fetcher.UserAgent = cfg.UserAgent
+	// 显式向 Xboard 请求节点 URI 列表（flag=general）。
+	//
+	// 不请求的话服务端可能返回 Clash YAML，而那个格式本版本尚未实现；
+	// 与其让用户遇到「格式不支持」，不如一开始就要求服务端给能用的格式。
+	fetcher.Flag = "general"
 
 	nowFn := cfg.Now
 	if nowFn == nil {
@@ -249,53 +225,6 @@ func (s *Session) Login(ctx context.Context, email, password string) (*AccountIn
 		info.Warnings = append(info.Warnings, storeErr.MessageKey)
 	}
 	return info, nil
-}
-
-// SetSubscriptionURL 直接设定订阅链接，**不需要面板登录**。
-//
-// 为什么必须有这条路：真实用户拿到的常常就是一个订阅链接
-// （从面板复制、或别人给的），他既没有也不需要面板账号密码。
-// 在此之前的实现里，`subscriptionURL` 只能由 Login →
-// GetSubscriptionDescriptor 这条链产生，于是**只有订阅链接的用户
-// 完全无法使用本客户端**——订阅那一栏点不动，而界面也不会告诉他
-// 「你得先有面板账号」。
-//
-// 这同时是 Login 的**恢复路径**：面板会话过期后，只要订阅链接还在，
-// 用户仍然能刷新节点（订阅链接的有效期通常比会话长得多）。
-//
-// 安全约定与 Login 一致：订阅链接**本身就是凭据**（含 token），
-// 因此只写入安全存储，不写普通配置文件，也不出现在任何诊断输出里。
-func (s *Session) SetSubscriptionURL(rawURL string) *Error {
-	trimmed := strings.TrimSpace(rawURL)
-	if trimmed == "" {
-		return newError(KindInvalidConfig, "session.error.subscription_url_required").
-			withField("subscriptionUrl")
-	}
-
-	// 只接受 http/https。别的 scheme（file:// 之类）会让「取订阅」
-	// 变成读取本机文件，而用户以为自己只是填了一个链接。
-	u, err := url.Parse(trimmed)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return newError(KindInvalidConfig, "session.error.subscription_url_invalid").
-			withField("subscriptionUrl").
-			withDetail("a subscription URL must be an absolute http(s) URL")
-	}
-	// http 会明文传输含 token 的链接；默认拒绝，与面板地址同样的规矩。
-	if u.Scheme == "http" && !s.cfg.AllowInsecureHTTP {
-		return newError(KindInvalidConfig, "session.error.subscription_url_insecure").
-			withField("subscriptionUrl").
-			withDetail("plain http would expose the subscription token in transit")
-	}
-
-	s.mu.Lock()
-	s.subscriptionURL = trimmed
-	s.mu.Unlock()
-
-	// 写不进去不算致命：本次仍可用，只是下次启动要重新填。
-	// 与 Login 的处理一致——安全存储不可用时，界面会提示
-	// 「本次可用，但不会记住」。
-	_ = s.store.Set(secrets.KeySubscriptionURL, trimmed)
-	return nil
 }
 
 // Logout 清除内存与持久化的凭据。
@@ -400,33 +329,15 @@ func (s *Session) LoggedIn() bool {
 // 而订阅内容随时可能变。分成两个公开方法只会让调用方漏掉一步。
 func (s *Session) RefreshSubscription(ctx context.Context) (*SubscriptionInfo, *Error) {
 	s.mu.Lock()
-	token := s.sessionToken
-	knownURL := s.subscriptionURL
-	loggedIn := s.loggedIn
-	s.mu.Unlock()
-
-	// 两条路都能刷新：
-	//
-	//   1. 有面板会话 → 会话里拿订阅地址（或直接问面板要）；
-	//   2. **没有会话但有订阅链接** → 直接用那个链接。
-	//
-	// 第 2 条必须存在。真实用户常常只有一个订阅链接；此前这里先要求
-	// loggedIn，于是「只有链接」的用户在订阅这一栏上完全走不通，
-	// 而错误信息说的是「尚未登录」——他会去找一个自己根本没有的账号。
-	//
-	// 两者都没有时才报「还没配置」，并且明确指出缺的是哪一个：
-	// 「未登录」与「没填订阅链接」对用户的下一步动作完全不同。
-	if !loggedIn && knownURL == "" {
-		return nil, newError(KindNotAuthenticated, "session.error.subscription_not_configured").
-			withDetail("neither a panel session nor a subscription URL is configured")
-	}
-	if loggedIn && token == "" {
+	if !s.loggedIn || s.sessionToken == "" {
+		s.mu.Unlock()
 		return nil, newError(KindNotAuthenticated, "session.error.not_authenticated")
 	}
+	token := s.sessionToken
+	knownURL := s.subscriptionURL
+	s.mu.Unlock()
 
 	subURL := knownURL
-	// 只有「有会话、且还不知道订阅地址」时才去问面板。
-	// 没有会话就必须已经有已知地址（上面的检查保证了这一点）。
 	if subURL == "" {
 		desc, perr := s.panel.GetSubscriptionDescriptor(ctx, token)
 		if perr != nil {
@@ -781,33 +692,20 @@ func (s *Session) BuildRequest() (*compiler.Request, *Error) {
 		req.SelectedNodeID = selected.ID
 	}
 
-	// 本地代理端口。
+	// 端口映射：选项模型用的是「混合端口」，而编译请求当前仍接受
+	// 分离的 http/socks 端口（见 HANDOFF 2.2b）。
 	//
-	// **必须无条件设置，不能只在 TUN 模式下设。** 编译器的 Request.validate()
-	// 要求端口落在 1..65535；而 TUN 在桌面端**默认是关的**（默认接入方式是
-	// 系统代理），于是原来的写法会让每次「连接」都得到一个无效请求，
-	// 直接报 "invalid http port: 0"。这类缺陷编译期看不出来，
-	// 只有在真的点一次连接时才会暴露。
-	//
-	// 现在是**一个** mixed 端口，就是界面里用户填的那个数——
-	// 不再由程序派生出第二个端口。理由见
-	// shared/compiler 里 InboundOptions.MixedPort 的说明。
-	mixedPort := s.options.Inbound.MixedPort
-	if mixedPort <= 0 || mixedPort > 65535 {
-		// 选项不可用也不要紧：退回常规端口，
-		// 而不是把一个必然被拒绝的请求交出去。
-		mixedPort = defaultMixedPort
+	// 这里暂时让两者取同一个值会让编译器拒绝（它要求两者不同），
+	// 因此**只在明确配置了 TUN 时**才把混合端口交给它；
+	// 其余情况沿用 0 让调用方自行填。这是一个已知的过渡状态，
+	// 等混合入站落地后这里会消失。
+	if s.options.Inbound.TUN.Enabled && s.options.Inbound.MixedPort > 0 {
+		req.Inbound.HTTPPort = s.options.Inbound.MixedPort
+		req.Inbound.SocksPort = s.options.Inbound.MixedPort + 1
 	}
-	req.Inbound.MixedPort = mixedPort
 
 	return req, nil
 }
-
-// defaultMixedPort 是 MixedPort 缺失或不可用时的回退值。
-//
-// 与 domain.DefaultOptions() 的 7890 保持一致：出厂配置与回退值不同
-// 会让「我没改过设置，为什么端口变了」变成一个查不出来的问题。
-const defaultMixedPort = 7890
 
 // policyForRouteMode 把界面的路由模式映射到编译器的策略。
 //
@@ -903,54 +801,23 @@ func (s *Session) Account() *AccountInfo {
 // 服务进程启动日志转发前应调用它，把节点密码、会话凭据、订阅链接
 // 一次性登记进去；否则核心日志里一旦回显凭据就会被写进文件。
 func (s *Session) Scrubber() *secrets.Scrubber {
-	sc := secrets.NewScrubber()
-	for _, v := range s.Secrets() {
-		sc.Add(v)
-	}
-	return sc
-}
-
-// Secrets 返回当前会话中所有属于凭据的字符串。
-//
-// 它存在的理由：脱敏器是**累积**的（secrets.Scrubber 只有 Add，
-// 没有「重新登记」），而服务进程会经历多次登录与订阅刷新。
-// 因此每次拿到新会话后，调用方需要把这一批凭据追加登记进去，
-// 而这个方法就是那批值的唯一来源。
-//
-// 返回的切片本身也是敏感数据，调用方不得记录它。
-func (s *Session) Secrets() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	out := make([]string, 0, 2+2*len(s.nodes))
-	if s.sessionToken != "" {
-		out = append(out, s.sessionToken)
-	}
-	if s.subscriptionURL != "" {
-		out = append(out, s.subscriptionURL)
-	}
+	sc := secrets.NewScrubber()
+	sc.FromSession(s.sessionToken, "", s.subscriptionURL, "")
 	for _, n := range s.nodes {
 		if n == nil {
 			continue
 		}
 		if n.Password != "" {
-			out = append(out, n.Password)
+			sc.Add(n.Password)
 		}
 		if n.UUID != "" {
-			out = append(out, n.UUID)
+			sc.Add(n.UUID)
 		}
 	}
-	return out
-}
-
-// SubscriptionInfo 返回最近一次订阅拉取的结果；从未拉取过时为 nil。
-func (s *Session) SubscriptionInfo() *SubscriptionInfo {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.lastSync.IsZero() && len(s.nodes) == 0 {
-		return nil
-	}
-	return s.subscriptionInfoLocked()
+	return sc
 }
 
 // String 返回会话的可安全打印形式。
