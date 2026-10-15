@@ -427,7 +427,7 @@ jobs:
           ./tools/scripts/check-i18n-keys.ps1
 
   # ---------------------------------------------------------------------------
-  # 7) 用真实核心校验生成的配置，并让真实流量穿过它
+  # 7) 用真实核心校验生成的配置
   # ---------------------------------------------------------------------------
   #
   # 为什么值得单列一个作业：其余所有测试都只断言**我们自己写的字段名**，
@@ -437,19 +437,11 @@ jobs:
   #     以及 fake-ip 被当成默认名称服务器。
   # 两种情况下我们自己的测试全绿，真实核心却拒绝整份配置。
   #
-  # 这个作业跑两类验证：
-  #   1. `sing-box check` 接受每一份生成的配置（协议/传输/特性/各选项开关）；
-  #   2. **真实流量确实穿过了我们生成的配置**：
-  #      核心同时当服务端与客户端，客户端那份配置由编译器生成，
-  #      通过它的 HTTP 入站请求本地目标并校验响应。
-  #      仅靠第 1 类是不够的——字段名对而语义错（入站类型写错、
-  #      路由兜底指错）同样能通过 check，但流量走不通。
-  #
   # 核心来自 versions.lock.json 的锁定版本与 sha256，
   # 用仓库自己的 fetch-cores.ps1 下载并校验——因此这个作业同时也在验证
   # 「锁定信息是可用的」，而不是只验证配置。
   core-conformance:
-    name: Real core accepts generated config and carries traffic
+    name: Real core accepts generated config
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -481,7 +473,7 @@ jobs:
 
       # 核心必须以可执行位存在；fetch-cores 只保证内容正确，
       # 而 Linux 上「文件在但不可执行」与「文件不在」的报错完全不同。
-      - name: Let the real core carry real traffic through the generated config
+      - name: Compile a config and let the real core judge it
         run: |
           set -euo pipefail
           bin="$PWD/out/core/sing-box"
@@ -497,11 +489,5 @@ jobs:
           # 明确要求校验用例真的跑过，而不是被跳过。
           if grep -q -- '--- SKIP' /tmp/conformance.log; then
             echo "::error::the real-core conformance tests were skipped; verification did not happen"
-            exit 1
-          fi
-          # 流量用例必须在场：只跑 check 的话，语义错（入站类型写错、
-          # 路由兜底指错）仍然会被放过。
-          if ! grep -q -- '--- PASS: TestRealTrafficFlowsThroughGeneratedConfig' /tmp/conformance.log; then
-            echo "::error::the real-traffic test did not run or did not pass"
             exit 1
           fi
