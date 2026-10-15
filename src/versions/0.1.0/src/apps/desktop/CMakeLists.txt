@@ -129,6 +129,7 @@ add_library(pcx_core STATIC
     src/core/ipc_protocol.cpp
     src/core/ipc_transport.cpp
     src/core/ipc_client.cpp
+    src/core/options.cpp
     src/app/settings.cpp
     src/app/app_context.cpp)
 target_include_directories(pcx_core PUBLIC src)
@@ -158,7 +159,11 @@ if(PCX_BUILD_GUI)
         src/main.cpp
         src/ui/main_frame.cpp
         src/ui/simple_panel.cpp
-        src/ui/pro_panel.cpp)
+        src/ui/pro_panel.cpp
+        src/ui/login_panel.cpp
+        src/ui/node_list_panel.cpp
+        src/ui/options_panel.cpp
+        src/ui/ui_format.cpp)
 
     # 检查**全部** GUI 源文件，而不是只检查 main.cpp：
     # 只检查一个的话，缺其它文件时 cmake 会在 add_executable 处报

@@ -31,6 +31,7 @@
 
 #include "core/ipc_protocol.hpp"
 #include "core/ipc_transport.hpp"
+#include "core/options.hpp"
 
 namespace pcx::ipc {
 
@@ -119,6 +120,68 @@ public:
                     std::string* error);
     bool RecoverNetwork(std::chrono::milliseconds timeout, std::string* error);
 
+    // ---- 会话与订阅 ----
+
+    // Login 登录面板。
+    //
+    // 失败时**优先**用服务端返回的 messageKey 填充 error：
+    // 那是一把 i18n 键，界面据此显示本地化文案，而不是把服务端的
+    // 英文原文直接摆在用户面前。取不到键时才退回 Describe() 的简短描述。
+    bool Login(const LoginParams& params, std::chrono::milliseconds timeout,
+               std::string* error);
+
+    // Logout 结束会话。
+    //
+    // 注意：**不删除已保存的密码**。删除是用户的显式动作，
+    // 不应该被「退出登录」顺带完成。
+    bool Logout(std::chrono::milliseconds timeout, std::string* error);
+
+    // GetSessionState 读取会话与账户摘要。
+    std::optional<SessionState> GetSessionState(std::chrono::milliseconds timeout,
+                                                std::string* error);
+
+    // RefreshSubscription 重新拉取订阅。
+    std::optional<SubscriptionView> RefreshSubscription(
+        std::chrono::milliseconds timeout, std::string* error);
+
+    // ListNodes 列出当前订阅的节点。
+    std::optional<NodeList> ListNodes(std::chrono::milliseconds timeout,
+                                      std::string* error);
+
+    // SelectNode 选择一个节点。
+    //
+    // 返回最终生效的节点 ID（服务端回传的值），不是入参。
+    // 界面按名字请求而实际生效的是 ID，不回传就只能靠猜。
+    std::optional<std::string> SelectNode(const SelectNodeParams& params,
+                                          std::chrono::milliseconds timeout,
+                                          std::string* error);
+
+    // GetOptions 读取完整选项模型。
+    std::optional<domain::Options> GetOptions(std::chrono::milliseconds timeout,
+                                              std::string* error);
+
+    // SetOptions 写回完整选项模型。
+    //
+    // 传的是**整个**模型而不是差异：服务端按整体替换处理，
+    // 只发改动过的字段会让没发出去的字段被当成「清空」。
+    bool SetOptions(const domain::Options& options, std::chrono::milliseconds timeout,
+                    std::string* error);
+
+    // HasRpcError 报告上一次便捷封装的失败是否来自服务端的错误结构。
+    bool HasRpcError() const;
+
+    // LastRpcError 返回上一次服务端错误的副本。
+    //
+    // 返回副本而不是引用：读取发生在界面线程，而写入发生在调用线程，
+    // 返回引用会让「先取引用、后复制」之间出现数据竞争。
+    RpcError LastRpcError() const;
+
+    // ClearRpcError 清掉上一次的错误。
+    //
+    // 需要在每次操作**开始前**调用：否则一次失败会让后续成功操作的
+    // 错误提示仍然显示上一条原因。
+    void ClearRpcError();
+
     // -----------------------------------------------------------------------
     // 状态文件
     // -----------------------------------------------------------------------
@@ -145,6 +208,17 @@ private:
     void HandleLine(const std::string& line);
     void EnqueueEvent(const Event& event);
 
+    // DescribeFailure 生成失败描述，并记录服务端的错误结构。
+    //
+    // 统一放在这里而不是每个便捷封装里各写一遍：那会有十来份
+    // 「取 messageKey 还是 Describe」的判断，任何一处写反都会让
+    // 某几个操作显示英文原文而其余显示本地化文案。
+    std::string DescribeFailure(const std::string& fallback,
+                                const std::optional<Response>& response);
+
+    // ClearRpcErrorLocked 在已持有 mutex_ 时清空错误。调用方必须已加锁。
+    void ClearRpcErrorLocked();
+
     std::unique_ptr<Transport> transport_;
 
     mutable std::mutex mutex_;                 // 保护下面全部成员
@@ -162,6 +236,10 @@ private:
 
     std::string token_;
     std::string last_error_;
+    // last_rpc_error_ 与 has_rpc_error_ 记录最近一次便捷封装收到的
+    // 服务端错误结构，供界面按 messageKey 本地化。二者一起受 mutex_ 保护。
+    RpcError last_rpc_error_;
+    bool has_rpc_error_ = false;
     std::thread reader_;
 };
 

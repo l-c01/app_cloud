@@ -11,10 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,72 +22,47 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.proxyclient.config.AppConfig
 import dev.proxyclient.config.UiMode
-import dev.proxyclient.i18n.LocaleCatalog
-
-/**
- * 连接状态 / connection state.
- *
- * 刻意与桌面端 coordinator 的状态名保持一致：同一个人在两个平台上
- * 看到的词应当是同一套，否则「已连接」和「connected」会被当成两回事。
- */
-enum class ConnectionState {
-    Disconnected,
-    Connecting,
-    Connected,
-    Disconnecting,
-    Failed;
-
-    /** 对应的文案键。未知状态由调用方原样显示状态码，不在这里猜。 */
-    fun messageKey(): String = when (this) {
-        Disconnected -> "ui.state.disconnected"
-        Connecting -> "ui.state.connecting"
-        Connected -> "ui.state.connected"
-        Disconnecting -> "ui.state.disconnecting"
-        Failed -> "ui.state.failed"
-    }
-}
-
-/**
- * 界面状态 / UI state.
- *
- * 两种模式共用同一份状态（设计基线 §4.1）。若各持一份，
- * 很快就会出现「简单模式显示已连接、专业模式显示未连接」。
- */
-data class ProxyUiState(
-    val connection: ConnectionState = ConnectionState.Disconnected,
-    val uiMode: UiMode = UiMode.Simple,
-    val rememberUiMode: Boolean = false,
-    val core: String = "sing-box",
-    val routingPolicy: String = "rule",
-    val activeNode: String = "",
-    val message: String = "",
-    /** 应用范围：null 表示全部应用，否则为排除列表。 */
-    val excludedPackages: Set<String> = emptySet(),
-)
+import dev.proxyclient.options.ClientOptions
 
 /**
  * 主界面 / main screen.
  *
- * 简单模式刻意**不显示**路由策略与应用范围。
- * 这不是隐藏次要功能，而是会让人做错决定的选项：
- * 不懂分流规则的用户选了「全局直连」，表现就是「连上了但打不开网页」，
- * 而他不会知道原因。
+ * 两种模式共用同一份状态与同一份选项（设计基线 §4.1）：
+ * 切换模式只改变呈现与可见选项，不改变已经建立的行为。
  *
- * 专业模式也不再显示内核：本构建只发布 sing-box（ADR-0005），
- * 一个不可改变的取值不值得占用界面空间，更不该让人以为换个内核能解决问题。
+ * 本文件只做**组装**：每一项功能都在自己的文件里
+ * （登录、节点列表、简易模式、专业模式），这样「哪个屏幕改了什么」
+ * 不需要在一个上千行的文件里找。
+ *
+ * 滚动结构：这里是最外层的 verticalScroll Column，因此**任何子屏幕都不能
+ * 再放一个竖向可滚动组件**（LazyColumn 等）——嵌套会在测量阶段拿到无限高
+ * 约束并抛异常。节点列表因此是普通 Column，理由写在 NodeListPanel 里。
  */
 @Composable
 fun ProxyApp(
     config: AppConfig,
-    catalog: LocaleCatalog,
+    messages: Messages,
     state: ProxyUiState,
     onToggleConnection: () -> Unit,
     onToggleUiMode: () -> Unit,
     onToggleRememberMode: (Boolean) -> Unit,
     onOpenPanel: () -> Unit,
+    onSignIn: (
+        panelUrl: String,
+        email: String,
+        password: String,
+        rememberPassword: Boolean,
+        allowInsecureHttp: Boolean,
+    ) -> Unit,
+    onSignOut: () -> Unit,
+    onRefreshSubscription: () -> Unit,
+    onSelectNode: (String) -> Unit,
+    onReloadOptions: () -> Unit,
+    onSaveOptions: (ClientOptions) -> Unit,
+    onRouteMode: (String) -> Unit,
+    onPerAppMode: (String) -> Unit,
 ) {
-    val language = catalog.negotiate(config.defaultLanguage)
-    fun t(key: String, vararg args: Any) = catalog.translate(language, key, *args)
+    val busy = state.busy.isNotEmpty()
 
     Column(
         modifier = Modifier
@@ -101,7 +74,7 @@ fun ProxyApp(
     ) {
         // ---- 状态 ----
         Text(
-            text = t(state.connection.messageKey()),
+            text = messages[state.connection.messageKey()],
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
@@ -114,46 +87,70 @@ fun ProxyApp(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-
-        Text(
-            text = if (state.activeNode.isBlank()) {
-                t("ui.label.no_node")
-            } else {
-                t("ui.label.current_node", state.activeNode)
-            },
-            style = MaterialTheme.typography.bodyMedium,
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        // ---- 主操作 ----
-        Button(
-            onClick = onToggleConnection,
-            enabled = state.connection != ConnectionState.Connecting &&
-                state.connection != ConnectionState.Disconnecting,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        if (state.notice.isNotBlank()) {
             Text(
-                text = if (state.connection == ConnectionState.Connected) {
-                    t("ui.action.disconnect")
-                } else {
-                    t("ui.action.connect")
-                },
-                style = MaterialTheme.typography.titleMedium,
+                text = state.notice,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.secondary,
             )
         }
-
-        OutlinedButton(
-            onClick = onOpenPanel,
-            enabled = config.webBaseUrl.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(t("ui.action.open_panel"))
+        // 诊断细节只在它比上面那句话更有信息量时显示。
+        // 服务端错误与网络异常都能在这里看到原文，便于定位问题。
+        if (state.detail.isNotBlank() && state.detail != state.message) {
+            NoteText(state.detail)
+        }
+        if (busy) {
+            NoteText(messages["ui.detail.busy"])
+        }
+        if (state.backend == BackendState.Ready) {
+            NoteText(messages["ui.detail.service_ok"])
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(4.dp))
+
+        if (!state.session.loggedIn) {
+            // 未登录：登录页就是主界面。这里不显示连接按钮——
+            // 没有订阅就没有东西可以连，而一个点了没反应的按钮比隐藏它更糟。
+            LoginScreen(
+                state = state,
+                messages = messages,
+                defaultPanelUrl = config.apiBaseUrl,
+                openPanelEnabled = config.webBaseUrl.isNotBlank(),
+                onSignIn = onSignIn,
+                onOpenPanel = onOpenPanel,
+            )
+        } else {
+            SessionPanel(state = state, messages = messages, onSignOut = onSignOut)
+
+            NodeListPanel(
+                state = state,
+                messages = messages,
+                onSelectNode = onSelectNode,
+                onRefreshSubscription = onRefreshSubscription,
+            )
+
+            // ---- 主操作 ----
+            Button(
+                onClick = onToggleConnection,
+                enabled = state.connection != ConnectionState.Connecting &&
+                    state.connection != ConnectionState.Disconnecting &&
+                    !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = if (state.connection == ConnectionState.Connected) {
+                        messages["ui.action.disconnect"]
+                    } else {
+                        messages["ui.action.connect"]
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
         Divider()
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(8.dp))
 
         // ---- 模式切换 ----
         Row(
@@ -162,12 +159,15 @@ fun ProxyApp(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = t(
+                text = messages[
                     if (state.uiMode == UiMode.Simple) "ui.mode.simple" else "ui.mode.professional",
-                ),
+                ],
                 style = MaterialTheme.typography.titleMedium,
             )
-            Switch(checked = state.uiMode == UiMode.Professional, onCheckedChange = { onToggleUiMode() })
+            Switch(
+                checked = state.uiMode == UiMode.Professional,
+                onCheckedChange = { onToggleUiMode() },
+            )
         }
 
         Row(
@@ -175,53 +175,48 @@ fun ProxyApp(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(t("ui.menu.remember_mode"), style = MaterialTheme.typography.bodyMedium)
+            Text(messages["ui.menu.remember_mode"], style = MaterialTheme.typography.bodyMedium)
             Switch(checked = state.rememberUiMode, onCheckedChange = onToggleRememberMode)
         }
 
-        // ---- 专业模式才展开的部分 ----
-        if (state.uiMode == UiMode.Professional) {
-            Spacer(Modifier.height(8.dp))
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LabelledValue(t("ui.label.routing_policy"), t("ui.policy.${state.routingPolicy}"))
-                    LabelledValue(
-                        t("ui.label.network_mode"),
-                        t("ui.entry.tun"),
-                    )
-                }
-            }
-
-            // 能力未实测时如实提示：假装某些选项可用比不显示更糟。
-            // 这里仍然报出内核名，因为「哪张能力表没实测过」是这条提示的一部分。
-            Text(
-                text = t("ui.warn.unverified_capability", state.core),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary,
+        // ---- 简易模式：路由模式 + 分应用代理 ----
+        if (state.session.loggedIn && state.uiMode == UiMode.Simple) {
+            SimpleModePanel(
+                state = state,
+                messages = messages,
+                onRouteMode = onRouteMode,
+                onPerAppMode = onPerAppMode,
             )
         }
+
+        // ---- 专业模式：完整选项 ----
+        if (state.session.loggedIn && state.uiMode == UiMode.Professional) {
+            ProModePanel(
+                state = state,
+                messages = messages,
+                onSave = onSaveOptions,
+                onReloadOptions = onReloadOptions,
+            )
+        }
+
+        // ---- 能力提示 ----
+        // 能力未实测时如实提示：假装某些选项可用比不显示更糟。
+        // 这里仍然报出内核名，因为「哪张能力表没实测过」是这条提示的一部分。
+        Text(
+            text = messages["ui.warn.unverified_capability", state.core],
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
 
         // ---- 配置问题 ----
         // 出厂配置有问题时提示用户，但不阻止使用：
         // 用户改不了安装包里的配置，说了也未必能解决，但至少不是被蒙在鼓里。
         if (config.warnings.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
             Text(
                 text = config.warnings.joinToString("\n"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
         }
-    }
-}
-
-@Composable
-private fun LabelledValue(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }

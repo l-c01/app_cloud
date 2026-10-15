@@ -12,7 +12,16 @@ namespace {
 // 而本地 IPC 的正常响应时间在毫秒级，5 秒已经是很宽松的界。
 constexpr std::chrono::milliseconds kServiceCallTimeout{5000};
 
+// kRemoteCallTimeout 是**会走出本机**的操作的等待上限。
+//
+// 订阅刷新要经服务进程访问面板：慢面板、需要代理才能到达的面板、
+// 以及上百个节点逐一解析，都会让耗时远超本地调用。
+// 用 5 秒会让正常的刷新被误判为失败，而用户重试只会让情况更糟。
+constexpr std::chrono::milliseconds kRemoteCallTimeout{30000};
+
 }  // namespace
+
+std::chrono::milliseconds AppContext::RemoteCallTimeout() { return kRemoteCallTimeout; }
 
 bool AppContext::RefreshFromService(std::string* error) {
     if (!ipc.IsConnected()) {
@@ -69,6 +78,123 @@ bool AppContext::ReconnectService(std::string* error) {
         return false;
     }
     has_capabilities = false;
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
+bool AppContext::Supports(const std::string& operation) const {
+    if (!has_capabilities) {
+        // 能力表还没读到：倾向「可能有」。
+        //
+        // 反过来（默认不可用）会让界面在服务刚起来的那几百毫秒里
+        // 把登录按钮藏起来，用户看到的是一个点不动的界面，
+        // 而真正的原因（能力表尚未返回）没有任何地方显示出来。
+        return true;
+    }
+    return capabilities.Supports(operation);
+}
+
+bool AppContext::RefreshSession(std::string* error) {
+    if (!ipc.IsConnected()) {
+        if (error != nullptr) {
+            *error = ipc.LastError().empty() ? "not connected to the local service"
+                                             : ipc.LastError();
+        }
+        return false;
+    }
+    // 服务端不认识这个操作时，不代表会话状态是「未登录」。
+    // 这里如实报「不可用」，而不是把 has_session 置成 false 后
+    // 让界面弹出一个永远登不上去的登录页。
+    if (!Supports(ipc::op::kGetSessionState)) {
+        if (error != nullptr) {
+            error->clear();
+        }
+        return false;
+    }
+
+    std::string inner;
+    const auto state = ipc.GetSessionState(kServiceCallTimeout, &inner);
+    if (!state.has_value()) {
+        if (error != nullptr) {
+            *error = inner;
+        }
+        return false;
+    }
+    session = *state;
+    has_session = true;
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
+bool AppContext::RefreshNodes(std::string* error) {
+    if (!ipc.IsConnected()) {
+        if (error != nullptr) {
+            *error = ipc.LastError().empty() ? "not connected to the local service"
+                                             : ipc.LastError();
+        }
+        return false;
+    }
+    // 未登录时订阅里没有节点可列。这一步不走 IPC 是有意的：
+    // 服务端对未登录的 ListNodes 会回一个错误，而那不是用户需要看到的
+    // 失败——他需要看到的是登录页。
+    if (has_session && !session.logged_in) {
+        nodes = ipc::NodeList{};
+        if (error != nullptr) {
+            error->clear();
+        }
+        return true;
+    }
+    if (!Supports(ipc::op::kListNodes)) {
+        if (error != nullptr) {
+            error->clear();
+        }
+        return false;
+    }
+
+    std::string inner;
+    const auto list = ipc.ListNodes(kServiceCallTimeout, &inner);
+    if (!list.has_value()) {
+        if (error != nullptr) {
+            *error = inner;
+        }
+        return false;
+    }
+    nodes = *list;
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
+bool AppContext::RefreshOptions(std::string* error) {
+    if (!ipc.IsConnected()) {
+        if (error != nullptr) {
+            *error = ipc.LastError().empty() ? "not connected to the local service"
+                                             : ipc.LastError();
+        }
+        return false;
+    }
+    if (!Supports(ipc::op::kGetOptions)) {
+        if (error != nullptr) {
+            error->clear();
+        }
+        return false;
+    }
+
+    std::string inner;
+    const auto loaded = ipc.GetOptions(kServiceCallTimeout, &inner);
+    if (!loaded.has_value()) {
+        if (error != nullptr) {
+            *error = inner;
+        }
+        return false;
+    }
+    options = *loaded;
+    has_options = true;
     if (error != nullptr) {
         error->clear();
     }

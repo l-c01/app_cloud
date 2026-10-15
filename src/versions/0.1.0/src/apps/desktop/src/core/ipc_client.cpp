@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "core/json_util.hpp"
+#include "core/options.hpp"
 
 namespace pcx::ipc {
 
@@ -499,6 +500,272 @@ bool IpcClient::RecoverNetwork(std::chrono::milliseconds timeout, std::string* e
                                                  : "network recovery failed";
         }
         return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 会话与订阅
+// ---------------------------------------------------------------------------
+
+std::string IpcClient::DescribeFailure(const std::string& fallback,
+                                       const std::optional<Response>& response) {
+    // 先把上一次的错误清掉：调用方拿到 error 之后会去读 LastRpcError，
+    // 若不清，一次失败会让后续成功操作的提示仍然显示上一条原因。
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ClearRpcErrorLocked();
+    }
+    if (!response.has_value()) {
+        return fallback;
+    }
+    if (!response->error.has_value()) {
+        // 服务端说失败但没给错误结构：这不是正常契约，
+        // 用调用方给的兜底文案，而不是编一条原因。
+        return fallback;
+    }
+    const RpcError& rpc = *response->error;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        last_rpc_error_ = rpc;
+        has_rpc_error_ = true;
+    }
+    if (!rpc.message_key.empty()) {
+        // 优先返回 i18n 键：界面据此显示本地化文案。
+        // 退回 Describe() 之前不返回 message——那是服务端原文，
+        // 可能是英文，也可能包含用户不该看到的路径信息。
+        return rpc.message_key;
+    }
+    return rpc.Describe();
+}
+
+void IpcClient::ClearRpcErrorLocked() {
+    last_rpc_error_ = RpcError{};
+    has_rpc_error_ = false;
+}
+
+void IpcClient::ClearRpcError() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ClearRpcErrorLocked();
+}
+
+bool IpcClient::HasRpcError() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return has_rpc_error_;
+}
+
+RpcError IpcClient::LastRpcError() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return last_rpc_error_;
+}
+
+bool IpcClient::Login(const LoginParams& params, std::chrono::milliseconds timeout,
+                      std::string* error) {
+    ClearRpcError();
+    const auto response = Call(op::kLogin, params.ToJson(), timeout, nullptr);
+    if (!response.has_value()) {
+        if (error != nullptr) {
+            *error = "the local service did not answer the login request";
+        }
+        return false;
+    }
+    if (!response->ok) {
+        if (error != nullptr) {
+            *error = DescribeFailure("the service rejected the login", response);
+        }
+        return false;
+    }
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
+bool IpcClient::Logout(std::chrono::milliseconds timeout, std::string* error) {
+    ClearRpcError();
+    const auto response = Call(op::kLogout, std::nullopt, timeout, nullptr);
+    if (!response.has_value()) {
+        if (error != nullptr) {
+            *error = "the local service did not answer the logout request";
+        }
+        return false;
+    }
+    if (!response->ok) {
+        if (error != nullptr) {
+            *error = DescribeFailure("the service rejected the logout", response);
+        }
+        return false;
+    }
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
+std::optional<SessionState> IpcClient::GetSessionState(
+    std::chrono::milliseconds timeout, std::string* error) {
+    ClearRpcError();
+    const auto response = Call(op::kGetSessionState, std::nullopt, timeout, nullptr);
+    if (!response.has_value()) {
+        if (error != nullptr) {
+            *error = "the local service did not report the session state";
+        }
+        return std::nullopt;
+    }
+    if (!response->ok) {
+        if (error != nullptr) {
+            *error = DescribeFailure("the service rejected the session query", response);
+        }
+        return std::nullopt;
+    }
+    return SessionState::Parse(response->result);
+}
+
+std::optional<SubscriptionView> IpcClient::RefreshSubscription(
+    std::chrono::milliseconds timeout, std::string* error) {
+    ClearRpcError();
+    const auto response = Call(op::kRefreshSubscription, std::nullopt, timeout, nullptr);
+    if (!response.has_value()) {
+        if (error != nullptr) {
+            *error = "the local service did not answer the subscription refresh";
+        }
+        return std::nullopt;
+    }
+    if (!response->ok) {
+        if (error != nullptr) {
+            *error = DescribeFailure("the service refused to refresh the subscription",
+                                     response);
+        }
+        return std::nullopt;
+    }
+    // 返回值可能是 subscription 对象，也可能是包着它的对象。
+    // 两种形态都接受：RefreshSubscription 与 GetSessionState 里的
+    // subscription 是同一个结构，服务端把它放在哪一层不该决定界面能不能工作。
+    if (const auto it = response->result.find("subscription");
+        it != response->result.end() && it->is_object()) {
+        return SubscriptionView::Parse(*it);
+    }
+    return SubscriptionView::Parse(response->result);
+}
+
+std::optional<NodeList> IpcClient::ListNodes(std::chrono::milliseconds timeout,
+                                             std::string* error) {
+    ClearRpcError();
+    const auto response = Call(op::kListNodes, std::nullopt, timeout, nullptr);
+    if (!response.has_value()) {
+        if (error != nullptr) {
+            *error = "the local service did not report the node list";
+        }
+        return std::nullopt;
+    }
+    if (!response->ok) {
+        if (error != nullptr) {
+            *error = DescribeFailure("the service rejected the node query", response);
+        }
+        return std::nullopt;
+    }
+    return NodeList::Parse(response->result);
+}
+
+std::optional<std::string> IpcClient::SelectNode(const SelectNodeParams& params,
+                                                 std::chrono::milliseconds timeout,
+                                                 std::string* error) {
+    ClearRpcError();
+    if (!params.IsUsable()) {
+        // 本地就挡住：参数里既没有 id 也没有 name 时，服务端会回
+        // invalid_params，而那条错误不会告诉用户「界面根本没把选择传出去」。
+        if (error != nullptr) {
+            *error = "no node was given to select";
+        }
+        return std::nullopt;
+    }
+    const auto response = Call(op::kSelectNode, params.ToJson(), timeout, nullptr);
+    if (!response.has_value()) {
+        if (error != nullptr) {
+            *error = "the local service did not answer the node selection";
+        }
+        return std::nullopt;
+    }
+    if (!response->ok) {
+        if (error != nullptr) {
+            *error = DescribeFailure("the service rejected the node selection", response);
+        }
+        return std::nullopt;
+    }
+    const SelectNodeResult result = SelectNodeResult::Parse(response->result);
+    if (result.selected_node_id.empty()) {
+        // 回传空 ID 说明服务端的响应不符合契约。直接当成失败：
+        // 否则界面会把「不知道选中了谁」显示成「切换成功」。
+        if (error != nullptr) {
+            *error = "the service did not report which node it selected";
+        }
+        return std::nullopt;
+    }
+    if (error != nullptr) {
+        error->clear();
+    }
+    return result.selected_node_id;
+}
+
+std::optional<domain::Options> IpcClient::GetOptions(std::chrono::milliseconds timeout,
+                                                     std::string* error) {
+    ClearRpcError();
+    const auto response = Call(op::kGetOptions, std::nullopt, timeout, nullptr);
+    if (!response.has_value()) {
+        if (error != nullptr) {
+            *error = "the local service did not report the options";
+        }
+        return std::nullopt;
+    }
+    if (!response->ok) {
+        if (error != nullptr) {
+            *error = DescribeFailure("the service rejected the options query", response);
+        }
+        return std::nullopt;
+    }
+    // 契约是 {"options": {...}}。这里刻意**只**认这一层：
+    // 与 RefreshSubscription 不同，选项模型必须整体一致，
+    // 兼容两种形态会让「服务端换了外层结构」被静默吞掉。
+    const auto it = response->result.find("options");
+    if (it == response->result.end()) {
+        if (error != nullptr) {
+            *error = "the service returned no options object";
+        }
+        return std::nullopt;
+    }
+    const auto options = domain::ParseOptions(*it);
+    if (!options.has_value()) {
+        if (error != nullptr) {
+            *error = "the options object the service returned is not an object";
+        }
+        return std::nullopt;
+    }
+    if (error != nullptr) {
+        error->clear();
+    }
+    return options;
+}
+
+bool IpcClient::SetOptions(const domain::Options& options,
+                           std::chrono::milliseconds timeout, std::string* error) {
+    ClearRpcError();
+    Json params = Json::object();
+    params["options"] = domain::SerializeOptions(options);
+    const auto response = Call(op::kSetOptions, params, timeout, nullptr);
+    if (!response.has_value()) {
+        if (error != nullptr) {
+            *error = "the local service did not answer the options update";
+        }
+        return false;
+    }
+    if (!response->ok) {
+        if (error != nullptr) {
+            *error = DescribeFailure("the service rejected the options update", response);
+        }
+        return false;
+    }
+    if (error != nullptr) {
+        error->clear();
     }
     return true;
 }
