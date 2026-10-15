@@ -222,7 +222,9 @@ type singboxDNS struct {
 	Final string `json:"final,omitempty"`
 	// Strategy 取 prefer_ipv4 / prefer_ipv6 / ipv4_only / ipv6_only。
 	Strategy string `json:"strategy,omitempty"`
-	// IndependentCache 让不同的名称服务器各用独立的缓存。
+	// IndependentCache 保留字段以备将来需要，但**当前不设置**：
+	// 它从 sing-box 1.14.0 起被废弃、1.16.0 移除，写它会让一次
+	// 补丁版本升级变成配置起不来。
 	IndependentCache bool `json:"independent_cache,omitempty"`
 
 	// bootstrapTag 是本次实际生成的引导解析器标签；没有生成时为空。
@@ -269,11 +271,20 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 	}
 
 	section := &singboxDNS{
-		IndependentCache: true,
 		// 默认只解析 IPv4。多数代理链路对 IPv6 支持不完整，
 		// 开着会表现为「某些网站慢或超时」，而用户很难联想到 IPv6。
 		Strategy: "prefer_ipv4",
 	}
+	// IndependentCache 是刻意**不设置**的。
+	//
+	// 它从 sing-box 1.14.0 起被废弃，并将在 1.16.0 移除
+	// （核心会就此打一条 WARN）。我们锁定的正是 1.14.3，而写一个
+	// 「两个小版本后就会让配置起不来」的字段，等于把一次升级变成
+	// 一次事故——而这次升级只是换一个补丁版本号。
+	//
+	// 它的作用是「让不同名称服务器各用独立缓存」。我们不依赖这个行为：
+	// 缓存隔离影响的是解析命中率，不是正确性。
+
 	if opts.IPv6 {
 		section.Strategy = ""
 	}

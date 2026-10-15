@@ -103,7 +103,8 @@ func TestRealTrafficFlowsThroughGeneratedConfig(t *testing.T) {
 		Policy: PolicyGlobal,
 		Inbound: InboundOptions{
 			Listen:    "127.0.0.1",
-			MixedPort: clientPort,
+			HTTPPort:  clientPort,
+			SocksPort: freePort(t),
 		},
 		LogLevel:       "info",
 		SelectedNodeID: node.ID,
