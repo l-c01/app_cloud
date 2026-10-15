@@ -865,6 +865,13 @@ func (h *serviceHandler) internal(op string, err error) *ipc.RPCError {
 // 而不是静默不做事。用户因此能区分「我配错了」和「这个平台还没做」。
 func platformBackend() netmgr.Backend {
 	switch runtime.GOOS {
+	case "windows":
+		// Windows 走注册表 + wininet 刷新。
+		//
+		// 这一支此前**不存在**：platform/winproxy 早已有完整实现
+		// （含所有权校验与注入防护），但没有任何代码引用它，
+		// 于是 Windows 落到下面的 NoopBackend，系统代理接管是死代码。
+		return netmgr.NewWindowsBackend(nil)
 	case "linux":
 		// GNOME 后端在非 GNOME 桌面上会报告不可用，
 		// 由 gnome.Available 判定，这里不预先假设。
