@@ -101,7 +101,7 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 	// 放在这里而不是 cfg 字面量里，是因为它的存在与否取决于选项，
 	// 而字面量里已经有 HTTP 与 SOCKS 两个固定入站。
 	// 混在一起会让「哪些入站是固定的、哪些是可选的」看不出来。
-	if tunIn := singboxTUNInbound(req.tunOptions(), req.perAppOptions(), req.sniffOptions(), report); tunIn != nil {
+	if tunIn := singboxTUNInbound(req.tunOptions(), req.perAppOptions(), report); tunIn != nil {
 		cfg.Inbounds = append(cfg.Inbounds, tunIn)
 	}
 
@@ -118,6 +118,14 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 			{"ip_is_private": true, "outbound": "direct"},
 		}
 		final := outboundTag(selected)
+
+		// 嗅探规则放在**最前**：它必须在分流规则之前跑，
+		// 否则后面那些按域名匹配的规则拿到的是 IP，永远匹配不上。
+		//
+		// 顺序：嗅探 → 内建私有地址直连 → 用户规则。
+		if rule := singboxSniffRule(req.sniffOptions(), report); rule != nil {
+			rules = append([]map[string]any{rule}, rules...)
+		}
 
 		// 用户配置的规则（仅当已接入选项模型）。
 		//
@@ -152,6 +160,32 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 		}
 
 		cfg.Route = &singboxRoute{Rules: rules, Final: final}
+
+		// 嗅探只存在于规则模式：global 与 direct 都不生成 rules，
+		// 也就没有地方放那条 action: sniff 的规则。
+		// 这与规则集的处理同理——生成一份用不上的东西只会让核心
+		// 凭空多一个下载任务。
+		//
+		// 但这里必须**说出来**：用户在 direct / global 模式下打开嗅探，
+		// 却看不到任何提示的话，会以为自己已经开了。
+		if req.sniffOptions() != nil && req.sniffOptions().Enabled {
+			report.Warnf(nil, "route.rules", "compiler.sniff_requires_rule_mode",
+				"嗅探只在「规则分流」模式下生效（它由一条路由动作表达）；"+
+					"当前是全局/直连模式，本次未生成嗅探规则")
+		}
+	}
+
+	// 出站也要能解析「节点服务器的域名」。
+	//
+	// 放在三种策略之后统一处理，而不是每处各写一遍：漏掉任何一种策略
+	// 都意味着「某个模式下核心起不来」，而那种缺陷只在切换模式时才暴露。
+	//
+	// 只在我们真的生成了引导解析器时才设置：
+	// 引用一个不存在的服务器标签同样会让核心拒绝启动
+	// （实测报错：`initialize outbound[0]: default domain resolver not found`）。
+	// 用户把名称服务器列表清空时就会出现这种情况。
+	if cfg.DNS != nil && cfg.Route != nil && cfg.DNS.bootstrapTag != "" {
+		cfg.Route.DefaultDomainResolver = cfg.DNS.bootstrapTag
 	}
 
 	// 规则集只在规则模式下有意义：global 与 direct 都不看规则，
@@ -190,6 +224,13 @@ type singboxDNS struct {
 	Strategy string `json:"strategy,omitempty"`
 	// IndependentCache 让不同的名称服务器各用独立的缓存。
 	IndependentCache bool `json:"independent_cache,omitempty"`
+
+	// bootstrapTag 是本次实际生成的引导解析器标签；没有生成时为空。
+	//
+	// 它不是配置的一部分（`json:"-"`，不写进 JSON）：它只用来把
+	// 「引导解析器到底有没有生成」这件事传给调用方，
+	// 好让 route.default_domain_resolver 不去引用一个不存在的服务器。
+	bootstrapTag string
 }
 
 // dnsServerTag 是默认名称服务器的标签前缀。
@@ -201,6 +242,18 @@ const (
 	dnsTagDefault = "default"
 	dnsTagFakeIP  = "fakeip"
 )
+
+// dnsTagBootstrap 是引导解析器（bootstrap resolver）的标签。
+//
+// 为什么必须有它：DoH / DoT 名称服务器写的是**域名**（doh.pub、dns.alidns.com）。
+// 核心要去连这些域名，就得先把它们解析出来，而那又是一个 DNS 查询——
+// 循环。sing-box 1.12+ 因此要求这类服务器显式声明 `domain_resolver`。
+// 缺少它时核心直接拒绝整份配置（实测报错：
+// `missing domain resolver for domain server address`）。
+//
+// 引导解析器必须是**不需要再解析域名**的那一种，所以用 type=local
+// （交给操作系统的解析器）——它没有地址，也就没有循环。
+const dnsTagBootstrap = "bootstrap"
 
 // singboxDNSSection 依据选项构造 dns 段。
 //
@@ -225,8 +278,25 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 		section.Strategy = ""
 	}
 
-	// fake-ip 服务器排在最前：命中过滤列表的域名会落到后面的常规服务器。
-	if opts.FakeIP {
+	// 常规名称服务器要在 fake-ip 之前就确定**标签**：
+	// 下面两处都要引用它——fake-ip 的兜底不能指向自己，
+	// 过滤规则也要指向一个真实存在的标签。
+	//
+	// 标签分配规则必须与下面的循环完全一致：首个是 default，其余带下标。
+	// 两边各写一套就会生成引用不存在标签的配置，而核心对此只报一句
+	// 「DNS server not found」，很难追回到这里。
+	regularTags := regularNameserverTags(opts.Nameservers)
+
+	// fake-ip 服务器。
+	//
+	// **它绝不能成为 default。** 核心在 transport_manager.go 里明确拒绝
+	// 「default server cannot be fakeip」——因为 fake-ip 自己不做解析，
+	// 必须由别的服务器先把真实地址查出来。
+	//
+	// 因此只有存在真实名称服务器时才生成它：一个都没有时只发 fake-ip，
+	// 等于让核心拿它当默认，整份配置会被直接拒绝（这是实测到的，
+	// 见 TestCompiledConfigIsAcceptedByRealSingBox）。
+	if opts.FakeIP && len(regularTags) > 0 {
 		fakeip := map[string]any{
 			"type": "fakeip",
 			"tag":  dnsTagFakeIP,
@@ -235,18 +305,20 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 			fakeip["inet4_range"] = opts.FakeIPRange
 		}
 		section.Servers = append(section.Servers, fakeip)
-		section.Final = dnsTagFakeIP
 	}
 
-	for i, ns := range opts.Nameservers {
+	// 逐个生成常规名称服务器。
+	//
+	// 标签取自 regularTags（与上面算出的完全同一套），**不是**按原始下标：
+	// 中间有空条目时按下标算会与 regularTags 不一致，于是 Final 或过滤规则
+	// 会引用到一个不存在的服务器标签。两处必须用同一条计数规则。
+	regularServerCount := 0
+	for _, ns := range opts.Nameservers {
 		if ns == "" {
 			continue
 		}
-		tag := dnsTagDefault
-		if i > 0 {
-			// 首个之外的需要各自的标签，否则同名标签会被核心拒绝。
-			tag = fmt.Sprintf("%s-%d", dnsTagDefault, i)
-		}
+		tag := regularTags[regularServerCount]
+		regularServerCount++
 		srv := map[string]any{"tag": tag}
 		switch {
 		case ns == "system":
@@ -254,9 +326,12 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 		case strings.HasPrefix(ns, "https://"):
 			srv["type"] = "https"
 			srv["server"] = strings.TrimPrefix(ns, "https://")
+			// 域名地址必须声明由谁来解析它，否则核心拒绝整份配置。
+			srv["domain_resolver"] = dnsTagBootstrap
 		case strings.HasPrefix(ns, "tls://"):
 			srv["type"] = "tls"
 			srv["server"] = strings.TrimPrefix(ns, "tls://")
+			srv["domain_resolver"] = dnsTagBootstrap
 		default:
 			srv["type"] = "udp"
 			srv["server"] = ns
@@ -264,12 +339,22 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 		section.Servers = append(section.Servers, srv)
 	}
 
-	// 非 fake-ip 模式下没有 fakeip 服务器，兜底指向第一个常规服务器；
+	// 引导解析器始终排在最前，供上面那些按域名连接的名称服务器引用。
+	//
+	// 只在确实有名称服务器时才加：一个都没有时配置里不该多出一个
+	// 谁也引用不到的条目。
+	bootstrapAdded := false
+	if len(regularTags) > 0 {
+		section.Servers = append([]map[string]any{
+			{"type": "local", "tag": dnsTagBootstrap},
+		}, section.Servers...)
+		bootstrapAdded = true
+	}
+
+	// 兜底指向**第一个真实名称服务器**，而不是 fake-ip。
 	// 一个都没有时留空，让核心用它自己的默认值，而不是我们编一个。
-	if section.Final == "" && len(section.Servers) > 0 {
-		if tag, ok := section.Servers[0]["tag"].(string); ok {
-			section.Final = tag
-		}
+	if len(regularTags) > 0 {
+		section.Final = regularTags[0]
 	}
 
 	// 不使用 fake-ip 的域名。
@@ -277,15 +362,52 @@ func singboxDNSSection(opts *domain.DNSSettings) *singboxDNS {
 	// 局域网设备发现、时间同步、以及微信与 QQ 的回调域名必须在这里：
 	// 它们拿到假地址就再也连不上，而症状是「某些应用莫名其妙打不开」，
 	// 与 DNS 的关系很难联想。
-	if opts.FakeIP && len(opts.FakeIPFilter) > 0 {
+	//
+	// 只在真的生成了 fake-ip 服务器时才发这条规则：没有 fake-ip 时它
+	// 没有意义，而且会引用一个可能不存在的服务器标签。
+	if opts.FakeIP && len(regularTags) > 0 && len(opts.FakeIPFilter) > 0 {
 		section.Rules = append(section.Rules, map[string]any{
 			"domain":   opts.FakeIPFilter,
-			"server":   dnsTagDefault,
+			"server":   regularTags[0],
 			"strategy": "prefer_ipv4",
 		})
 	}
 
+	// 把「是否真的生成了引导解析器」告诉调用方。
+	//
+	// route.default_domain_resolver 必须引用一个**存在的**服务器：
+	// 一个名称服务器都没配置时（用户把列表清空），bootstrap 不会被生成，
+	// 此时再引用它会让核心直接报
+	// `initialize outbound[0]: default domain resolver not found`——
+	// 也就是说「用户清空了 DNS 列表」会导致整份配置起不来。
+	// 这个事实不能靠调用方去猜，只能由这里显式传出去。
+	section.bootstrapTag = ""
+	if bootstrapAdded {
+		section.bootstrapTag = dnsTagBootstrap
+	}
+
 	return section
+}
+
+// regularNameserverTags 返回「真实名称服务器」将使用的标签，顺序与生成顺序一致。
+//
+// 计数规则与生成循环**必须一致**：按「第几个非空条目」编号，首个是 default，
+// 其余是 default-N。两处各写一套的话，中间的空条目会让它们错位，
+// 结果是 Final 或 fake-ip 过滤规则引用到一个不存在的服务器标签——
+// 而核心只会说一句「DNS server not found」，很难追回到这里。
+func regularNameserverTags(nameservers []string) []string {
+	var tags []string
+	for _, ns := range nameservers {
+		if ns == "" {
+			continue
+		}
+		if len(tags) == 0 {
+			tags = append(tags, dnsTagDefault)
+		} else {
+			tags = append(tags, fmt.Sprintf("%s-%d", dnsTagDefault, len(tags)))
+		}
+	}
+	return tags
 }
 
 // groupOutboundType 把领域的代理组类型映射到 sing-box 的出站类型。
@@ -408,6 +530,19 @@ type singboxRoute struct {
 	Rules   []map[string]any `json:"rules,omitempty"`
 	RuleSet []map[string]any `json:"rule_set,omitempty"`
 	Final   string           `json:"final,omitempty"`
+
+	// DefaultDomainResolver 让所有出站（以及未显式声明解析器的字段）
+	// 用哪个 DNS 服务器去解析**节点服务器的域名**。
+	//
+	// 为什么必须有它：出站连的是域名（节点地址），解析那个域名本身需要
+	// 一个解析器。sing-box 1.12 起不再有隐式默认值，缺失时核心直接拒绝
+	// 启动（实测：`missing route.default_domain_resolver`），
+	// 并提示需要设置 ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER 才能继续——
+	// 那个开关是给迁移期用的，不是我们要给出的成品配置。
+	//
+	// 指向 bootstrap 而不是普通服务器：引导解析器是 type=local，
+	// 它自己没有域名要解析，因此不会形成循环。
+	DefaultDomainResolver string `json:"default_domain_resolver,omitempty"`
 }
 
 // singboxRuleSets 依据选项构造 route.rule_set。
@@ -633,42 +768,52 @@ func singboxFinalOutbound(opts *domain.Options, selected *domain.Node, report *R
 	}
 }
 
-// singboxSniffer 把嗅探选项写进入站。
+// singboxSniffRule 依据嗅探选项生成一条 `action: "sniff"` 的路由规则。
 //
-// 字段依据（已核实的源码事实，来自 src/references/sing-box-testing/option/inbound.go）：
-// InboundOptions 里有三个嗅探相关字段：SniffEnabled（json 名 sniff）、
-// SniffOverrideDestination（sniff_override_destination）与
-// SniffTimeout（sniff_timeout）。
+// 为什么是路由规则而不是入站字段：sing-box 1.11 起把嗅探从入站的
+// sniff / sniff_override_destination 迁移到了**规则动作**，
+// 并在 1.13 移除了旧字段。写旧字段会让整份配置起不来。
 //
-// 这三行**解决了一份设计文档里悬着的问题**。ui-options.md 2.5 节原先写
-// 「嗅探协议 TLS / HTTP / QUIC」，而交接文档记录了「没有真核心可以验证，
-// 因此没有实现」——不确定协议列表是不是入站字段。
+// 依据（已核实，来自 src/references/sing-box-testing/option/rule_action.go）：
 //
-// 读源码的结论是：**它确实不是入站字段**。入站层只有上面三个字段，
-// 其中启用开关是一个 bool。协议列表住在**路由动作**里
-// （option/rule_action.go 的 RouteActionSniff，字段是
-// Sniffer badoption.Listable[string]，枚举为 tls / http / quic / dns 等），
-// 而且需要一条 action 为 sniff 的规则才生效。
+//	type RouteActionSniff struct {
+//	    Sniffer badoption.Listable[string] `json:"sniffer,omitempty"`
+//	                 // enum: tls,http,quic,dns,stun,bittorrent,dtls,ssh,rdp,ntp
+//	    Timeout badoption.Duration         `json:"timeout,omitempty"`
+//	}
 //
-// 因此本函数：
-//   - 忠实生成入站层的 sniff 与 sniff_override_destination；
-//   - **对协议列表明确报告「本版本不生效」**，而不是把它塞进入站
-//     （塞进去会被核心当作未知字段拒绝启动，而错误信息来自核心深处）
-//     或静默丢弃（用户会以为按 tls 嗅探已经生效）。
+// 返回 nil 表示不生成（嗅探未开启）。
 //
-// 覆写目的地址的默认关（见 domain.SniffSettings 的说明）。
-func singboxSniffer(sniff *domain.SniffSettings, report *Report) (enabled, override bool) {
+// override_destination 没有出现在这里：它在规则动作上是**顶层布尔**
+// （`override_destination`），而 1.14 的 RouteActionSniff 里没有这个字段。
+// 也就是说这个版本无法用规则动作表达「覆写目的地址」，
+// 因此当用户开了它时必须**明确报告不生效**，而不是假装写进去了。
+func singboxSniffRule(sniff *domain.SniffSettings, report *Report) map[string]any {
 	if sniff == nil || !sniff.Enabled {
-		return false, false
+		return nil
 	}
+
+	rule := map[string]any{"action": "sniff"}
 	if len(sniff.Protocols) > 0 {
-		report.Warnf(nil, "inbounds.sniff", "compiler.sniff_protocols_not_applied",
-			"嗅探协议列表（%s）在 sing-box 里属于路由动作（action: sniff 的 sniffer 字段），"+
-				"不是入站字段，本版本未生成；入站层只启用嗅探本身",
-			strings.Join(sniff.Protocols, "、"))
+		rule["sniffer"] = sniff.Protocols
 	}
-	return true, sniff.OverrideDestination
+
+	if sniff.OverrideDestination {
+		// 说清楚「你打开了但它不生效」，而不是静默丢掉。
+		// 静默丢掉的表现是「明明开了覆写，某些域名仍然解析不到」，
+		// 用户会去怀疑 DNS，而真正的原因是这里没生成。
+		report.Warnf(nil, "route.rules", "compiler.sniff_override_not_applied",
+			"「用嗅探结果覆写目的地址」在本版本（sing-box %s）的规则动作里没有对应字段，"+
+				"本次未生成；嗅探本身仍然生效", "1.14")
+	}
+
+	return rule
 }
+
+// singboxSniffer 已废弃：嗅探改为路由动作，见 singboxSniffRule。
+//
+// 保留这个说明而不是直接删掉，是因为「嗅探曾经被写进入站」这件事
+// 在交接文档与设计文档里都提到过，后来者需要知道它为什么变了。
 
 // singboxTUNInbound 依据选项构造 TUN 入站；未启用时返回 nil
 // （调用方不追加任何东西，而不是追加一个 enable:false 的入站）。
@@ -676,7 +821,7 @@ func singboxSniffer(sniff *domain.SniffSettings, report *Report) (enabled, overr
 // 不生成「关闭状态的入站」是刻意的：核心对 enable:false 的处理
 // 与「根本没有这个入站」并不总是等价，而前者会在日志里留下痕迹，
 // 让排查的人以为 TUN 被配置过。
-func singboxTUNInbound(tun *domain.TUNSettings, perApp *domain.PerApp, sniff *domain.SniffSettings, report *Report) map[string]any {
+func singboxTUNInbound(tun *domain.TUNSettings, perApp *domain.PerApp, report *Report) map[string]any {
 	if tun == nil || !tun.Enabled {
 		return nil
 	}
@@ -714,17 +859,16 @@ func singboxTUNInbound(tun *domain.TUNSettings, perApp *domain.PerApp, sniff *do
 		in["dns_address"] = tun.DNSAddress
 	}
 
-	// 嗅探。
+	// 嗅探**不在这里设置**。
 	//
-	// 只在开启时写键：核心的这两个字段都是 omitempty，写 false 与不写
-	// 生成的是同一份配置，但显式写出来会让「用户关掉了它」与
-	// 「这个版本还没实现它」在配置文件里长得一模一样。
-	if on, override := singboxSniffer(sniff, report); on {
-		in["sniff"] = true
-		if override {
-			in["sniff_override_destination"] = true
-		}
-	}
+	// 入站上的 sniff / sniff_override_destination / sniff_timeout 是
+	// sing-box 1.11 起废弃、**1.13 起被移除**的字段。继续写它们会让
+	// 每一份开了 TUN 的配置直接起不来（实测报错：
+	// `legacy inbound fields are deprecated in sing-box 1.11.0 and removed
+	// in sing-box 1.13.0`）。
+	//
+	// 现在嗅探由一条 `action: "sniff"` 的路由规则表达，见 singboxSniffRule。
+	// 这也正好解释了此前那个悬着的问题：协议列表确实属于路由动作。
 
 	// 分应用代理。
 	//
@@ -864,12 +1008,28 @@ func singboxTLS(n *domain.Node) map[string]any {
 	if len(n.TLS.ALPN) > 0 {
 		tls["alpn"] = n.TLS.ALPN
 	}
-	if n.TLS.Fingerprint != "" {
+
+	// uTLS 指纹。
+	//
+	// **REALITY 必须带指纹**：核心在初始化出站时直接拒绝
+	// （实测报错 `uTLS is required by reality client`），因为 REALITY
+	// 的握手要伪装成某个真实浏览器，没有指纹就无从伪装。
+	//
+	// 订阅里给的 REALITY 节点经常不带 fingerprint（它通常只是服务端的
+	// 公开参数）。这种情况下如果什么都不做，用户拿到的是一个
+	// 「列表里看得见、一点连接就起不来」的节点——最难排查的一类。
+	// 因此这里补一个默认指纹，而不是把问题留给用户。
+	fingerprint := n.TLS.Fingerprint
+	if fingerprint == "" && n.Security == domain.SecurityReality {
+		fingerprint = defaultRealityFingerprint
+	}
+	if fingerprint != "" {
 		tls["utls"] = map[string]any{
 			"enabled":     true,
-			"fingerprint": n.TLS.Fingerprint,
+			"fingerprint": fingerprint,
 		}
 	}
+
 	if n.Security == domain.SecurityReality {
 		tls["reality"] = map[string]any{
 			"enabled":    true,
@@ -879,3 +1039,9 @@ func singboxTLS(n *domain.Node) map[string]any {
 	}
 	return tls
 }
+
+// defaultRealityFingerprint 是 REALITY 节点缺少指纹时补上的默认值。
+//
+// 选 chrome：它是 REALITY 服务端最常见的伪装目标，兼容性最好。
+// 用户若在专业模式里显式指定了指纹，那个值优先。
+const defaultRealityFingerprint = "chrome"
