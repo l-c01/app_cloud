@@ -94,13 +94,13 @@ fun LoginScreen(
                 label = messages["ui.login.remember"],
                 checked = rememberPassword,
                 enabled = !busy,
-                onValueChange = { rememberPassword = it },
+                onCheckedChange = { rememberPassword = it },
             )
             CheckRow(
                 label = messages["ui.login.allow_insecure"],
                 checked = allowInsecureHttp,
                 enabled = !busy,
-                onValueChange = { allowInsecureHttp = it },
+                onCheckedChange = { allowInsecureHttp = it },
             )
             if (httpLikely) {
                 // http 面板地址意味着账号与订阅在网络上明文可见。允许它是为了
