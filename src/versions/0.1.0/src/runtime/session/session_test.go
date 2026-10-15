@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -725,5 +726,121 @@ func TestTrafficEntryIsNeverEmpty(t *testing.T) {
 	s.UpdateOptions(func(o *domain.Options) { o.Inbound.TrafficEntry = "tun" })
 	if got := m.TrafficEntry(); got != "tun" {
 		t.Errorf("TrafficEntry = %q，期望 tun", got)
+	}
+}
+
+// 订阅链接模式：**不登录**也要能用。
+//
+// 这是一条回归测试，针对一个让整类用户完全无法使用客户端的缺陷：
+// 此前 `subscriptionURL` 只能由 Login → GetSubscriptionDescriptor 产生，
+// 于是「只有一个订阅链接、没有面板账号」的用户在订阅那一栏上走不通，
+// 而错误只说「尚未登录」——他会去找一个自己根本没有的账号。
+func TestSubscriptionURLAccessWithoutLogin(t *testing.T) {
+	ctx := context.Background()
+	ff := &fakeFetcher{results: []*subscription.FetchResult{{
+		Nodes: []*domain.Node{
+			node("A", "a.example.com", 443),
+			node("B", "b.example.com", 443),
+		},
+	}}}
+	s := newTestSession(t, &fakePanel{}, ff, nil)
+
+	// 没有任何登录动作。
+	if s.LoggedIn() {
+		t.Fatalf("前提不成立：本用例要覆盖的正是「未登录」")
+	}
+
+	if serr := s.SetSubscriptionURL("https://panel.example.com/api/sub?token=SECRET"); serr != nil {
+		t.Fatalf("SetSubscriptionURL: %v", serr)
+	}
+
+	info, serr := s.RefreshSubscription(ctx)
+	if serr != nil {
+		t.Fatalf("只有订阅链接时必须能拉取，实际失败：%v", serr)
+	}
+	if info.NodeCount != 2 {
+		t.Errorf("节点数 = %d，期望 2", info.NodeCount)
+	}
+	if len(s.ListNodes()) != 2 {
+		t.Errorf("ListNodes = %d", len(s.ListNodes()))
+	}
+}
+
+// 两者都没有时，错误必须说清**缺的是什么**。
+//
+// 「未登录」与「没填订阅链接」对用户的下一步动作完全不同：
+// 前者让他去找账号，后者让他去要一条链接。
+func TestRefreshWithoutAnySourceExplainsWhatIsMissing(t *testing.T) {
+	s := newTestSession(t, &fakePanel{}, &fakeFetcher{}, nil)
+	_, serr := s.RefreshSubscription(context.Background())
+	if serr == nil {
+		t.Fatalf("既没登录也没订阅链接时应当失败")
+	}
+	if serr.MessageKey != "session.error.subscription_not_configured" {
+		t.Errorf("MessageKey = %q，期望 subscription_not_configured（当前的提示会把用户引向一个他没有的账号）",
+			serr.MessageKey)
+	}
+}
+
+// 订阅链接必须做基本校验：空、非 http(s)、明文 http 都要拦。
+func TestSetSubscriptionURLValidates(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"empty", "   ", "session.error.subscription_url_required"},
+		{"no scheme", "panel.example.com/api", "session.error.subscription_url_invalid"},
+		{"file scheme", "file:///etc/passwd", "session.error.subscription_url_invalid"},
+		{"plain http", "http://panel.example.com/api", "session.error.subscription_url_insecure"},
+		{"ok", "https://panel.example.com/api", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestSession(t, &fakePanel{}, &fakeFetcher{}, nil)
+			serr := s.SetSubscriptionURL(tc.url)
+			if tc.want == "" {
+				if serr != nil {
+					t.Fatalf("应当接受，实际 %v", serr)
+				}
+				return
+			}
+			if serr == nil {
+				t.Fatalf("应当拒绝 %q", tc.url)
+			}
+			if serr.MessageKey != tc.want {
+				t.Errorf("MessageKey = %q，期望 %q", serr.MessageKey, tc.want)
+			}
+		})
+	}
+}
+
+// 订阅链接是凭据：不得出现在 SessionState / 诊断输出里。
+func TestSubscriptionURLNeverLeaksIntoStateOrSecretsOutput(t *testing.T) {
+	const token = "VERY-SECRET-TOKEN"
+	s := newTestSession(t, &fakePanel{}, &fakeFetcher{}, nil)
+	if serr := s.SetSubscriptionURL("https://panel.example.com/api/sub?token=" + token); serr != nil {
+		t.Fatalf("SetSubscriptionURL: %v", serr)
+	}
+
+	// 让订阅成功一次，STATE 才可能带上节点信息。
+	ff := &fakeFetcher{results: []*subscription.FetchResult{{Nodes: []*domain.Node{node("A", "a.example.com", 443)}}}}
+	s.fetch = ff
+	if _, serr := s.RefreshSubscription(context.Background()); serr != nil {
+		t.Fatalf("RefreshSubscription: %v", serr)
+	}
+
+	blob, err := json.Marshal(s.SubscriptionInfo())
+	if err != nil {
+		t.Fatalf("marshal subscription info: %v", err)
+	}
+	if strings.Contains(string(blob), token) {
+		t.Errorf("订阅信息里出现了 token：%s", blob)
+	}
+
+	// Secrets() 是给脱敏器用的，它经手 token 是应该的；
+	// 但**诊断用的 String()** 不行。
+	if s := s.String(); strings.Contains(s, token) {
+		t.Errorf("String() 里出现了订阅 token：%s", s)
 	}
 }

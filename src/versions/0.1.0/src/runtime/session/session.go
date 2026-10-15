@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -250,6 +251,53 @@ func (s *Session) Login(ctx context.Context, email, password string) (*AccountIn
 	return info, nil
 }
 
+// SetSubscriptionURL 直接设定订阅链接，**不需要面板登录**。
+//
+// 为什么必须有这条路：真实用户拿到的常常就是一个订阅链接
+// （从面板复制、或别人给的），他既没有也不需要面板账号密码。
+// 在此之前的实现里，`subscriptionURL` 只能由 Login →
+// GetSubscriptionDescriptor 这条链产生，于是**只有订阅链接的用户
+// 完全无法使用本客户端**——订阅那一栏点不动，而界面也不会告诉他
+// 「你得先有面板账号」。
+//
+// 这同时是 Login 的**恢复路径**：面板会话过期后，只要订阅链接还在，
+// 用户仍然能刷新节点（订阅链接的有效期通常比会话长得多）。
+//
+// 安全约定与 Login 一致：订阅链接**本身就是凭据**（含 token），
+// 因此只写入安全存储，不写普通配置文件，也不出现在任何诊断输出里。
+func (s *Session) SetSubscriptionURL(rawURL string) *Error {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return newError(KindInvalidConfig, "session.error.subscription_url_required").
+			withField("subscriptionUrl")
+	}
+
+	// 只接受 http/https。别的 scheme（file:// 之类）会让「取订阅」
+	// 变成读取本机文件，而用户以为自己只是填了一个链接。
+	u, err := url.Parse(trimmed)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return newError(KindInvalidConfig, "session.error.subscription_url_invalid").
+			withField("subscriptionUrl").
+			withDetail("a subscription URL must be an absolute http(s) URL")
+	}
+	// http 会明文传输含 token 的链接；默认拒绝，与面板地址同样的规矩。
+	if u.Scheme == "http" && !s.cfg.AllowInsecureHTTP {
+		return newError(KindInvalidConfig, "session.error.subscription_url_insecure").
+			withField("subscriptionUrl").
+			withDetail("plain http would expose the subscription token in transit")
+	}
+
+	s.mu.Lock()
+	s.subscriptionURL = trimmed
+	s.mu.Unlock()
+
+	// 写不进去不算致命：本次仍可用，只是下次启动要重新填。
+	// 与 Login 的处理一致——安全存储不可用时，界面会提示
+	// 「本次可用，但不会记住」。
+	_ = s.store.Set(secrets.KeySubscriptionURL, trimmed)
+	return nil
+}
+
 // Logout 清除内存与持久化的凭据。
 //
 // 节点与订阅链接一并清掉：它们都是从凭据派生的，留着没有意义，
@@ -352,15 +400,33 @@ func (s *Session) LoggedIn() bool {
 // 而订阅内容随时可能变。分成两个公开方法只会让调用方漏掉一步。
 func (s *Session) RefreshSubscription(ctx context.Context) (*SubscriptionInfo, *Error) {
 	s.mu.Lock()
-	if !s.loggedIn || s.sessionToken == "" {
-		s.mu.Unlock()
-		return nil, newError(KindNotAuthenticated, "session.error.not_authenticated")
-	}
 	token := s.sessionToken
 	knownURL := s.subscriptionURL
+	loggedIn := s.loggedIn
 	s.mu.Unlock()
 
+	// 两条路都能刷新：
+	//
+	//   1. 有面板会话 → 会话里拿订阅地址（或直接问面板要）；
+	//   2. **没有会话但有订阅链接** → 直接用那个链接。
+	//
+	// 第 2 条必须存在。真实用户常常只有一个订阅链接；此前这里先要求
+	// loggedIn，于是「只有链接」的用户在订阅这一栏上完全走不通，
+	// 而错误信息说的是「尚未登录」——他会去找一个自己根本没有的账号。
+	//
+	// 两者都没有时才报「还没配置」，并且明确指出缺的是哪一个：
+	// 「未登录」与「没填订阅链接」对用户的下一步动作完全不同。
+	if !loggedIn && knownURL == "" {
+		return nil, newError(KindNotAuthenticated, "session.error.subscription_not_configured").
+			withDetail("neither a panel session nor a subscription URL is configured")
+	}
+	if loggedIn && token == "" {
+		return nil, newError(KindNotAuthenticated, "session.error.not_authenticated")
+	}
+
 	subURL := knownURL
+	// 只有「有会话、且还不知道订阅地址」时才去问面板。
+	// 没有会话就必须已经有已知地址（上面的检查保证了这一点）。
 	if subURL == "" {
 		desc, perr := s.panel.GetSubscriptionDescriptor(ctx, token)
 		if perr != nil {
