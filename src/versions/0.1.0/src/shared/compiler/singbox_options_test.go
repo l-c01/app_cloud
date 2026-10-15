@@ -618,3 +618,63 @@ func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
 		t.Errorf("设置了 DNS 地址时应当生成 dns_address，实际 %v", in["dns_address"])
 	}
 }
+
+// ReadyAddress 必须给出一个能拨的地址；推不出来时返回空串。
+//
+// 它决定服务在接管系统网络**之前**能不能确认核心已经在监听。
+// 返回空串表示不校验就绪——那正是「连上了但网页打不开」的成因，
+// 因此「什么情况下返回空」也必须被钉住。
+func TestInboundReadyAddress(t *testing.T) {
+	cases := []struct {
+		name string
+		in   InboundOptions
+		want string
+	}{
+		{
+			name: "本机地址与 HTTP 端口",
+			in:   InboundOptions{Listen: "127.0.0.1", HTTPPort: 7890, SocksPort: 7891},
+			want: "127.0.0.1:7890",
+		},
+		{
+			name: "监听为空时用回环",
+			in:   InboundOptions{HTTPPort: 7890, SocksPort: 7891},
+			want: "127.0.0.1:7890",
+		},
+		{
+			name: "通配地址不能回拨自己",
+			in:   InboundOptions{Listen: "0.0.0.0", HTTPPort: 7890},
+			want: "127.0.0.1:7890",
+		},
+		{
+			name: "IPv6 通配同样换成回环",
+			in:   InboundOptions{Listen: "::", HTTPPort: 7890},
+			want: "127.0.0.1:7890",
+		}, {
+			name: "没有 HTTP 端口时退回 SOCKS",
+			in:   InboundOptions{Listen: "127.0.0.1", SocksPort: 7891},
+			want: "127.0.0.1:7891",
+		},
+		{
+			name: "端口全为 0：推不出来，必须返回空而不是瞎猜",
+			in:   InboundOptions{Listen: "127.0.0.1"},
+			want: "",
+		},
+		{
+			name: "端口越界同样返回空",
+			in:   InboundOptions{Listen: "127.0.0.1", HTTPPort: 70000},
+			want: "",
+		},
+		{
+			name: "局域网监听保留用户填的地址",
+			in:   InboundOptions{Listen: "192.168.1.10", HTTPPort: 7890},
+			want: "192.168.1.10:7890",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.in.ReadyAddress(); got != tc.want {
+				t.Errorf("ReadyAddress() = %q，期望 %q", got, tc.want)
+			}
+		})
+	}
+}
