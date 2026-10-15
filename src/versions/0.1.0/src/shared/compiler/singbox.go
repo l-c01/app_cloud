@@ -648,12 +648,9 @@ func singboxFinalOutbound(opts *domain.Options, selected *domain.Node, report *R
 //
 // 读源码的结论是：**它确实不是入站字段**。入站层只有上面三个字段，
 // 其中 enabled 是一个 bool。协议列表住在**路由动作**里
-// （option/rule_action.go 的 RouteActionSniff：
-//
-//	Sniffer badoption.Listable[string] `json:"sniffer,omitempty"`
-//	                                          enum:"tls,http,quic,dns,stun,..."`
-//
-// 而路由动作需要 `action: "sniff"` 这样一条规则才生效）。
+// （option/rule_action.go 的 RouteActionSniff，字段是
+// `Sniffer badoption.Listable[string]`，枚举为 tls / http / quic / dns 等），
+// 而且需要 `action: "sniff"` 这样一条规则才生效。
 //
 // 因此本函数：
 //   - 忠实生成入站层的 sniff 与 sniff_override_destination；
