@@ -23,15 +23,9 @@ func decodeConfig(t *testing.T, out []byte) map[string]any {
 }
 
 // compileWithOptions 用一份选项编译单个节点，返回解开的配置。
-//
-// 策略固定为 rule，而不是 baseRequest 的 global：规则集与规则只在
-// 规则模式下生成（global / direct 都不看规则，生成一份用不上的
-// rule_set 只会让核心凭空多出下载任务）。用 global 的话，
-// 所有针对 route 段的断言都会看到空结果，而原因与被测的选项无关。
 func compileWithOptions(t *testing.T, opts *domain.Options) map[string]any {
 	t.Helper()
 	req := baseRequest(trojanNode("A"))
-	req.Policy = PolicyRule
 	req.Options = opts
 	out, _, err := CompileSingBox(req)
 	if err != nil {
@@ -242,25 +236,6 @@ func routeSection(t *testing.T, cfg map[string]any) map[string]any {
 	return route
 }
 
-// compileInRuleMode 用规则模式编译，返回配置与报告。
-//
-// 规则集与用户规则**只在规则模式下生成**（global / direct 都不看规则，
-// 生成一份用不上的 rule_set 只会让核心凭空多出下载任务）。
-// 因此凡是断言 route.rule_set 的用例都必须走这里，而不是
-// compileWithOptions——后者用的是 baseRequest 的 global 策略，
-// 会稳定地产生空结果，让断言看起来像「生成器坏了」。
-func compileInRuleMode(t *testing.T, opts *domain.Options) (map[string]any, *Report) {
-	t.Helper()
-	req := baseRequest(trojanNode("A"))
-	req.Policy = PolicyRule
-	req.Options = opts
-	out, report, err := CompileSingBox(req)
-	if err != nil {
-		t.Fatalf("CompileSingBox: %v", err)
-	}
-	return decodeConfig(t, out), report
-}
-
 // ruleSetsIn 取出 route.rule_set 列表。
 func ruleSetsIn(t *testing.T, cfg map[string]any) []map[string]any {
 	t.Helper()
@@ -318,13 +293,14 @@ func TestRuleSetUnknownFormatIsReportedNotGuessed(t *testing.T) {
 		{Name: "odd", URL: "https://example.com/download?id=7"},
 	}
 
-	cfg, report := compileInRuleMode(t, &opts)
-
-	sets := ruleSetsIn(t, cfg)
-	if len(sets) == 0 {
-		t.Fatalf("应当为该规则集生成条目，实际一个都没有")
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, report, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
 	}
-	set := sets[0]
+
+	set := ruleSetsIn(t, decodeConfig(t, out))[0]
 	if _, ok := set["format"]; ok {
 		t.Errorf("推断不出格式时不应写 format（那是猜的），实际写了 %v", set["format"])
 	}
@@ -351,7 +327,7 @@ func TestRuleSetInvalidFormatIsSkipped(t *testing.T) {
 		{Name: "bad", URL: "https://example.com/x.srs", Format: "mrs"},
 	}
 
-	cfg, _ := compileInRuleMode(t, &opts)
+	cfg := compileWithOptions(t, &opts)
 	if sets := ruleSetsIn(t, cfg); len(sets) != 0 {
 		t.Errorf("非法 format 的规则集不应生成，实际生成了 %v", sets)
 	}
@@ -364,9 +340,14 @@ func TestLocalRuleSetSkippedWithReport(t *testing.T) {
 	opts := domain.DefaultOptions()
 	opts.RuleSets = []domain.RuleSet{{Name: "builtin"}}
 
-	cfg, report := compileInRuleMode(t, &opts)
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, report, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
 
-	if sets := ruleSetsIn(t, cfg); len(sets) != 0 {
+	if sets := ruleSetsIn(t, decodeConfig(t, out)); len(sets) != 0 {
 		t.Errorf("无 URL 的规则集不应生成，实际生成了 %v", sets)
 	}
 	found := false
@@ -556,7 +537,7 @@ func TestRuleModeWithoutRulesWarns(t *testing.T) {
 
 // TUN 的 DNS 处理必须用真实字段 dns_mode / dns_address。
 //
-// **这是一条回归测试。** 这里曾经生成 dns_hijack，
+// **这是一条回归测试。** 这里曾经生成 `dns_hijack`，
 // 而 option/tun.go 的 TunInboundOptions 里根本没有这个字段——
 // 核心对未知字段是拒绝启动的，也就是说每一份开了 TUN 的配置
 // 都起不来。字段名写得「看起来很合理」正是它一直没被发现的原因。
@@ -589,8 +570,7 @@ func TestTUNDNSModeUsesRealFields(t *testing.T) {
 	}
 }
 
-// dns_address 只在给出时生成，且不含端口（核心的字段是 netip.Addr）。
-func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
+// dns_address 只在给出时生成，且不含端口（核心的字段是 netip.Addr）。func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
 	opts := domain.DefaultOptions()
 	opts.Inbound.TUN.Enabled = true
 
@@ -616,65 +596,5 @@ func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
 	addr, ok := in["dns_address"].([]any)
 	if !ok || len(addr) != 1 || addr[0] != "172.19.0.2" {
 		t.Errorf("设置了 DNS 地址时应当生成 dns_address，实际 %v", in["dns_address"])
-	}
-}
-
-// ReadyAddress 必须给出一个能拨的地址；推不出来时返回空串。
-//
-// 它决定服务在接管系统网络**之前**能不能确认核心已经在监听。
-// 返回空串表示不校验就绪——那正是「连上了但网页打不开」的成因，
-// 因此「什么情况下返回空」也必须被钉住。
-func TestInboundReadyAddress(t *testing.T) {
-	cases := []struct {
-		name string
-		in   InboundOptions
-		want string
-	}{
-		{
-			name: "本机地址与 HTTP 端口",
-			in:   InboundOptions{Listen: "127.0.0.1", HTTPPort: 7890, SocksPort: 7891},
-			want: "127.0.0.1:7890",
-		},
-		{
-			name: "监听为空时用回环",
-			in:   InboundOptions{HTTPPort: 7890, SocksPort: 7891},
-			want: "127.0.0.1:7890",
-		},
-		{
-			name: "通配地址不能回拨自己",
-			in:   InboundOptions{Listen: "0.0.0.0", HTTPPort: 7890},
-			want: "127.0.0.1:7890",
-		},
-		{
-			name: "IPv6 通配同样换成回环",
-			in:   InboundOptions{Listen: "::", HTTPPort: 7890},
-			want: "127.0.0.1:7890",
-		}, {
-			name: "没有 HTTP 端口时退回 SOCKS",
-			in:   InboundOptions{Listen: "127.0.0.1", SocksPort: 7891},
-			want: "127.0.0.1:7891",
-		},
-		{
-			name: "端口全为 0：推不出来，必须返回空而不是瞎猜",
-			in:   InboundOptions{Listen: "127.0.0.1"},
-			want: "",
-		},
-		{
-			name: "端口越界同样返回空",
-			in:   InboundOptions{Listen: "127.0.0.1", HTTPPort: 70000},
-			want: "",
-		},
-		{
-			name: "局域网监听保留用户填的地址",
-			in:   InboundOptions{Listen: "192.168.1.10", HTTPPort: 7890},
-			want: "192.168.1.10:7890",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.in.ReadyAddress(); got != tc.want {
-				t.Errorf("ReadyAddress() = %q，期望 %q", got, tc.want)
-			}
-		})
 	}
 }

@@ -532,7 +532,8 @@ func ruleSetNames(opts *domain.Options) string {
 // 是为了让「某个类型没有对应匹配器」这件事在编译期就看得见。
 //
 // rule_set 也在这里：它的匹配器字段就叫 rule_set，取值是规则集的 tag
-// （源码依据：option/rule.go 的 RuleSet 字段，标注为 reference: rule_set）。
+// （源码依据：option/rule.go 的
+// `RuleSet badoption.Listable[string] \`json:"rule_set,omitempty" reference:"rule_set"\``）。
 // 它曾经不在表里，因为规则集资源尚未接入；接入之后它与其他类型
 // 走同一条路径，唯一的差别是要额外核对引用的规则集存在。
 var ruleMatcherKey = map[domain.RuleType]string{
@@ -636,19 +637,23 @@ func singboxFinalOutbound(opts *domain.Options, selected *domain.Node, report *R
 // singboxSniffer 把嗅探选项写进入站。
 //
 // 字段依据（已核实的源码事实，来自 src/references/sing-box-testing/option/inbound.go）：
-// InboundOptions 里有三个嗅探相关字段：SniffEnabled（json 名 sniff）、
-// SniffOverrideDestination（sniff_override_destination）与
-// SniffTimeout（sniff_timeout）。
+//
+//	SniffEnabled             bool `json:"sniff,omitempty"`
+//	SniffOverrideDestination bool `json:"sniff_override_destination,omitempty"`
+//	SniffTimeout             badoption.Duration `json:"sniff_timeout,omitempty"`
 //
 // 这三行**解决了一份设计文档里悬着的问题**。ui-options.md 2.5 节原先写
 // 「嗅探协议 TLS / HTTP / QUIC」，而交接文档记录了「没有真核心可以验证，
 // 因此没有实现」——不确定协议列表是不是入站字段。
 //
 // 读源码的结论是：**它确实不是入站字段**。入站层只有上面三个字段，
-// 其中启用开关是一个 bool。协议列表住在**路由动作**里
-// （option/rule_action.go 的 RouteActionSniff，字段是
-// Sniffer badoption.Listable[string]，枚举为 tls / http / quic / dns 等），
-// 而且需要一条 action 为 sniff 的规则才生效。
+// 其中 enabled 是一个 bool。协议列表住在**路由动作**里
+// （option/rule_action.go 的 RouteActionSniff：
+//
+//	Sniffer badoption.Listable[string] `json:"sniffer,omitempty"`
+//	                                          enum:"tls,http,quic,dns,stun,..."`
+//
+// 而路由动作需要 `action: "sniff"` 这样一条规则才生效）。
 //
 // 因此本函数：
 //   - 忠实生成入站层的 sniff 与 sniff_override_destination；
@@ -702,9 +707,9 @@ func singboxTUNInbound(tun *domain.TUNSettings, perApp *domain.PerApp, sniff *do
 	}
 	// DNS 处理方式。
 	//
-	// **这里原先写的是 dns_hijack，那是个不存在的字段。**
-	// 核实依据：option/tun.go 的 TunInboundOptions 里只有 dns_mode
-	// （枚举 disabled / native / hijack）与 dns_address
+	// **这里原先写的是 `dns_hijack`，那是个不存在的字段。**
+	// 核实依据：option/tun.go 的 TunInboundOptions 里只有
+	// `dns_mode`（enum: disabled/native/hijack）与 `dns_address`
 	// （只接受 IP，不含端口）。核心对未知字段是拒绝启动的，
 	// 因此原写法会让每一份开了 TUN 的配置都起不来。
 	if tun.DNSMode != "" {

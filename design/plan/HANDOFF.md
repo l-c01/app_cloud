@@ -4,63 +4,15 @@
 > [`STATUS.md`](STATUS.md)（阶段状态权威来源）与
 > [`../../design/architecture/ui-options.md`](../architecture/ui-options.md)（选项设计）。
 
-更新时间：2026-10-16 · 当前阶段：**两端界面已接通并各自构建通过；剩下平台接管与真机验证**
+更新时间：2026-10-15 · 当前阶段：**后端配置生成基本完成，接下来接 IPC 与界面**
 
 ---
 
 ## 0. 一句话现状
 
-**两个平台的界面都接通并各自构建通过了 —— 这是本项目第一次。**
-
-| 验证 | 结果 |
-|---|---|
-| Go（本地 `go build/vet/test ./...`） | 通过 |
-| CI checks（7 个作业，含 C++ 两个构建） | **7/7 通过** |
-| `Build Android`（手动入口，arm64-v8a） | **通过**（此前从未编译过 Kotlin） |
-
-「登录 → 取订阅 → 编译 → 连接」的后端主链在 `runtime/session` 里，
-IPC 有 8 个会话/订阅操作，两端界面都已接上：桌面端有登录页、节点列表、
-简易/高级七页选项；Android 有登录页、节点列表、会话面板、
-简易/专业模式。文案中英各齐全（`check-i18n-keys` 237 个引用键全命中）。
-
-**仍然不是「能用的成品」**，差的正是「真的接管流量」：
-
-- **Windows 系统代理已接通**（`netmgr/windows.go` + wininet 刷新通知）；
-  但**从未在真实 Windows 上跑过**。
-- **Android 的 TUN 仍未交给核心**：方案已定（[`ADR-0006`](../adr/ADR-0006-Android-核心集成方式.md)：
-  libbox/gomobile AAR + 自实现 `PlatformInterface`），**实现未开始**，
-  需要 NDK 与真机，本机都还没有。**VPN 能建立但仍然不代理流量。**
-- 从未连接过真实面板、从未拉起真实 sing-box。全部运行期结论仍是 `not_run`。
-
-### 一个容易踩的坑：Android 不在 push 触发的 CI 里
-
-`.github/workflows/build-android.yml` **只有 `workflow_dispatch`**，
-而 `ci.yml` 不编译 Kotlin。也就是说**push 全绿并不代表 Android 能编译**——
-本项目已经吃过这个亏：一批约 3000 行的 Kotlin 在「CI 全绿」的状态下
-被提交，首次手动触发构建才暴露出 57 个编译错误。
-
-改完 Android 后必须手动触发：
-
-```powershell
-# 用 GitHub API 触发（本机没有 gh CLI）
-Invoke-WebRequest "https://api.github.com/repos/<owner>/<repo>/actions/workflows/384624012/dispatches" `
-  -Method POST -Headers $headers -ContentType 'application/json' `
-  -Body '{"ref":"main","inputs":{"version_dir":"src/versions/0.1.0","abi":"arm64-v8a","build_type":"test"}}'
-```
-
-
-### 本机现在能编译 Go 了（重要）
-
-工具链在工作区本地 `D:\workai\toolchain\go`（不写 PATH、不写注册表，
-不要了直接删目录）。用 `tools/scripts/go-local.ps1`：
-
-```powershell
-& .\tools\scripts\go-local.ps1 -Command vet  -Args ./...
-& .\tools\scripts\go-local.ps1 -Command test -Args ./...
-& .\tools\scripts\go-local.ps1 -Command fmt
-```
-
-**Go 改动不必再靠 CI 往返。** C++ 与 Kotlin 仍然只有 CI 能证明。
+**三个平台的应用产物都已构建成功并核对过内容；单内核（sing-box）收敛已完成并通过 CI；
+「Clash 级别的那套配置选项」在 Go 后端已基本生成完毕（DNS、TUN、分应用、规则、代理组、
+规则集、嗅探），但界面与 IPC 一层都还没接——选项现在改不了，也没有界面能改。**
 
 ---
 
@@ -102,32 +54,6 @@ Invoke-WebRequest "https://api.github.com/repos/<owner>/<repo>/actions/workflows
 
 ## 2. 未完成 ← 从这里继续
 
-### 2.0 刚刚修掉的一个「每次连接都会失败」的缺陷（本轮）
-
-**症状**：默认配置下点「连接」必然失败，报 `invalid http port: 0`。
-
-**原因**：`session.BuildRequest()` 只在 **TUN 开启**时才设置本地代理端口，
-而 TUN 在桌面端**默认是关的**（默认接入方式是系统代理）。于是两个端口都是 0，
-而 `compiler.Request.validate()` 要求它们落在 1..65535 且互不相同。
-
-**更糟的是它的连带后果**：`coordinator.planForMode()` 用
-`req.Inbound.HTTPPort` 拼出系统代理地址，所以修复前它会把系统代理写成
-`127.0.0.1:0` —— **那会让整台机器完全断网**，而不是仅仅代理不可用。
-
-**为什么它躲过了所有检查**：两端界面、IPC、服务、编译器各自都通过，
-链路上每一环单看都对。只有把「会话构造出来的请求」真的交给编译器，
-才会暴露。这正是本项目反复出现的同一类问题（见 1.2 的「有测试、没有调用点」）：
-**每一环都对，接线处错。**
-
-**留下的做法**：新增的回归测试不再断言「端口非零」这种具体表现，
-而是**把请求交给 `CompileSingBox`，让校验器说话**——那样任何会让请求
-被拒的字段都会在这里暴露。这类「跨模块的契约」断言应当尽量交给
-真正的校验器，而不是在测试里复述它的规则。
-
-**下一步应当继续找同类问题**：链路上还有哪些「各模块单独都过、
-合起来才出错」的地方？尤其是运行期才生效的部分（就绪校验、网络接管、
-恢复流程）。
-
 ### 2.1 选项实现（主体工作：后端已基本完成）
 
 用户的要求（原文）：
@@ -143,46 +69,14 @@ Invoke-WebRequest "https://api.github.com/repos/<owner>/<repo>/actions/workflows
 | 步骤 | 范围 | 说明 |
 |---|---|---|
 | **B1** | Go 后端：`shared/domain` 选项模型 + `shared/compiler` 生成 | **基本完成**（见 2.2）。已完成：选项模型、DNS、TUN+分应用、route 规则、代理组、规则集、嗅探。**未完成：混合端口、启动项（见 2.2b）** |
-| **B2** | IPC 契约：`runtime/ipc/protocol.go` + C++ `apps/desktop/src/core/ipc_protocol.{hpp,cpp}` | **完成**：新增 8 个会话/订阅操作，两侧已对齐，见 2.5 |
-| **B2b** | 主链后端：`runtime/session`（凭据 → 编译请求） | **完成**，见 2.5。这是此前**完全没有**的一块 |
-| **B3** | 桌面界面：`apps/desktop/src/ui/pro_panel.{hpp,cpp}`（高级）+ `simple_panel`（简易）+ 登录/节点 | **进行中** |
-| **B4** | Android 界面：`apps/android/.../ui/ProxyApp.kt` | **进行中** |
-| **B5** | i18n 文案：`locales/{zh-CN,en}.json` 两侧同步 | 会话/订阅的 25 个键已补；界面新增文案待补 |
-| **B6** | 双语文档同步 | 待办 |
-| **B7** | 平台网络接管：Windows 系统代理/TUN、Android TUN 交给核心 | **未开始**，见 2.6 |
+| **B2** | IPC 契约：`runtime/ipc/protocol.go` + C++ `apps/desktop/src/core/ipc_protocol.{hpp,cpp}` | 两侧一起改 |
+| **B3** | 桌面界面：`apps/desktop/src/ui/pro_panel.{hpp,cpp}`（高级）+ `simple_panel`（简易） | |
+| **B4** | Android 界面：`apps/android/.../ui/ProxyApp.kt` | |
+| **B5** | i18n 文案：`locales/{zh-CN,en}.json` 两侧同步 | |
+| **B6** | 双语文档同步 | |
 
-**下一步：B3/B4 的收尾，然后 B7。** 主链后端已通，剩下的价值几乎都在
-「让它真的能用」——界面接上、以及平台真的接管流量。
-
-### 2.5 主链后端（本次新增，最重要的一块）
-
-此前 `shared/panel`、`shared/subscription`、`shared/compiler` 各自都有实现与测试，
-**但没有任何东西把它们串起来**，IPC 契约里也没有登录与取订阅。
-界面只能连接一份已经构造好的配置——这不是一个客户端。
-
-新增 `runtime/session` 包：
-
-| 文件 | 职责 |
-|---|---|
-| `session.go` | 登录/登出/恢复、拉订阅、列节点、选节点、读写选项、**构造编译请求** |
-| `manager.go` | 持有「当前是哪台面板的会话」，地址变化时重建 |
-| `classify.go` | 把 panel 与 subscription 的错误词汇表翻译成「用户该做什么」 |
-| `errors.go` | 分类与文案键；`ScrubURL` 处理路径里带 token 的订阅链接 |
-
-几个刻意做的判断，改动前请先读它们的注释：
-
-- **重新拉订阅后若已选节点消失，清空选择并提示**，而不是留着不存在的 ID
-  让编译器悄悄回退到第一个节点——那会造成「界面显示 A、实际连 B」
-- **面板地址变化时绝不复用会话**：否则新面板的凭据会写进旧面板的命名空间
-- 订阅请求显式带 `flag=general`，向 Xboard 要节点 URI 列表；
-  否则可能拿到尚未实现的 Clash YAML
-- 凭据存储目前用 `secrets.NewUnavailableStore()`（平台安全存储尚未落地），
-  它会让界面如实提示「本次可用，但不会记住登录」
-
-IPC 新增 8 个操作：`Login` `Logout` `GetSessionState` `RefreshSubscription`
-`ListNodes` `SelectNode` `GetOptions` `SetOptions`。
-`SessionState` 与 `NodeView` **刻意不含任何凭据**，并有测试断言这一点。
-
+**下一步应当是 B2**：后端能生成的选项已经不少，但界面还一个都没接上去。
+继续往 B1 里加选项的边际收益在下降。
 
 ### 2.2 进度：后端配置生成层已完成的各块
 
@@ -196,86 +90,10 @@ IPC 新增 8 个操作：`Login` `Logout` `GetSessionState` `RefreshSubscription
 | route | 用户规则 + 兜底动作；**内建规则一律在用户规则之前** | `695557d` |
 | 代理组 | `selector` / `urltest` 出站；**负载均衡不生成**而是报告（sing-box 无等价物） | `9d57bdf` |
 | 规则集 | `route.rule_set`（仅 remote）+ 规则引用规则集时的存在性核对 | 见 2.3b |
-| 嗅探 | 入站层 `sniff` / `sniff_override_destination`；协议列表明确报告不生效 | 见 2.3 |
-| TUN DNS 缺陷修复 | 去掉不存在的 `dns_hijack`，改用真实的 `dns_mode` / `dns_address` | 见 2.3c |
-
-**这一批（规则集 + 嗅探 + 缺陷修复）已通过 CI 7/7**；
-本机 `10/10` 只是文本级检查，不代表能编译。过程中 CI 连续暴露了三类问题，
-都是**本机检查看不见**的：注释与 `func` 挤在同一行导致语法错误、
-两条测试用错策略（global 而非 rule）导致断言恒空、
-gofmt 要求去掉注释里成对的反引号。三次都已修掉，
-每条教训都写进了第 4 节的坑表。
 
 `Request.Options` 是**指针且允许为 nil**：nil 表示"调用方尚未接入选项"，
 此时生成的配置与接入前逐字节一致。这是让选项能**逐块接入**的关键——
 不必一次性改完所有调用方与既有测试。
-
-### 2.2c 写测试时的一个坑（这次踩了两次）
-
-规则集与用户规则**只在规则模式下生成**（global / direct 都不看规则）。
-因此凡是断言 `route.*` 的测试**不能**复用那个用 global 策略的
-`compileWithOptions`——否则断言看到的是空列表，看起来像「生成器坏了」，
-实际是测试没走到那条路径。已加 `compileInRuleMode` 专供这类用例。
-
-### 2.6 平台网络接管（B7，尚未开始）——「能连上」的真正门槛
-
-**这一块不做，前面所有工作都只是「配置生成正确」。**
-
-#### Windows
-
-`platform/winproxy` 已经能写注册表，写入后的 wininet 刷新通知
-（TODO(R05)）**已补上**：`notify_windows.go` 调 `InternetSetOptionW`
-两次（SETTINGS_CHANGED 让系统重读设置、REFRESH 让已加载 wininet
-的进程重建连接状态）。只调其一会表现为「新开的程序走代理、
-已经开着的浏览器不走」这类很难归因的现象。
-
-**但真正的问题不是缺通知，而是整个包没有调用点。**
-`platform/winproxy` 有 444 行测试、CI 全绿、代码也写对了，
-可是**没有任何代码 import 它**：`platformBackend()` 在 Windows 上
-落到 `NoopBackend`，系统代理接管是**死代码**。
-已新增 `platform/netmgr/windows.go` 把通用键翻译成 winproxy 的键并接通，
-`platformBackend()` 加了 windows 分支。
-
-**教训（很重要）**：一个只有测试、没有调用点的实现是最容易骗过人的状态。
-该包自己的测试全过，CI 全绿，端到端功能却不存在。
-判断「某功能是否可用」要顺着**调用链**查到起点，
-而不是看那个包的测试是否通过。见第 4 节坑表。
-
-#### Android：这里有一个**必须先决定**的问题（不要猜）
-
-`apps/android/.../vpn/ProxyVpnService.kt` 目前能把 VpnService 建立起来、
-能拿到 TUN 的 `ParcelFileDescriptor`，但**没有把它交给核心**，
-所以**VPN 能建立，却不会代理任何流量**。
-
-难点不在代码而在一个尚未决定的设计问题：Android 上 sing-box 拿到 TUN fd 的方式，
-取决于核心以什么形式集成：
-
-| 路线 | 含义 | 代价 |
-|---|---|---|
-| AAR 内嵌（gomobile） | 核心作为库跑在应用进程内，直接把 fd 交给它 | 需要写一层 Go 绑定并在 CI 里构建 AAR；Android 侧才能拿到 `startVpnService(fd)` 这类入口 |
-| 预构建二进制 + 进程 | 独立进程 + `--vpn-service` / fd 继承 | 需要核心支持从 fd 接管，且要处理进程生命周期与权限 |
-| tun2socks 桥接 | 应用内把 TUN 流量转成 SOCKS 交给核心 | 多一层转发、多一份依赖，性能与故障面都变差 |
-
-**这个问题已经查清并决定了，见 [`ADR-0006`](../adr/ADR-0006-Android-核心集成方式.md)。**
-要点：**采用 AAR（gomobile）内嵌**，并自己实现 sing-box 的
-`adapter.PlatformInterface`——它的 `OpenInterface(options *tun.Options, ...)`
-就是 fd 的入口，`AutoDetectInterfaceControl(fd)` 是回调
-`VpnService.protect(fd)` 的挂载点。
-
-两条查证出来的关键事实（此前被忽略）：
-- **fd 不是配置里的键**：参考实现里它是 `LC.Tun{FileDescriptor: fd}` 这样的
-  **API 参数**（`ClashMetaForAndroid/core/.../native/tun/tun.go:54-65`），
-  因此「fd 怎么进去」取决于用哪个 Go API，而不是生成什么 JSON；
-- **`option/tun.go` 里没有 `file_descriptor` 字段**（逐字段核对过），
-  所以「在配置里加一个 fd 字段」既不可能也不必要。
-
-**但实现仍未开始，Android 的 TUN 必须继续标记为未实现。**
-ADR 里列了实现前的 4 项检查清单（其中第一项是「对着真实 SDK 确认
-libbox 到底导出了哪些入口」——本仓库的参考源码里**没有** sing-box 的
-Android 客户端实现，只有文档目录），以及代价：需要 gomobile 与 NDK、
-CI 变慢、**本机完全没有 JDK/NDK/SDK/真机因此无法验证**。
-
-不要把「VPN 能建立」写成「Android 能用」。
 
 ### 2.2b 后端仍缺的两项（都有明确原因，不是遗漏）
 
@@ -378,33 +196,16 @@ Sniffer badoption.Listable[string] `json:"sniffer,omitempty"`
 
 ### 2.4 一次失败的尝试（避免重复）
 
+
 曾把整个后端（B1）委派给一个子代理，**运行很多轮零代码产出**，最终取消。
 后来又切小了一次（只做 DNS + TUN + 分应用），**同样零产出、无收尾报告**。
 
-**当时的结论是「这类 Go 后端改动不要再委派」。这条结论已部分作废**——
-见下面的更新。
-
+**结论：这类 Go 后端改动不要再委派**，自己做。
 子代理在文档整理、跨包机械清理上表现很好（单内核收敛的三个批次都是它们做的），
 但在"需要新增代码并自己验证"的任务上反复失败。
 
-原因当时是推测的：它们无法编译，只能靠检查脚本判断，而检查脚本不报错时
+原因是推测的：它们无法编译，只能靠检查脚本判断，而检查脚本不报错时
 它们可能陷入反复确认。反过来，机械性的替换/删除有明确的完成信号。
-
-**2026-10-15 更新：本机装上了工作区本地的 Go 之后，这个推测成立了一半。**
-那两次失败期间，检查脚本确实**不报错就代表成功**——因为它们只能做文本级检查。
-现在子代理可以自己跑：
-
-```powershell
-& .\tools\scripts\go-local.ps1 -Command test ./...
-```
-
-也就是**有了明确的完成信号**。因此：
-
-- **Go 改动的委派可以重新尝试**，但委派说明里必须明确要求
-  子代理自己跑 `go-local.ps1 -Command vet/test`，并把输出作为交付证据；
-- 仍然不要委派「需要判断设计取舍」的改动——那两次失败里也混着
-  「不知道要交付什么」的问题，不只是编译；
-- 交付报告仍要**当证据看**：自评成功时自己复核（第 3.4 节）。
 
 ---
 
@@ -413,26 +214,9 @@ Sniffer badoption.Listable[string] `json:"sniffer,omitempty"`
 ### 3.1 环境
 
 - 仓库根：`D:\workai\xbaord`，**只在这个目录内改文件**
-- **本机已有 Go（2026-10-15 起）**：`D:\workai\toolchain\go`，**工作区本地、不写 PATH、
-  不写注册表**，不要了直接删目录。用 `tools/scripts/go-local.ps1` 调用：
-  ```powershell
-  & .\tools\scripts\go-local.ps1 -Command vet  ./...
-  & .\tools\scripts\go-local.ps1 -Command test ./...
-  & .\tools\scripts\go-local.ps1 -Command fmt            # 等价于 CI 的 gofmt 检查
-  ```
-  它自己设 `GOROOT`/`GOCACHE`/`GOMODCACHE`/`GOTOOLCHAIN=local`，目录都在
-  `D:\workai\toolchain` 下。**`go build`/`go test` 现在能本地跑**，
-  Go 侧的改动不必再靠 CI 往返。
-- **本机仍然没有 CMake / JDK / Android SDK，也没有 MSVC**
-  （`vswhere` 与 `C:\Program Files\Microsoft Visual Studio` 都不存在；
-  此前「桌面端能编译」是 CI 的 Linux runner 做的，不是本机）。
-  因此 **C++ 与 Kotlin 仍然只能靠 CI**。
+- 本机**没有 Go / CMake / JDK / Android SDK**，无法编译
 - Shell 是 Windows PowerShell 5.1；`git` 在 `C:\Program Files\Git\cmd\git.exe`（**不在 PATH**）
-- **`github.com:443` 与 `dl.google.com` 不可达**；`api.github.com`、
-  `go.dev`、`proxy.golang.org`、`mirrors.aliyun.com` 可用
-- 装 Go 时官方下载站（`go.dev/dl`、`dl.google.com/go`）**全部 404**，
-  改用 `https://mirrors.aliyun.com/golang/`，并**用官方 JSON 里的 SHA256 校验**后
-  才解压——镜像能用不等于字节一致，校验通过才说明一致
+- **`github.com:443` 不可达**；`api.github.com` 与 `codeload.github.com` 可用
 - 开工前先 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`
 
 ### 3.2 推送
@@ -458,33 +242,10 @@ $rc.tree.sha -eq (git rev-parse 'HEAD^{tree}')
 & .\tools\scripts\run-all-checks.ps1 -LogPath "output\reports\verification-run-<日期>.txt" -Quiet
 ```
 
-11 项检查。**其中只有「Go formatting」会编译/解析 Go，且只在装了本地
-Go 时运行**；它会报 `SKIP`（不是 PASS）——**SKIP 表示什么都没验证**，
-不要把 SKIP 读成通过。
+10 项本机检查。**注意：它们只做文本级检查，不编译任何东西。**
+编译与单元测试只能靠 GitHub Actions（push 会触发 `ci.yml`）。
 
-Go 侧真正的验证是这两条（本地可直接跑）：
-
-```powershell
-& .\tools\scripts\go-local.ps1 -Command vet  ./...
-& .\tools\scripts\go-local.ps1 -Command test ./...
-```
-
-**C++、Kotlin、以及 Go 的完整构建仍然只有 CI 能证明。**
-push 会触发 `ci.yml`（7 个作业）。
-
-`check-go-symbols.ps1` 在这些纯文本检查里最有用——它能发现「引用了已删除的符号」。
-
-**但这套检查有一个已验证的盲区：它不解析 Go 语法。**
-一次改动里 `// 说明。func TestX(...)` 被拼成一行（`func` 落进注释，
-函数体成了游离语句），**当时 10 项检查依然全绿**，而 CI 直接失败。
-现在这条盲区已由本地 `go vet`/`go test` 覆盖，但**没装 Go 的机器上仍然存在**，
-所以那台机器上还应做两件廉价的机械核对：
-
-1. **声明是否在行首**：扫 `\S\s+(func|type)\s+\w+\(`；
-2. **注释里是否有成对的反引号**：gofmt 会把它们规范成弯引号，
-   于是「本机看起来没问题」的文件在 CI 的格式化作业里失败。
-
-两条都是几行 PowerShell 就能扫的（见第 4 节坑表最后两行）。
+`check-go-symbols.ps1` 是最有用的一个——它能发现「引用了已删除的符号」。
 
 ### 3.4 省上下文的做法（这个项目验证过有效）
 
@@ -514,18 +275,6 @@ push 会触发 `ci.yml`（7 个作业）。
 | `Start-Process` 复制环境变量 | 父子进程都有 `NO_PROXY`/`no_proxy` 时抛异常 | 改用 `cmd /c ... > file` 读字节 |
 | git 提交信息用 `-m` 传多行中文 | PowerShell 转义拆坏消息 | 写文件 + `-F` |
 | 测试断言 Windows 模式位 | `runtime/ipc` 与 `journalfile` 两个测试**时好时坏** | 平台不适用要显式 skip |
-| **注释与 `func` 挤在同一行** | 编辑时把 `// 说明。func TestX(...)` 拼到一行，`func` 落进注释，函数体成了游离语句；CI 报 `expected declaration, found opts` | **10 项本机检查全绿也发现不了**——它们只做文本级检查，不解析 Go 语法。改完 Go 后要专门扫一遍「声明是否在行首」，不能只信检查脚本 |
-| **注释里成对的反引号** | gofmt 把注释中的成对反引号规范成弯引号，格式化作业因此失败 | 本机没有 gofmt 就不该在注释里用成对反引号。`adapter.go` 里那份带列表缩进的没事，别照抄它的形式 |
-| **测试用了错误的策略** | 断言 `route.rule_set` 的用例复用了 global 策略的辅助函数，结果恒为空列表，看起来像生成器坏了 | 规则集与用户规则**只在规则模式下生成**。测 route 的用例必须显式用 rule 策略 |
-| **写死的计数留在测试文件里** | 新增 8 个 IPC 操作后，`protocol.go`、C++ 镜像都改了，但 Go 与 C++ **测试里写死的操作数**没改。本地全套检查（含 IPC 契约检查）全绿，CI 的 C++ 单测才失败 | 契约检查只读**协议源文件**；计数在**测试文件**里它就看不到。已加 `check-ipc-operation-count.ps1` 同时读三处。**教训：检查器覆盖的是它读的那些文件，不是你以为的那一类问题** |
-| **参数位置绑定被静默覆盖** | `go-local.ps1 -Command build ./...` 把 `./...` 绑到了 `-ToolchainDir`，脚本报「找不到工具链」，看起来像环境坏了 | PowerShell 的 `ValueFromRemainingArguments` 会与后面的具名参数打架。改成必须显式 `-Args ./...`，并在注释里写清为什么 |
-| **有测试、没有调用点** | `platform/winproxy` 实现完整、444 行测试全过，但**没有任何代码 import 它**；Windows 落在 NoopBackend，系统代理接管是死代码。该包自己的测试永远发现不了 | 判断「功能是否可用」要顺着**调用链**查到起点，而不是看那个包的测试。对每个「我以为做完了」的功能，问一句：**谁调用它**？ |
-| **push 全绿 ≠ Android 能编译** | `build-android.yml` 只有 `workflow_dispatch`，`ci.yml` 不编译 Kotlin。约 3000 行 Kotlin 在「CI 全绿」下被提交，首次手动触发才暴露 57 个编译错误 | **Android 必须在提交后手动触发 `Build Android`**。把「哪个平台由哪个入口验证」写进交接文档，否则新会话会以为 push 已经覆盖了 |
-| **`receiver type mismatch` 不等于参数类型错** | Kotlin 扩展函数写成裸调用（`putIfNotEmpty(...)` 而函数是 `JSONObject.putIfNotEmpty`）时报 "Unresolved reference ... because of a receiver type mismatch"。我按字面理解成「值的类型不对」，于是去**补了一个重复定义**，反而制造出 "Conflicting overloads" | 这条消息里的 receiver 指**扩展函数的接收者**。看到它先确认函数**是否已存在**、以及调用点有没有给它接收者，别急着新建 |
-| **`messages[key, *args]` 是语法错误** | 带 vararg 的 `operator get` 不能在方括号里展开数组，星号被当成乘号（报 "Unresolved reference 'times'"） | 用 `messages.get(key, *args)` |
-| **wxWidgets 没有那些 wxID_\*** | 自造 `wxID_LOGOUT` / `wxID_VIEW_OPTIONS` 报 "was not declared in this scope"（它还建议 `wxID_LOWEST`） | 自定义命令 ID 从 `wxID_HIGHEST + 1` 起自己定义，不要从 1 起（1 以下被标准 ID 占用，撞上的表现是菜单触发别的命令） |
-| **`wxRadioBox` 没有 `Append()`** | 先建空框再逐个 `Append` 报 "has no member named 'Append'" | 选项必须在**构造时**一次给全（`wxArrayString`），只有 `wxItemContainer` 那一族才有 Append |
-| **各模块单独都对，接线处错** | 默认配置点「连接」必失败：`session.BuildRequest()` 只在 TUN 开启时设端口，而桌面默认用系统代理（TUN 关）→ 端口为 0 → 编译器拒绝。连带后果更糟：`planForMode` 会把系统代理写成 `127.0.0.1:0`，**整机断网** | 两端界面、IPC、服务、编译器各自都通过，谁也发现不了。**跨模块的契约要交给真正的校验器断言**（这里是把请求交给 `CompileSingBox`），而不是在测试里复述它的规则 |
 
 ---
 
