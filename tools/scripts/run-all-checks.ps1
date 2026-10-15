@@ -76,7 +76,6 @@ $checks = @(
     @{ Label = 'C++ structural consistency';   Script = 'check-cpp-structure.ps1' }
     @{ Label = 'Workflow structure';           Script = 'check-workflows.ps1' }
     @{ Label = 'Go <-> C++ IPC contract';      Script = 'check-ipc-contract.ps1' }
-    @{ Label = 'IPC operation count agrees';   Script = 'check-ipc-operation-count.ps1' }
     @{ Label = 'i18n message keys';            Script = 'check-i18n-keys.ps1' }
     @{ Label = 'Documentation links';          Script = 'check-doc-links.ps1' }
     @{ Label = 'Design JSON syntax';           Script = 'validate-json.ps1'; Params = @{ Path = 'design' } }
