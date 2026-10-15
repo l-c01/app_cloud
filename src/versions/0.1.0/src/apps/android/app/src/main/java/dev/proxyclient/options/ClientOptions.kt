@@ -5,31 +5,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 只在值非空时写入的 JSON 辅助。
- *
- * 它们**必须存在**，因为本文件各处都在调用；而它们此前只被调用、没有被定义，
- * 于是编译期报出一串「Unresolved reference ... because of a receiver type
- * mismatch」——错误信息指向调用点，看起来像类型用错了，实际是函数根本不存在。
- * 这是「写到一半」最典型的表现：调用方先写完，被调用方没跟上。
- *
- * 做成 [JSONObject] 的扩展函数而不是顶层函数，是为了让
- * `putIfNotEmpty("k", v)` 这种写法在 `JSONObject` 的方法体里自然成立
- * （`this` 就是接收者），与 Go 侧 `omitempty` 的语义一致。
- */
-internal fun JSONObject.putIfNotEmpty(key: String, value: String?) {
-    if (!value.isNullOrEmpty()) {
-        put(key, value)
-    }
-}
-
-/** 只在值非 0 时写入。与 Go 侧的 `omitempty` 对 int 的行为一致。 */
-internal fun JSONObject.putIfNonZero(key: String, value: Int) {
-    if (value != 0) {
-        put(key, value)
-    }
-}
-
-/**
  * 客户端选项模型 / the client option model.
  *
  * **这是 Go 端 shared/domain/options.go 的镜像。** 每个 JSON 字段名都与那边的
@@ -90,8 +65,8 @@ data class ClientOptions(
         json.put("subscription", subscription.toJson())
         json.put("app", app.toJson())
 
-        putIfNotEmpty("delay_test_url", delayTestUrl)
-        putIfNonZero("delay_test_timeout", delayTestTimeout)
+        json.putIfNotEmpty("delay_test_url", delayTestUrl)
+        json.putIfNonZero("delay_test_timeout", delayTestTimeout)
         return json
     }
 
@@ -235,10 +210,10 @@ data class DnsSettings(
         val json = JSONObject()
         json.put("enabled", enabled)
         json.put("fake_ip", fakeIp)
-        putIfNotEmpty("fake_ip_range", fakeIpRange)
-        putStrings("nameservers", nameservers)
+        json.putIfNotEmpty("fake_ip_range", fakeIpRange)
+        json.putStrings("nameservers", nameservers)
         json.put("split_resolution", splitResolution)
-        putStrings("fake_ip_filter", fakeIpFilter)
+        json.putStrings("fake_ip_filter", fakeIpFilter)
         json.put("use_hosts", useHosts)
         json.put("ipv6", ipv6)
         return json
@@ -280,13 +255,13 @@ data class TunSettings(
     fun toJson(): JSONObject {
         val json = JSONObject()
         json.put("enabled", enabled)
-        putIfNotEmpty("stack", stack)
-        putIfNotEmpty("device", device)
-        putIfNonZero("mtu", mtu)
+        json.putIfNotEmpty("stack", stack)
+        json.putIfNotEmpty("device", device)
+        json.putIfNonZero("mtu", mtu)
         json.put("auto_route", autoRoute)
         json.put("strict_route", strictRoute)
-        putIfNotEmpty("dns_mode", dnsMode)
-        putStrings("dns_address", dnsAddress)
+        json.putIfNotEmpty("dns_mode", dnsMode)
+        json.putStrings("dns_address", dnsAddress)
         return json
     }
 
@@ -314,7 +289,7 @@ data class SniffSettings(
     fun toJson(): JSONObject {
         val json = JSONObject()
         json.put("enabled", enabled)
-        putStrings("protocols", protocols)
+        json.putStrings("protocols", protocols)
         json.put("override_destination", overrideDestination)
         return json
     }
@@ -346,7 +321,7 @@ data class PerApp(
     fun toJson(): JSONObject {
         val json = JSONObject()
         json.put("mode", mode)
-        putStrings("packages", packages)
+        json.putStrings("packages", packages)
         return json
     }
 
@@ -408,11 +383,11 @@ data class SubscriptionSettings(
 ) {
     fun toJson(): JSONObject {
         val json = JSONObject()
-        putIfNotEmpty("url", url)
+        json.putIfNotEmpty("url", url)
         json.put("auto_update", autoUpdate)
-        putIfNonZero("update_interval", updateInterval)
+        json.putIfNonZero("update_interval", updateInterval)
         json.put("update_via_proxy", updateViaProxy)
-        putIfNotEmpty("name_prefix", namePrefix)
+        json.putIfNotEmpty("name_prefix", namePrefix)
         return json
     }
 
@@ -447,10 +422,10 @@ data class AppSettings(
         json.put("auto_start", autoStart)
         json.put("start_minimized", startMinimized)
         json.put("auto_connect_on_start", autoConnectOnStart)
-        putIfNotEmpty("language", language)
-        putIfNotEmpty("theme", theme)
-        putIfNotEmpty("log_level", logLevel)
-        putIfNonZero("log_buffer_lines", logBufferLines)
+        json.putIfNotEmpty("language", language)
+        json.putIfNotEmpty("theme", theme)
+        json.putIfNotEmpty("log_level", logLevel)
+        json.putIfNonZero("log_buffer_lines", logBufferLines)
         return json
     }
 
@@ -486,11 +461,11 @@ data class ProxyGroup(
         val json = JSONObject()
         json.put("name", name)
         json.put("type", type)
-        putStrings("members", members)
+        json.putStrings("members", members)
         json.put("include_all", includeAll)
-        putIfNotEmpty("test_url", testUrl)
-        putIfNonZero("test_interval", testInterval)
-        putIfNonZero("max_failures", maxFailures)
+        json.putIfNotEmpty("test_url", testUrl)
+        json.putIfNonZero("test_interval", testInterval)
+        json.putIfNonZero("max_failures", maxFailures)
         return json
     }
 
@@ -520,7 +495,7 @@ data class Rule(
         json.put("type", type)
         json.put("value", value)
         json.put("action", action)
-        putIfNotEmpty("group_name", groupName)
+        json.putIfNotEmpty("group_name", groupName)
         return json
     }
 
@@ -553,9 +528,9 @@ data class RuleSet(
     fun toJson(): JSONObject {
         val json = JSONObject()
         json.put("name", name)
-        putIfNotEmpty("url", url)
-        putIfNonZero("update_interval", updateInterval)
-        putIfNotEmpty("format", format)
+        json.putIfNotEmpty("url", url)
+        json.putIfNonZero("update_interval", updateInterval)
+        json.putIfNotEmpty("format", format)
         return json
     }
 
