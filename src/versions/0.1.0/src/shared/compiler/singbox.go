@@ -941,6 +941,24 @@ func singboxNodeOutbound(n *domain.Node, report *Report) map[string]any {
 	case domain.ProtocolTrojan:
 		ob["password"] = n.Password
 
+	case domain.ProtocolHysteria2:
+		// 字段依据（已核实，来自 option/hysteria2.go 的
+		// Hysteria2OutboundOptions）：password、obfs{type,password}，
+		// 以及内嵌的 OutboundTLSOptionsContainer（即 tls 块）。
+		//
+		// 没有 server_port 之外的端口参数：hysteria2 的端口跳变
+		// （server_ports / mport）本版本未实现，对应参数留在隔离区。
+		ob["password"] = n.Password
+		if obfs, ok := n.Quarantine["obfs"].(string); ok && obfs != "" {
+			opts, _ := n.Quarantine["obfs-password"].(string)
+			if opts != "" {
+				ob["obfs"] = map[string]any{
+					"type":     obfs,
+					"password": opts,
+				}
+			}
+		}
+
 	default:
 		report.Errorf(n, "protocol", "compiler.protocol_unsupported",
 			"sing-box 生成器遇到未处理的协议 %s", n.Protocol)
