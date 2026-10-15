@@ -23,9 +23,15 @@ func decodeConfig(t *testing.T, out []byte) map[string]any {
 }
 
 // compileWithOptions 用一份选项编译单个节点，返回解开的配置。
+//
+// 策略固定为 rule，而不是 baseRequest 的 global：规则集与规则只在
+// 规则模式下生成（global / direct 都不看规则，生成一份用不上的
+// rule_set 只会让核心凭空多出下载任务）。用 global 的话，
+// 所有针对 route 段的断言都会看到空结果，而原因与被测的选项无关。
 func compileWithOptions(t *testing.T, opts *domain.Options) map[string]any {
 	t.Helper()
 	req := baseRequest(trojanNode("A"))
+	req.Policy = PolicyRule
 	req.Options = opts
 	out, _, err := CompileSingBox(req)
 	if err != nil {
@@ -300,7 +306,11 @@ func TestRuleSetUnknownFormatIsReportedNotGuessed(t *testing.T) {
 		t.Fatalf("CompileSingBox: %v", err)
 	}
 
-	set := ruleSetsIn(t, decodeConfig(t, out))[0]
+	sets := ruleSetsIn(t, decodeConfig(t, out))
+	if len(sets) == 0 {
+		t.Fatalf("应当为该规则集生成条目，实际一个都没有")
+	}
+	set := sets[0]
 	if _, ok := set["format"]; ok {
 		t.Errorf("推断不出格式时不应写 format（那是猜的），实际写了 %v", set["format"])
 	}
@@ -537,7 +547,7 @@ func TestRuleModeWithoutRulesWarns(t *testing.T) {
 
 // TUN 的 DNS 处理必须用真实字段 dns_mode / dns_address。
 //
-// **这是一条回归测试。** 这里曾经生成 `dns_hijack`，
+// **这是一条回归测试。** 这里曾经生成 dns_hijack，
 // 而 option/tun.go 的 TunInboundOptions 里根本没有这个字段——
 // 核心对未知字段是拒绝启动的，也就是说每一份开了 TUN 的配置
 // 都起不来。字段名写得「看起来很合理」正是它一直没被发现的原因。
