@@ -27,10 +27,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -720,6 +722,15 @@ func (h *serviceHandler) login(ctx context.Context, params json.RawMessage) (any
 		return nil, h.badParams("login", err)
 	}
 
+	// 订阅链接模式：只给链接，没有账号密码。
+	//
+	// 判定条件是「给了链接、且没有邮箱」。密码为空但邮箱非空仍走正常登录，
+	// 让它以「缺少凭据」失败——那种情况是用户填漏了，不是想用链接模式；
+	// 悄悄改成链接模式会让「我明明填了邮箱」变成一个说不清的状态。
+	if req.SubscriptionURL != "" && strings.TrimSpace(req.Email) == "" {
+		return h.loginWithSubscriptionURL(ctx, req)
+	}
+
 	sess, serr := h.sessions.EnsureSession(req.PanelURL, req.AllowInsecureHTTP)
 	if serr != nil {
 		return nil, h.sessionRPCError("login", serr)
@@ -736,6 +747,68 @@ func (h *serviceHandler) login(ctx context.Context, params json.RawMessage) (any
 	h.registerSessionSecrets(sess)
 
 	return h.sessionStateFor(sess), nil
+}
+
+// loginWithSubscriptionURL 处理「只有订阅链接、没有面板账号」的情况。
+//
+// 面板地址从链接里推导（取 scheme + host）。这么做是为了让用户
+// **只填一个链接就能用**：订阅链接本身已经包含了面板主机
+// （形如 https://panel.example.com/api/xxx/<token>），
+// 让用户再手填一次面板地址是重复劳动，而且填错会失败在一个
+// 与真正原因无关的地方（凭据命名空间按面板地址隔离）。
+//
+// 用户的凭据按**面板地址**分命名空间，因此这里推导出来的地址会被
+// 用作命名空间——同一个面板的两条订阅链接会落到同一个命名空间，
+// 这正是期望的行为。
+func (h *serviceHandler) loginWithSubscriptionURL(ctx context.Context, req ipc.LoginParams) (any, *ipc.RPCError) {
+	panelURL := strings.TrimSpace(req.PanelURL)
+	if panelURL == "" {
+		origin, err := panelOrigin(req.SubscriptionURL)
+		if err != nil {
+			return nil, h.sessionRPCError("login", err)
+		}
+		panelURL = origin
+	}
+
+	sess, serr := h.sessions.EnsureSession(panelURL, req.AllowInsecureHTTP)
+	if serr != nil {
+		return nil, h.sessionRPCError("login", serr)
+	}
+	if serr := sess.SetSubscriptionURL(req.SubscriptionURL); serr != nil {
+		return nil, h.sessionRPCError("login", serr)
+	}
+
+	// 紧接着拉一次，让用户一填完就看到节点，而不是再点一次「刷新」。
+	// 失败不当作登录失败：会话已经建立，只是这次网络请求没成功，
+	// 而界面此时应当显示「已配置，但拉取失败」而不是「登录失败」。
+	if _, serr := sess.RefreshSubscription(ctx); serr != nil {
+		state := h.sessionStateFor(sess)
+		if state.Subscription != nil {
+			state.Subscription.Warnings = append(state.Subscription.Warnings, serr.MessageKey)
+		}
+		h.registerSessionSecrets(sess)
+		return state, nil
+	}
+
+	h.registerSessionSecrets(sess)
+	return h.sessionStateFor(sess), nil
+}
+
+// panelOrigin 从订阅链接推导面板来源（scheme://host）。
+//
+// 只取来源而不取路径：路径里含 token，而凭据命名空间不该包含凭据本身
+// （否则 token 一换，之前存的凭据就全部读不到了）。
+func panelOrigin(subscriptionURL string) (string, *session.Error) {
+	u, err := url.Parse(strings.TrimSpace(subscriptionURL))
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", &session.Error{
+			Kind:       session.KindInvalidConfig,
+			MessageKey: "session.error.subscription_url_invalid",
+			FieldPath:  "subscriptionUrl",
+			Message:    "cannot derive the panel origin from the subscription URL",
+		}
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 // logout 清除会话与持久化凭据。
