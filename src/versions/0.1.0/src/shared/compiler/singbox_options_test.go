@@ -570,7 +570,8 @@ func TestTUNDNSModeUsesRealFields(t *testing.T) {
 	}
 }
 
-// dns_address 只在给出时生成，且不含端口（核心的字段是 netip.Addr）。func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
+// dns_address 只在给出时生成，且不含端口（核心的字段是 netip.Addr）。
+func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
 	opts := domain.DefaultOptions()
 	opts.Inbound.TUN.Enabled = true
 
