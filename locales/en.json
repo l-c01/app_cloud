@@ -268,6 +268,28 @@
     "ui.detail.service_timeout": "Timed out waiting for the background service. It may be busy or stuck.",
     "ui.detail.options_saved": "Options saved.",
     "ui.error.unexpected": "An unexpected error occurred.",
-    "ui.nodes.refreshed": "Subscription refreshed; the node list is up to date."
+    "ui.nodes.refreshed": "Subscription refreshed; the node list is up to date.",
+
+    "ui.action.sign_out": "Sign out",
+    "ui.label.account": "Account",
+    "ui.label.subscription": "Subscription",
+    "ui.label.plan": "Plan",
+    "ui.label.usage": "Traffic",
+    "ui.label.last_sync": "Last updated: {0}",
+    "ui.label.usage_summary": "Used {0}, {1} remaining",
+    "ui.label.subscription_counts": "{0} nodes, {1} skipped because their protocol is unsupported",
+    "ui.label.usage_unknown": "The server did not provide usage information",
+    "ui.value.unknown": "Unknown",
+    "ui.detail.account_unknown": "Signed in, but the panel returned no account information.",
+    "ui.detail.tap_to_select": "Tap a node to switch to it.",
+    "ui.warn.account_banned": "This account is banned; connecting will fail.",
+
+    "ui.label.per_app": "Per-app proxy",
+    "ui.detail.per_app_applies": "Per-app proxying only works on Android: the desktop system proxy and TUN are both machine-wide.",
+    "ui.detail.per_app_needs_apps": "Choosing \"exclude selected\" or \"only selected\" needs an app selection first; the app list is not wired up in this version yet.",
+    "ui.detail.per_app_permission": "Listing installed applications requires system permission; per-app routing is unavailable without it.",
+    "ui.detail.per_app_packages_count": "{0} application(s) selected.",
+    "ui.warn.direct_mode": "Direct mode uses no proxy at all: it connects, but sites behind the wall stay unreachable.",
+    "ui.warn.account_expired": "This plan has expired; connecting will fail."
   }
 }
