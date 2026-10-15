@@ -269,6 +269,28 @@
     "ui.detail.service_timeout": "等待后台服务响应超时。服务可能正忙或已卡住。",
     "ui.detail.options_saved": "选项已保存。",
     "ui.error.unexpected": "发生了未预期的错误。",
-    "ui.nodes.refreshed": "订阅已刷新，节点列表已更新。"
+    "ui.nodes.refreshed": "订阅已刷新，节点列表已更新。",
+
+    "ui.action.sign_out": "退出登录",
+    "ui.label.account": "账号",
+    "ui.label.subscription": "订阅",
+    "ui.label.plan": "套餐",
+    "ui.label.usage": "流量",
+    "ui.label.last_sync": "上次更新：{0}",
+    "ui.label.usage_summary": "已用 {0}，剩余 {1}",
+    "ui.label.subscription_counts": "节点 {0} 个，其中 {1} 个因协议不受支持被跳过",
+    "ui.label.usage_unknown": "服务端未提供用量信息",
+    "ui.value.unknown": "未知",
+    "ui.detail.account_unknown": "已登录，但面板没有返回账户信息。",
+    "ui.detail.tap_to_select": "点击节点即可切换。",
+    "ui.warn.account_banned": "该账号已被封禁，连接会失败。",
+
+    "ui.label.per_app": "分应用代理",
+    "ui.detail.per_app_applies": "分应用代理只在 Android 上有效：桌面端的系统代理与 TUN 都是整机级别的。",
+    "ui.detail.per_app_needs_apps": "选择「排除所选」或「仅代理所选」需要先选定应用；当前版本尚未接入应用列表。",
+    "ui.detail.per_app_permission": "读取已安装应用列表需要系统授权；未授权时无法按应用分流。",
+    "ui.detail.per_app_packages_count": "已选定 {0} 个应用。",
+    "ui.warn.direct_mode": "直连模式不会使用任何代理，表现为「已连接但打不开墙外网站」。",
+    "ui.warn.account_expired": "该套餐已过期，连接会失败。"
   }
 }
