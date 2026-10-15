@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-
-	"proxyclient/shared/domain"
 )
 
 // Manager 持有「当前是哪台面板的会话」，并在面板地址变化时切换。
@@ -137,29 +135,4 @@ func ErrNotConfigured() *Error {
 	return newError(KindInvalidConfig, "session.error.panel_url_required").
 		withField("panelUrl").
 		withDetail("no panel session is configured yet")
-}
-
-// TrafficEntry 返回会话选项里配置的流量接入方式。
-//
-// 为什么需要它：协调器按接入方式决定要接管哪些系统设置，而
-// **空字符串会落到「不接管任何设置」**——核心起来了、状态显示「已连接」，
-// 但系统代理根本没被改动，流量一点都没走代理，而且看起来一切正常。
-//
-// 界面只发「连接」，不发接入方式，因此这个值必须由服务端从选项模型里取。
-//
-// 会话尚未建立、或选项里的值为空时，回退到**出厂默认**而不是返回空串：
-// 返回空串等于悄悄退化成「不接管」，那正是这条注释要防的事。
-func (m *Manager) TrafficEntry() string {
-	m.mu.Lock()
-	sess := m.cur
-	m.mu.Unlock()
-
-	fallback := domain.DefaultOptions().Inbound.TrafficEntry
-	if sess == nil {
-		return fallback
-	}
-	if entry := sess.Options().Inbound.TrafficEntry; entry != "" {
-		return entry
-	}
-	return fallback
 }
