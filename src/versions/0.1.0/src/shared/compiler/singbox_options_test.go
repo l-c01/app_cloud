@@ -668,26 +668,26 @@ func TestInboundReadyAddress(t *testing.T) {
 	}{
 		{
 			name: "本机地址与 HTTP 端口",
-			in:   InboundOptions{Listen: "127.0.0.1", HTTPPort: 7890, SocksPort: 7891},
+			in:   InboundOptions{Listen: "127.0.0.1", MixedPort: 7890},
 			want: "127.0.0.1:7890",
 		},
 		{
 			name: "监听为空时用回环",
-			in:   InboundOptions{HTTPPort: 7890, SocksPort: 7891},
+			in:   InboundOptions{MixedPort: 7890},
 			want: "127.0.0.1:7890",
 		},
 		{
 			name: "通配地址不能回拨自己",
-			in:   InboundOptions{Listen: "0.0.0.0", HTTPPort: 7890},
+			in:   InboundOptions{Listen: "0.0.0.0", MixedPort: 7890},
 			want: "127.0.0.1:7890",
 		},
 		{
 			name: "IPv6 通配同样换成回环",
-			in:   InboundOptions{Listen: "::", HTTPPort: 7890},
+			in:   InboundOptions{Listen: "::", MixedPort: 7890},
 			want: "127.0.0.1:7890",
 		}, {
 			name: "没有 HTTP 端口时退回 SOCKS",
-			in:   InboundOptions{Listen: "127.0.0.1", SocksPort: 7891},
+			in:   InboundOptions{Listen: "127.0.0.1", MixedPort: 7891},
 			want: "127.0.0.1:7891",
 		},
 		{
@@ -697,12 +697,12 @@ func TestInboundReadyAddress(t *testing.T) {
 		},
 		{
 			name: "端口越界同样返回空",
-			in:   InboundOptions{Listen: "127.0.0.1", HTTPPort: 70000},
+			in:   InboundOptions{Listen: "127.0.0.1", MixedPort: 70000},
 			want: "",
 		},
 		{
 			name: "局域网监听保留用户填的地址",
-			in:   InboundOptions{Listen: "192.168.1.10", HTTPPort: 7890},
+			in:   InboundOptions{Listen: "192.168.1.10", MixedPort: 7890},
 			want: "192.168.1.10:7890",
 		},
 	}
@@ -920,8 +920,7 @@ func checkWithRealCore(t *testing.T, bin string, policy OutboundPolicy, nodes []
 		Policy: policy,
 		Inbound: InboundOptions{
 			Listen:    "127.0.0.1",
-			HTTPPort:  7890,
-			SocksPort: 7891,
+			MixedPort: 7890,
 		},
 		LogLevel: "warning",
 	}

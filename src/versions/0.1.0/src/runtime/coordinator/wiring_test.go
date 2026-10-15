@@ -304,7 +304,7 @@ func TestWiringLoginToNetworkTakeover(t *testing.T) {
 
 	// 关键断言：系统代理必须指向**核心真正监听的那个端口**。
 	// 端口为 0（此前那个缺陷）时这里会是 "127.0.0.1:0"。
-	wantProxy := "127.0.0.1:" + strconv.Itoa(req.Inbound.HTTPPort)
+	wantProxy := "127.0.0.1:" + strconv.Itoa(req.Inbound.MixedPort)
 	got := net.appliedPlan.Values["system_proxy.http"]
 	if got != wantProxy {
 		t.Errorf("系统代理地址 = %q，期望 %q", got, wantProxy)
@@ -535,7 +535,7 @@ func TestWiringRecoverThroughRealJournalFile(t *testing.T) {
 	}
 
 	// 跨进程传过来的必须是第一次真正写进去的那个值。
-	want := "127.0.0.1:" + strconv.Itoa(req.Inbound.HTTPPort)
+	want := "127.0.0.1:" + strconv.Itoa(req.Inbound.MixedPort)
 	if got := net2.restoreGot["system_proxy.http"]; got != want {
 		t.Errorf("跨进程恢复拿到的已应用系统代理 = %q，期望 %q：恢复日志的字段映射有问题",
 			got, want)
