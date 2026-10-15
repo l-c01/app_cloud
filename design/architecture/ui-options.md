@@ -119,11 +119,19 @@
 | 混合端口 | 端口号 | 7890 | `inbounds[type=mixed]` |
 | 允许局域网连接 | 开 / 关 | 关 | `inbounds[].listen` 设为 `0.0.0.0` |
 | **TUN 栈** | system / gvisor / mixed | mixed | `inbounds[type=tun].stack` |
-| TUN 设备名 | 字符串 | 按平台默认 | `...device` |
+| TUN 设备名 | 字符串 | 按平台默认 | `...interface_name` |
 | MTU | 数字 | 1500 | `...mtu` |
 | 自动路由 | 开 / 关 | 开 | `...auto_route` |
 | 严格路由 | 开 / 关 | 关 | `...strict_route` |
-| DNS 劫持 | 列表 | `any:53` | `...dns_hijack` |
+| DNS 处理方式 | disabled / native / hijack | hijack | `...dns_mode` |
+| DNS 通告地址 | IP 列表 | 空 | `...dns_address` |
+
+**「DNS 劫持」这一行原先写的是 `...dns_hijack`（默认 `any:53`）——
+那是一个不存在的字段。** 核实依据：`option/tun.go` 的
+`TunInboundOptions` 里只有 `dns_mode`（enum: `disabled,native,hijack`）
+与 `dns_address`（`badoption.Listable[netip.Addr]`，**只接受 IP，不含端口**）。
+核心对未知字段是拒绝启动的，因此原写法会让每一份开了 TUN 的配置都起不来。
+原来想表达的语义正好就是 `dns_mode: "hijack"`，所以没有丢功能。
 
 **「允许局域网连接」默认关，且开启时要有明确警告。**
 开启后同一网络下的任何人都能用这个代理——
@@ -139,14 +147,32 @@
 
 ### 2.5 嗅探 / Sniffing
 
-| 选项 | 默认 | sing-box |
+**一句话：入站层只有一个开关，协议列表是路由层的东西。**
+
+这一节原先写着「嗅探协议 TLS / HTTP / QUIC」，把两层的字段混成了一行。
+读参考源码后的实际字段（依据 `src/references/sing-box-testing/option/`）：
+
+| 层面 | 字段 | 位置 |
 |---|---|---|
-| 启用嗅探 | 开（TUN 模式下） | `inbounds[].sniff` |
-| 嗅探协议 | TLS / HTTP / QUIC | 同上 |
-| 覆写目的地址 | 关 | `route.rules[].action: sniff` |
+| 入站 | `sniff`（布尔） | `inbound.go` |
+| 入站 | `sniff_override_destination`（布尔） | `inbound.go` |
+| 入站 | `sniff_timeout`（时长） | `inbound.go` |
+| 路由 | `action: "sniff"` + `sniffer: [tls, http, quic, …]` | `rule_action.go` |
+
+**协议列表住在路由动作里**，需要单独一条 `action: "sniff"` 的规则才生效——
+它**不是**入站字段。把它写进入站会被核心当作未知字段拒绝启动。
+
+| 选项 | 默认 | 层面 | sing-box |
+|---|---|---|---|
+| 启用嗅探 | 开（TUN 模式下） | 入站 | `inbounds[].sniff` |
+| 覆写目的地址 | 关 | 入站 | `inbounds[].sniff_override_destination` |
+| 嗅探协议 | 全选 | **路由（尚未生成）** | `route.rules[].action: "sniff"` 的 `sniffer` |
 
 覆写默认关：它会让连接的实际目的地与用户看到的域名不一致，
 排查问题时容易误判。
+
+**界面上必须说明协议列表目前不生效。** 一个「改了没反应」的选项正是
+本文档第 0 节批评的伪选项；要么实现路由动作形态，要么在界面上标注清楚。
 
 ### 2.6 订阅 / Profiles
 

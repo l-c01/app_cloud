@@ -101,7 +101,7 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 	// 放在这里而不是 cfg 字面量里，是因为它的存在与否取决于选项，
 	// 而字面量里已经有 HTTP 与 SOCKS 两个固定入站。
 	// 混在一起会让「哪些入站是固定的、哪些是可选的」看不出来。
-	if tunIn := singboxTUNInbound(req.tunOptions(), req.perAppOptions()); tunIn != nil {
+	if tunIn := singboxTUNInbound(req.tunOptions(), req.perAppOptions(), req.sniffOptions(), report); tunIn != nil {
 		cfg.Inbounds = append(cfg.Inbounds, tunIn)
 	}
 
@@ -139,14 +139,26 @@ func CompileSingBox(req *Request) ([]byte, *Report, error) {
 			}
 		}
 
-		// 只有一条真实规则都没有时才提示规则资源缺失。
-		// 用户已经配了规则却仍报「尚未接入」，会让人以为自己的配置没生效。
+		// 一条真实规则都没有时说明「规则模式」这次退化成了「全部经代理」：
+		// 除了内建的私有地址直连，没有任何东西在分流。
+		//
+		// 这不是错误（兜底本来就是走代理，因此不存在流量泄漏），
+		// 但用户以为自己选了「按规则分流」，实际却等同于全局代理，
+		// 因此必须说出来，而不是让他自己从生成的配置里发现。
 		if userRules == 0 {
-			report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
-				"规则路由所需的规则集尚未接入，本次编译按『全部经代理』处理以避免流量泄漏；接入规则资源后此行为会改变")
+			report.Warnf(nil, "route.rules", "compiler.no_route_rules",
+				"本次没有生效的分流规则（未配置规则，或配置的规则都被跳过），"+
+					"除内建的私有地址直连外将全部经代理；这不会泄漏流量，但与『按规则分流』的预期不同")
 		}
 
 		cfg.Route = &singboxRoute{Rules: rules, Final: final}
+	}
+
+	// 规则集只在规则模式下有意义：global 与 direct 都不看规则，
+	// 生成一份用不上的 rule_set 只会让核心凭空多个下载任务。
+	// 用户切回规则模式后它自然又会出现。
+	if req.Policy == PolicyRule && cfg.Route != nil {
+		cfg.Route.RuleSet = singboxRuleSets(req.Options, report)
 	}
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
@@ -305,19 +317,19 @@ func singboxGroupOutbounds(opts *domain.Options, report *Report) []map[string]an
 	var out []map[string]any
 	for _, g := range opts.Groups {
 		if g.Name == "" {
-			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
-				"忽略一个没有名字的代理组")
+			report.Warnf(nil, "outbounds", "compiler.proxy_group_skipped",
+				"忽略一个没有名字的代理组：规则要靠 tag 引用它，没有 tag 就引用不到")
 			continue
 		}
 
 		typ, ok := groupOutboundType[g.Type]
 		if !ok {
-			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
+			report.Warnf(nil, "outbounds", "compiler.proxy_group_skipped",
 				"代理组 %q 的类型 %q 在 sing-box 里没有等价物，已跳过该组", g.Name, string(g.Type))
 			continue
 		}
 		if g.Type == domain.GroupFallback {
-			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
+			report.Warnf(nil, "outbounds", "compiler.proxy_group_skipped",
 				"代理组 %q 的「故障转移」已按「自动选择」生成：sing-box 没有独立的故障转移出站，"+
 					"它会选延迟最低的节点而不是第一个可用的节点", g.Name)
 		}
@@ -334,13 +346,13 @@ func singboxGroupOutbounds(opts *domain.Options, report *Report) []map[string]an
 		// 与「你想表达的其实是哪一个」相距很远。
 		if g.IncludeAll {
 			ob["outbounds"] = []string{"direct"}
-			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
+			report.Warnf(nil, "outbounds", "compiler.proxy_group_skipped",
 				"代理组 %q 使用了「包含全部节点」，但节点集合要到运行时才确定，"+
 					"本次只放入直连出站；请改用显式成员列表", g.Name)
 		} else if len(g.Members) > 0 {
 			ob["outbounds"] = g.Members
 		} else {
-			report.Warnf(nil, "outbounds", "compiler.rule_resources_missing",
+			report.Warnf(nil, "outbounds", "compiler.proxy_group_skipped",
 				"代理组 %q 没有任何成员，已跳过该组", g.Name)
 			continue
 		}
@@ -393,8 +405,123 @@ func groupNames(opts *domain.Options) string {
 }
 
 type singboxRoute struct {
-	Rules []map[string]any `json:"rules,omitempty"`
-	Final string           `json:"final,omitempty"`
+	Rules   []map[string]any `json:"rules,omitempty"`
+	RuleSet []map[string]any `json:"rule_set,omitempty"`
+	Final   string           `json:"final,omitempty"`
+}
+
+// singboxRuleSets 依据选项构造 route.rule_set。
+//
+// 字段依据（已核实的源码事实，来自 src/references/sing-box-testing/option/rule_set.go）：
+//   - _RuleSet：            type（inline/local/remote）、tag、format（source/binary）
+//   - LocalRuleSet：        path
+//   - RemoteRuleSet：       url、initial_path、http_client、update_interval
+//   - 多标签时才要求 URL 含 {tag} 占位符；单标签不需要
+//   - format 留空时由核心按 url/path 后缀推断（ruleSetDefaultFormat）
+//
+// **只生成 remote**：LocalOptions 要的是核心进程能读到的一条本地路径，
+// 而「规则集文件放在哪」属于运行时布局（runtime 层的事），
+// 不是界面选项。没有 path 就编一个 local 规则集，只会生成一份
+// 核心启动时找不到文件的配置。因此本地规则集明确跳过并报告。
+//
+// 与代理组一样，跳过一律写进报告：静默丢掉一个用户配置的规则集，
+// 会让「规则里引用的规则集不存在」变成一个查不出来的问题。
+func singboxRuleSets(opts *domain.Options, report *Report) []map[string]any {
+	if opts == nil || len(opts.RuleSets) == 0 {
+		return nil
+	}
+
+	var out []map[string]any
+	for _, rs := range opts.RuleSets {
+		if rs.Name == "" {
+			report.Warnf(nil, "route.rule_set", "compiler.rule_set_invalid",
+				"忽略一个没有名字的规则集：规则要靠 tag 引用它，没有 tag 就引用不到")
+			continue
+		}
+
+		if rs.URL == "" {
+			// 内置（本地）规则集。见上面的说明：路径属于运行时布局。
+			report.Warnf(nil, "route.rule_set", "compiler.rule_set_local_unsupported",
+				"规则集 %q 没有 URL（内置规则集需要核心可读的本地文件路径，属于运行时布局，本层不生成），已跳过该规则集", rs.Name)
+			continue
+		}
+
+		entry := map[string]any{
+			"type": "remote",
+			"tag":  rs.Name,
+			"url":  rs.URL,
+		}
+
+		// format 的处理顺序很关键：
+		//
+		//   1. 用户显式给了值 → 必须是 source/binary 之一，否则报错跳过。
+		//      把一个未知取值照抄进配置，核心会以 "unknown rule-set format"
+		//      拒绝启动，而那句话不会告诉用户他填的是哪个值。
+		//   2. 没给 → 按后缀推断；推断得出来就写死。
+		//      写死而不是留给核心推断，是因为推断规则住在核心内部，
+		//      写出来能让生成的配置自解释，也便于与核心行为不符时比对。
+		//   3. 推断不出来 → 不写 format，报告一条警告。
+		//      **不猜**：猜错的表现是核心拒绝加载该规则集，
+		//      而用户会去改 URL。
+		format, ok := domain.NormalizeRuleSetFormat(rs.Format)
+		if !ok {
+			report.Warnf(nil, "route.rule_set", "compiler.rule_set_invalid",
+				"规则集 %q 的格式 %q 不受支持（只接受 %s 或 %s），已跳过该规则集",
+				rs.Name, rs.Format, domain.RuleSetFormatSource, domain.RuleSetFormatBinary)
+			continue
+		}
+		if format == "" {
+			format = domain.InferRuleSetFormat(rs.URL)
+		}
+		if format != "" {
+			entry["format"] = format
+		} else {
+			report.Warnf(nil, "route.rule_set", "compiler.rule_set_format_unknown",
+				"规则集 %q 的地址后缀既不是 .srs 也不是 .json，无法推断格式；"+
+					"已交由核心自行判断，若加载失败请显式指定格式（%s 或 %s）",
+				rs.Name, domain.RuleSetFormatSource, domain.RuleSetFormatBinary)
+		}
+
+		if rs.UpdateInterval > 0 {
+			// 核心的 update_interval 是时长字符串（badoption.Duration），
+			// 与代理组的 interval 同一约定。
+			entry["update_interval"] = fmt.Sprintf("%dh", rs.UpdateInterval)
+		}
+
+		out = append(out, entry)
+	}
+	return out
+}
+
+// hasRuleSet 报告选项里是否定义了指定名字的规则集。
+func hasRuleSet(opts *domain.Options, name string) bool {
+	if opts == nil {
+		return false
+	}
+	for _, rs := range opts.RuleSets {
+		if rs.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ruleSetNames 返回已定义规则集名的列表，用于把「规则集名写错了」
+// 变成一条能直接照着改的提示。
+func ruleSetNames(opts *domain.Options) string {
+	if opts == nil || len(opts.RuleSets) == 0 {
+		return "无"
+	}
+	names := make([]string, 0, len(opts.RuleSets))
+	for _, rs := range opts.RuleSets {
+		if rs.Name != "" {
+			names = append(names, rs.Name)
+		}
+	}
+	if len(names) == 0 {
+		return "无"
+	}
+	return strings.Join(names, "、")
 }
 
 // ruleMatcherKey 把领域里的规则类型映射到 sing-box 的匹配器字段名。
@@ -403,12 +530,19 @@ type singboxRoute struct {
 // sing-box 用的是它自己的（domain_suffix 恰好相同，但 ip_cidr 与
 // process_name 在别处写法不同）。做成显式映射而不是字符串拼接，
 // 是为了让「某个类型没有对应匹配器」这件事在编译期就看得见。
+//
+// rule_set 也在这里：它的匹配器字段就叫 rule_set，取值是规则集的 tag
+// （源码依据：option/rule.go 的
+// `RuleSet badoption.Listable[string] \`json:"rule_set,omitempty" reference:"rule_set"\``）。
+// 它曾经不在表里，因为规则集资源尚未接入；接入之后它与其他类型
+// 走同一条路径，唯一的差别是要额外核对引用的规则集存在。
 var ruleMatcherKey = map[domain.RuleType]string{
 	domain.RuleDomain:        "domain",
 	domain.RuleDomainSuffix:  "domain_suffix",
 	domain.RuleDomainKeyword: "domain_keyword",
 	domain.RuleIPCIDR:        "ip_cidr",
 	domain.RuleProcessName:   "process_name",
+	domain.RuleRuleSet:       "rule_set",
 	domain.RulePort:          "port",
 }
 
@@ -420,15 +554,24 @@ var ruleMatcherKey = map[domain.RuleType]string{
 func singboxRouteRule(r domain.Rule, opts *domain.Options, selected *domain.Node, report *Report) map[string]any {
 	key, ok := ruleMatcherKey[r.Type]
 	if !ok {
-		// rule_set 不在上面的映射里：它需要规则集资源，而资源尚未接入。
-		// 这正是 rule_resources_missing 那条警告描述的缺口。
-		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
-			"规则类型 %q 所需的资源尚未接入，该条规则已跳过", string(r.Type))
+		report.Warnf(nil, "route.rules", "compiler.route_rule_skipped",
+			"规则类型 %q 不受支持（没有对应的 sing-box 匹配器），该条规则已跳过", string(r.Type))
 		return nil
 	}
 	if r.Value == "" {
-		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+		report.Warnf(nil, "route.rules", "compiler.route_rule_skipped",
 			"规则类型 %q 的值为空，该条规则已跳过", string(r.Type))
+		return nil
+	}
+
+	// rule_set 的取值是一个 tag，必须核对它指向的规则集真的定义了。
+	//
+	// 指向不存在的 tag 会让核心拒绝启动，而错误信息与「规则集名写错了」
+	// 相距很远。这里提前把它变成一条能照着改的提示。
+	if r.Type == domain.RuleRuleSet && !hasRuleSet(opts, r.Value) {
+		report.Warnf(nil, "route.rules", "compiler.route_rule_skipped",
+			"规则引用的规则集 %q 不存在（已定义的规则集：%s），该条规则已跳过",
+			r.Value, ruleSetNames(opts))
 		return nil
 	}
 
@@ -446,19 +589,19 @@ func singboxRouteRule(r domain.Rule, opts *domain.Options, selected *domain.Node
 		// 而错误信息与「规则里写的组名不对」相距很远。
 		// 因此先在这里核对组是否存在。
 		if r.GroupName == "" {
-			report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+			report.Warnf(nil, "route.rules", "compiler.route_rule_skipped",
 				"规则动作 %q 需要指定代理组，但组名为空，该条规则已跳过", string(r.Action))
 			return nil
 		}
 		if !hasGroup(opts, r.GroupName) {
-			report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+			report.Warnf(nil, "route.rules", "compiler.route_rule_skipped",
 				"规则引用的代理组 %q 不存在（已定义的组：%s），该条规则已跳过",
 				r.GroupName, groupNames(opts))
 			return nil
 		}
 		rule["outbound"] = r.GroupName
 	default:
-		report.Warnf(nil, "route.rules", "compiler.rule_resources_missing",
+		report.Warnf(nil, "route.rules", "compiler.route_rule_skipped",
 			"未知的规则动作 %q，该条规则已跳过", string(r.Action))
 		return nil
 	}
@@ -481,14 +624,55 @@ func singboxFinalOutbound(opts *domain.Options, selected *domain.Node, report *R
 	case domain.ActionProxy, "":
 		return outboundTag(selected)
 	case domain.ActionReject, domain.ActionGroup:
-		report.Warnf(nil, "route.final", "compiler.rule_resources_missing",
+		report.Warnf(nil, "route.final", "compiler.final_action_unavailable",
 			"兜底动作 %q 不可用，已按『全部经代理』处理以避免流量泄漏", string(opts.FinalAction))
 		return outboundTag(selected)
 	default:
-		report.Warnf(nil, "route.final", "compiler.rule_resources_missing",
+		report.Warnf(nil, "route.final", "compiler.final_action_unavailable",
 			"未知的兜底动作 %q，已按『全部经代理』处理以避免流量泄漏", string(opts.FinalAction))
 		return outboundTag(selected)
 	}
+}
+
+// singboxSniffer 把嗅探选项写进入站。
+//
+// 字段依据（已核实的源码事实，来自 src/references/sing-box-testing/option/inbound.go）：
+//
+//	SniffEnabled             bool `json:"sniff,omitempty"`
+//	SniffOverrideDestination bool `json:"sniff_override_destination,omitempty"`
+//	SniffTimeout             badoption.Duration `json:"sniff_timeout,omitempty"`
+//
+// 这三行**解决了一份设计文档里悬着的问题**。ui-options.md 2.5 节原先写
+// 「嗅探协议 TLS / HTTP / QUIC」，而交接文档记录了「没有真核心可以验证，
+// 因此没有实现」——不确定协议列表是不是入站字段。
+//
+// 读源码的结论是：**它确实不是入站字段**。入站层只有上面三个字段，
+// 其中 enabled 是一个 bool。协议列表住在**路由动作**里
+// （option/rule_action.go 的 RouteActionSniff：
+//
+//	Sniffer badoption.Listable[string] `json:"sniffer,omitempty"`
+//	                                          enum:"tls,http,quic,dns,stun,..."`
+//
+// 而路由动作需要 `action: "sniff"` 这样一条规则才生效）。
+//
+// 因此本函数：
+//   - 忠实生成入站层的 sniff 与 sniff_override_destination；
+//   - **对协议列表明确报告「本版本不生效」**，而不是把它塞进入站
+//     （塞进去会被核心当作未知字段拒绝启动，而错误信息来自核心深处）
+//     或静默丢弃（用户会以为按 tls 嗅探已经生效）。
+//
+// 覆写目的地址的默认关（见 domain.SniffSettings 的说明）。
+func singboxSniffer(sniff *domain.SniffSettings, report *Report) (enabled, override bool) {
+	if sniff == nil || !sniff.Enabled {
+		return false, false
+	}
+	if len(sniff.Protocols) > 0 {
+		report.Warnf(nil, "inbounds.sniff", "compiler.sniff_protocols_not_applied",
+			"嗅探协议列表（%s）在 sing-box 里属于路由动作（action: sniff 的 sniffer 字段），"+
+				"不是入站字段，本版本未生成；入站层只启用嗅探本身",
+			strings.Join(sniff.Protocols, "、"))
+	}
+	return true, sniff.OverrideDestination
 }
 
 // singboxTUNInbound 依据选项构造 TUN 入站；未启用时返回 nil
@@ -497,7 +681,7 @@ func singboxFinalOutbound(opts *domain.Options, selected *domain.Node, report *R
 // 不生成「关闭状态的入站」是刻意的：核心对 enable:false 的处理
 // 与「根本没有这个入站」并不总是等价，而前者会在日志里留下痕迹，
 // 让排查的人以为 TUN 被配置过。
-func singboxTUNInbound(tun *domain.TUNSettings, perApp *domain.PerApp) map[string]any {
+func singboxTUNInbound(tun *domain.TUNSettings, perApp *domain.PerApp, sniff *domain.SniffSettings, report *Report) map[string]any {
 	if tun == nil || !tun.Enabled {
 		return nil
 	}
@@ -521,8 +705,30 @@ func singboxTUNInbound(tun *domain.TUNSettings, perApp *domain.PerApp) map[strin
 	if tun.StrictRoute {
 		in["strict_route"] = true
 	}
-	if len(tun.DNSHijack) > 0 {
-		in["dns_hijack"] = tun.DNSHijack
+	// DNS 处理方式。
+	//
+	// **这里原先写的是 `dns_hijack`，那是个不存在的字段。**
+	// 核实依据：option/tun.go 的 TunInboundOptions 里只有
+	// `dns_mode`（enum: disabled/native/hijack）与 `dns_address`
+	// （只接受 IP，不含端口）。核心对未知字段是拒绝启动的，
+	// 因此原写法会让每一份开了 TUN 的配置都起不来。
+	if tun.DNSMode != "" {
+		in["dns_mode"] = tun.DNSMode
+	}
+	if len(tun.DNSAddress) > 0 {
+		in["dns_address"] = tun.DNSAddress
+	}
+
+	// 嗅探。
+	//
+	// 只在开启时写键：核心的这两个字段都是 omitempty，写 false 与不写
+	// 生成的是同一份配置，但显式写出来会让「用户关掉了它」与
+	// 「这个版本还没实现它」在配置文件里长得一模一样。
+	if on, override := singboxSniffer(sniff, report); on {
+		in["sniff"] = true
+		if override {
+			in["sniff_override_destination"] = true
+		}
 	}
 
 	// 分应用代理。

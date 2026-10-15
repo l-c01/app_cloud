@@ -216,12 +216,385 @@ func TestBalanceGroupIsSkippedNotDowngraded(t *testing.T) {
 	// 必须留下可见的记录，否则用户只会看到「组不见了」。
 	found := false
 	for _, iss := range report.Issues {
-		if strings.Contains(iss.Message, "负载") {
+		if iss.MessageKey == "compiler.proxy_group_skipped" && strings.Contains(iss.Message, "负载") {
 			found = true
 			break
 		}
 	}
 	if !found {
 		t.Errorf("跳过负载均衡组时必须写进报告，实际报告里没有提到它")
+	}
+}
+
+// routeSection 取出配置里的 route 段。
+func routeSection(t *testing.T, cfg map[string]any) map[string]any {
+	t.Helper()
+	route, ok := cfg["route"].(map[string]any)
+	if !ok {
+		t.Fatalf("应当生成 route 段，实际没有")
+	}
+	return route
+}
+
+// ruleSetsIn 取出 route.rule_set 列表。
+func ruleSetsIn(t *testing.T, cfg map[string]any) []map[string]any {
+	t.Helper()
+	raw, _ := routeSection(t, cfg)["rule_set"].([]any)
+	out := make([]map[string]any, 0, len(raw))
+	for _, r := range raw {
+		if m, ok := r.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// 规则集必须在 route 段里生成，且格式按 URL 后缀推断后**写死**。
+//
+// 写死而不是留给核心推断：推断规则住在核心内部，写出来能让生成的
+// 配置自解释，也便于日后与核心行为不符时比对。
+func TestRuleSetRemoteWithInferredFormat(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.RuleSets = []domain.RuleSet{
+		{Name: "geosite-cn", URL: "https://example.com/geosite-cn.srs", UpdateInterval: 24},
+		{Name: "geoip-cn", URL: "https://example.com/geoip-cn.json"},
+	}
+
+	cfg := compileWithOptions(t, &opts)
+	sets := ruleSetsIn(t, cfg)
+	if len(sets) != 2 {
+		t.Fatalf("应当生成 2 个规则集，实际 %d 个：%v", len(sets), sets)
+	}
+
+	if sets[0]["type"] != "remote" {
+		t.Errorf("规则集应当生成 type=remote，实际 %v", sets[0]["type"])
+	}
+	if sets[0]["tag"] != "geosite-cn" {
+		t.Errorf("规则集 tag 应当用名字，实际 %v", sets[0]["tag"])
+	}
+	if sets[0]["format"] != "binary" {
+		t.Errorf(".srs 后缀应当推断为 binary，实际 %v", sets[0]["format"])
+	}
+	if sets[0]["update_interval"] != "24h" {
+		t.Errorf("更新间隔应当写成时长字符串 24h，实际 %v", sets[0]["update_interval"])
+	}
+	if sets[1]["format"] != "source" {
+		t.Errorf(".json 后缀应当推断为 source，实际 %v", sets[1]["format"])
+	}
+}
+
+// 后缀推断不出来时**不能猜**，必须报告。
+//
+// 猜错的表现是核心拒绝加载该规则集，而用户会去改 URL——
+// 方向完全错了。
+func TestRuleSetUnknownFormatIsReportedNotGuessed(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.RuleSets = []domain.RuleSet{
+		{Name: "odd", URL: "https://example.com/download?id=7"},
+	}
+
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, report, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
+
+	set := ruleSetsIn(t, decodeConfig(t, out))[0]
+	if _, ok := set["format"]; ok {
+		t.Errorf("推断不出格式时不应写 format（那是猜的），实际写了 %v", set["format"])
+	}
+
+	found := false
+	for _, iss := range report.Issues {
+		if iss.MessageKey == "compiler.rule_set_format_unknown" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("推断不出格式时必须报告，实际报告里没有 rule_set_format_unknown")
+	}
+}
+
+// 非法的 format 必须**报错跳过**，不能照抄进配置。
+//
+// 照抄之后核心会以 "unknown rule-set format" 拒绝启动，
+// 而那句话不会告诉用户他填的是哪个值。
+func TestRuleSetInvalidFormatIsSkipped(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.RuleSets = []domain.RuleSet{
+		{Name: "bad", URL: "https://example.com/x.srs", Format: "mrs"},
+	}
+
+	cfg := compileWithOptions(t, &opts)
+	if sets := ruleSetsIn(t, cfg); len(sets) != 0 {
+		t.Errorf("非法 format 的规则集不应生成，实际生成了 %v", sets)
+	}
+}
+
+// 内置（无 URL）规则集不生成：它需要核心可读的本地文件路径，
+// 属于运行时布局，编一个出来只会让核心启动时找不到文件。
+// 但必须报告，否则规则引用了它时用户查不出原因。
+func TestLocalRuleSetSkippedWithReport(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.RuleSets = []domain.RuleSet{{Name: "builtin"}}
+
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, report, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
+
+	if sets := ruleSetsIn(t, decodeConfig(t, out)); len(sets) != 0 {
+		t.Errorf("无 URL 的规则集不应生成，实际生成了 %v", sets)
+	}
+	found := false
+	for _, iss := range report.Issues {
+		if iss.MessageKey == "compiler.rule_set_local_unsupported" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("跳过本地规则集时必须报告，实际没有 rule_set_local_unsupported")
+	}
+}
+
+// 规则引用规则集时，生成的匹配器字段是 rule_set，取值是 tag。
+func TestRuleSetRuleCompiles(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.RuleSets = []domain.RuleSet{
+		{Name: "geosite-cn", URL: "https://example.com/geosite-cn.srs"},
+	}
+	opts.Rules = []domain.Rule{
+		{Type: domain.RuleRuleSet, Value: "geosite-cn", Action: domain.ActionDirect},
+	}
+
+	req := baseRequest(trojanNode("A"))
+	req.Policy = PolicyRule
+	req.Options = &opts
+	out, _, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
+
+	rules, _ := routeSection(t, decodeConfig(t, out))["rules"].([]any)
+	var hit map[string]any
+	for _, raw := range rules {
+		if m, ok := raw.(map[string]any); ok && m["rule_set"] == "geosite-cn" {
+			hit = m
+			break
+		}
+	}
+	if hit == nil {
+		t.Fatalf("引用已定义规则集的规则应当生成，实际规则列表为 %v", rules)
+	}
+	if hit["outbound"] != "direct" {
+		t.Errorf("直连动作应当写 outbound=direct，实际 %v", hit["outbound"])
+	}
+}
+
+// 引用不存在的规则集会生成一个核心无法解析的 tag，必须提前拦下。
+func TestRuleSetRuleWithUnknownSetIsSkipped(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.Rules = []domain.Rule{
+		{Type: domain.RuleRuleSet, Value: "nope", Action: domain.ActionDirect},
+	}
+
+	cfg := compileWithOptions(t, &opts)
+	rules, _ := routeSection(t, cfg)["rules"].([]any)
+	for _, raw := range rules {
+		if m, ok := raw.(map[string]any); ok && m["rule_set"] != nil {
+			t.Errorf("引用不存在规则集的规则不应生成，实际生成了 %v", m)
+		}
+	}
+}
+
+// global / direct 模式不看规则，因此不应生成用不上的 rule_set——
+// 那只会让核心凭空多出下载任务。
+func TestRuleSetsOmittedOutsideRuleMode(t *testing.T) {
+	for _, policy := range []OutboundPolicy{PolicyGlobal, PolicyDirect} {
+		opts := domain.DefaultOptions()
+		opts.RuleSets = []domain.RuleSet{
+			{Name: "geosite-cn", URL: "https://example.com/geosite-cn.srs"},
+		}
+
+		req := baseRequest(trojanNode("A"))
+		req.Policy = policy
+		req.Options = &opts
+		out, _, err := CompileSingBox(req)
+		if err != nil {
+			t.Fatalf("CompileSingBox(%s): %v", policy, err)
+		}
+
+		if sets := ruleSetsIn(t, decodeConfig(t, out)); len(sets) != 0 {
+			t.Errorf("策略 %s 下不应生成规则集，实际生成了 %v", policy, sets)
+		}
+	}
+}
+
+// 嗅探开启时写进入站；入站层只有 sniff 与 sniff_override_destination，
+// **协议列表不是入站字段**（源码依据：option/inbound.go）。
+//
+// 把它塞进入站会被核心当作未知字段拒绝启动，因此这里断言
+// 入站里绝不出现协议相关的键。
+func TestSniffWritesOnlyInboundLevelFields(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.Inbound.TUN.Enabled = true
+	opts.Inbound.Sniffer = domain.SniffSettings{
+		Enabled:             true,
+		Protocols:           []string{"tls", "http"},
+		OverrideDestination: true,
+	}
+
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, report, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
+	in := tunInbound(decodeConfig(t, out))
+	if in == nil {
+		t.Fatalf("TUN 已启用，应当生成 TUN 入站")
+	}
+
+	if in["sniff"] != true {
+		t.Errorf("嗅探开启时入站应当有 sniff=true，实际 %v", in["sniff"])
+	}
+	if in["sniff_override_destination"] != true {
+		t.Errorf("覆写开启时应当有 sniff_override_destination=true，实际 %v", in["sniff_override_destination"])
+	}
+	for _, k := range []string{"sniff_protocols", "protocols", "sniffer"} {
+		if _, ok := in[k]; ok {
+			t.Errorf("入站里不应出现 %s：协议列表属于路由动作，不是入站字段", k)
+		}
+	}
+
+	// 协议列表没有生效，必须明确说出来，否则它就是「改了没反应」的伪选项。
+	found := false
+	for _, iss := range report.Issues {
+		if iss.MessageKey == "compiler.sniff_protocols_not_applied" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("协议列表未生效时必须报告，实际没有 sniff_protocols_not_applied")
+	}
+}
+
+// 嗅探关闭时不应写入站，也不应报告协议问题。
+func TestSniffDisabledOmitsFields(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.Inbound.TUN.Enabled = true
+	opts.Inbound.Sniffer.Enabled = false
+
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, report, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
+
+	in := tunInbound(decodeConfig(t, out))
+	if _, ok := in["sniff"]; ok {
+		t.Errorf("嗅探关闭时不应写入 sniff 键，实际 %v", in["sniff"])
+	}
+	for _, iss := range report.Issues {
+		if iss.MessageKey == "compiler.sniff_protocols_not_applied" {
+			t.Errorf("嗅探关闭时不应报告协议列表问题")
+		}
+	}
+}
+
+// 规则模式下一旦没有生效的规则，必须说明「这次等同于全局代理」。
+//
+// 不泄漏流量，但与「按规则分流」的预期不同——用户需要知道。
+func TestRuleModeWithoutRulesWarns(t *testing.T) {
+	opts := domain.DefaultOptions()
+
+	req := baseRequest(trojanNode("A"))
+	req.Policy = PolicyRule
+	req.Options = &opts
+	_, report, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
+
+	found := false
+	for _, iss := range report.Issues {
+		if iss.MessageKey == "compiler.no_route_rules" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("规则模式下没有生效规则时必须报告，实际没有 no_route_rules")
+	}
+}
+
+// TUN 的 DNS 处理必须用真实字段 dns_mode / dns_address。
+//
+// **这是一条回归测试。** 这里曾经生成 `dns_hijack`，
+// 而 option/tun.go 的 TunInboundOptions 里根本没有这个字段——
+// 核心对未知字段是拒绝启动的，也就是说每一份开了 TUN 的配置
+// 都起不来。字段名写得「看起来很合理」正是它一直没被发现的原因。
+//
+// 断言里同时包含「不该有的键不存在」，因为只断言 dns_mode 存在
+// 无法阻止 dns_hijack 被重新加回来。
+func TestTUNDNSModeUsesRealFields(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.Inbound.TUN.Enabled = true
+
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, _, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
+	in := tunInbound(decodeConfig(t, out))
+	if in == nil {
+		t.Fatalf("TUN 已启用，应当生成 TUN 入站")
+	}
+
+	if in["dns_mode"] != "hijack" {
+		t.Errorf("默认应当生成 dns_mode=hijack，实际 %v", in["dns_mode"])
+	}
+	for _, k := range []string{"dns_hijack", "dns_hijack_address", "dns_hijack_any"} {
+		if _, ok := in[k]; ok {
+			t.Errorf("TUN 入站里不应出现 %s：sing-box 的 TunInboundOptions 没有这个字段，"+
+				"核心会因未知字段拒绝启动", k)
+		}
+	}
+}
+
+// dns_address 只在给出时生成，且不含端口（核心的字段是 netip.Addr）。func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
+	opts := domain.DefaultOptions()
+	opts.Inbound.TUN.Enabled = true
+
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, _, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
+	if in := tunInbound(decodeConfig(t, out)); in != nil {
+		if _, ok := in["dns_address"]; ok {
+			t.Errorf("未设置 DNS 地址时不应生成 dns_address，实际 %v", in["dns_address"])
+		}
+	}
+
+	opts.Inbound.TUN.DNSAddress = []string{"172.19.0.2"}
+	req.Options = &opts
+	out, _, err = CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
+	in := tunInbound(decodeConfig(t, out))
+	addr, ok := in["dns_address"].([]any)
+	if !ok || len(addr) != 1 || addr[0] != "172.19.0.2" {
+		t.Errorf("设置了 DNS 地址时应当生成 dns_address，实际 %v", in["dns_address"])
 	}
 }

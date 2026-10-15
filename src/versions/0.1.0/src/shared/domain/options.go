@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // 本文件定义客户端的**配置选项模型**——即界面上的每一个开关最终变成的东西。
 //
 // 设计依据：design/architecture/ui-options.md。
@@ -141,8 +143,24 @@ type TUNSettings struct {
 	// StrictRoute 严格路由。默认关：开着时部分应用会出现
 	// 「能解析、连不上」，排查成本高。
 	StrictRoute bool `json:"strict_route"`
-	// DNSHijack 是劫持的 DNS 目标列表，默认 any:53。
-	DNSHijack []string `json:"dns_hijack,omitempty"`
+	// DNSMode 是 TUN 的 DNS 处理方式，取 disabled / native / hijack。
+	//
+	// **这里曾经写作 `dns_hijack []string`（默认 `["any:53"]`）——那是个
+	// 不存在的字段。** 核实依据：src/references/sing-box-testing/option/tun.go
+	// 里 TunInboundOptions 只有
+	//
+	//	DNSMode    string `json:"dns_mode,omitempty" enum:"disabled,native,hijack"`
+	//	DNSAddress badoption.Listable[netip.Addr] `json:"dns_address,omitempty"`
+	//
+	// 没有任何 dns_hijack。写进去会被核心按「未知字段」拒绝启动，
+	// 而错误信息来自核心的解析器深处——这正是设计文档批评的伪选项。
+	//
+	// 原来那个列表想表达的语义（劫持 DNS 到核心自己的 DNS 模块）
+	// 恰好就是 dns_mode 的 hijack 取值，因此这一项不需要丢失。
+	DNSMode string `json:"dns_mode,omitempty"`
+	// DNSAddress 是要通告给系统的 DNS 地址（仅 IP，不含端口）。
+	// 留空表示由核心自行决定。
+	DNSAddress []string `json:"dns_address,omitempty"`
 }
 
 // InboundSettings 是流量接入设置。
@@ -250,7 +268,66 @@ type RuleSet struct {
 	// Format 取 source / binary。**必须与核心期望的格式一致**：
 	// mihomo 的 .mrs/.yaml 与 sing-box 的 .srs 不通用，
 	// 混用会加载失败（见 ui-options.md 第 3 节）。
+	//
+	// 留空时按 URL 后缀推断（.srs → binary，.json → source），
+	// 这与核心的行为一致（见 sing-box-testing 的
+	// option/rule_set.go 里 ruleSetDefaultFormat）。推断不出来时
+	// 编译器会明确报告，而不是猜一个——猜错的后果是加载失败，
+	// 而错误信息来自核心的加载器，与「这个规则集填了什么」相距很远。
+	//
+	// 需要这个字段而不是一律留空，是因为**有一些下载链接没有后缀**
+	// （面板或 CDN 直接把内容放在一个无后缀的路径上），
+	// 此时只能由用户显式指定。
 	Format string `json:"format,omitempty"`
+}
+
+// RuleSetFormatSource 与 RuleSetFormatBinary 是 sing-box 接受的两个
+// rule_set.format 取值（源码依据：option/rule_set.go 的
+// `Format string \`json:"format,omitempty" enum:"source,binary"\``）。
+const (
+	RuleSetFormatSource = "source"
+	RuleSetFormatBinary = "binary"
+)
+
+// NormalizeRuleSetFormat 判断显式给出的格式是否受支持。
+//
+// 返回的第二个值为 false 表示**这个值不能原样写进配置**。
+// 调用方应当据此报错，而不是把它照抄下去：核心读到未知的 format
+// 会以 "unknown rule-set format" 拒绝启动，而那句话不会告诉用户
+// 他填的是哪个值、应该填什么。
+func NormalizeRuleSetFormat(f string) (string, bool) {
+	switch f {
+	case "":
+		// 空是合法的：交给核心按后缀推断。
+		return "", true
+	case RuleSetFormatSource, RuleSetFormatBinary:
+		return f, true
+	default:
+		return "", false
+	}
+}
+
+// InferRuleSetFormat 按 URL 后缀推断格式，与 sing-box 的
+// ruleSetDefaultFormat 保持一致（源码依据同上）。
+//
+// 只认 .srs 与 .json 两种后缀。其余后缀返回空串——**不是**猜一个，
+// 而是让调用方报一条「需要显式指定格式」的警告。
+// 猜错的表现是核心拒绝加载该规则集，而用户改的却是 URL。
+func InferRuleSetFormat(rawURL string) string {
+	// 去掉查询串与片段：CDN 常把签名挂在 ?token=... 上，
+	// 直接取后缀会拿到 "srs?token=..."，什么也匹配不上。
+	path := rawURL
+	if i := strings.IndexAny(path, "?#"); i >= 0 {
+		path = path[:i]
+	}
+	switch {
+	case strings.HasSuffix(strings.ToLower(path), ".srs"):
+		return RuleSetFormatBinary
+	case strings.HasSuffix(strings.ToLower(path), ".json"):
+		return RuleSetFormatSource
+	default:
+		return ""
+	}
 }
 
 // SubscriptionSettings 是订阅相关设置。
@@ -357,7 +434,8 @@ func DefaultOptions() Options {
 				MTU:         1500,
 				AutoRoute:   true,
 				StrictRoute: false,
-				DNSHijack:   []string{"any:53"},
+				// 劫持 DNS 到核心自己的 DNS 模块。
+				DNSMode: "hijack",
 			},
 			Sniffer: SniffSettings{
 				Enabled:             true,

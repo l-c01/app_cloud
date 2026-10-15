@@ -4,14 +4,15 @@
 > [`STATUS.md`](STATUS.md)（阶段状态权威来源）与
 > [`../../design/architecture/ui-options.md`](../architecture/ui-options.md)（选项设计）。
 
-更新时间：2026-10-15 · 当前阶段：**单内核收敛完成，选项实现待做**
+更新时间：2026-10-15 · 当前阶段：**后端配置生成基本完成，接下来接 IPC 与界面**
 
 ---
 
 ## 0. 一句话现状
 
 **三个平台的应用产物都已构建成功并核对过内容；单内核（sing-box）收敛已完成并通过 CI；
-接下来要做的是「把 Clash 级别的那套配置选项真正实现出来」——这部分只完成了设计，代码尚未开始。**
+「Clash 级别的那套配置选项」在 Go 后端已基本生成完毕（DNS、TUN、分应用、规则、代理组、
+规则集、嗅探），但界面与 IPC 一层都还没接——选项现在改不了，也没有界面能改。**
 
 ---
 
@@ -53,7 +54,7 @@
 
 ## 2. 未完成 ← 从这里继续
 
-### 2.1 选项实现（主体工作，尚未开始）
+### 2.1 选项实现（主体工作：后端已基本完成）
 
 用户的要求（原文）：
 
@@ -67,14 +68,17 @@
 
 | 步骤 | 范围 | 说明 |
 |---|---|---|
-| **B1** | Go 后端：`shared/domain` 选项模型 + `shared/compiler` 生成 | **部分完成**（见 2.2）。已完成：选项模型、DNS、TUN+分应用、route 规则。**未完成：代理组、规则集、嗅探（见 2.3）、端口、启动项** |
+| **B1** | Go 后端：`shared/domain` 选项模型 + `shared/compiler` 生成 | **基本完成**（见 2.2）。已完成：选项模型、DNS、TUN+分应用、route 规则、代理组、规则集、嗅探。**未完成：混合端口、启动项（见 2.2b）** |
 | **B2** | IPC 契约：`runtime/ipc/protocol.go` + C++ `apps/desktop/src/core/ipc_protocol.{hpp,cpp}` | 两侧一起改 |
 | **B3** | 桌面界面：`apps/desktop/src/ui/pro_panel.{hpp,cpp}`（高级）+ `simple_panel`（简易） | |
 | **B4** | Android 界面：`apps/android/.../ui/ProxyApp.kt` | |
 | **B5** | i18n 文案：`locales/{zh-CN,en}.json` 两侧同步 | |
 | **B6** | 双语文档同步 | |
 
-### 2.2 进度：后端配置生成层已完成三块
+**下一步应当是 B2**：后端能生成的选项已经不少，但界面还一个都没接上去。
+继续往 B1 里加选项的边际收益在下降。
+
+### 2.2 进度：后端配置生成层已完成的各块
 
 每一块都单独通过 CI 7/7：
 
@@ -84,25 +88,114 @@
 | DNS | 生成 `dns` 段：fake-ip、名称服务器（**用稳定标签不用下标**）、过滤列表 | `cfca1cc` |
 | TUN + 分应用 | TUN 入站 + `include_package`/`exclude_package`（**互斥**，走取值方法） | `dd8f752` |
 | route | 用户规则 + 兜底动作；**内建规则一律在用户规则之前** | `695557d` |
+| 代理组 | `selector` / `urltest` 出站；**负载均衡不生成**而是报告（sing-box 无等价物） | `9d57bdf` |
+| 规则集 | `route.rule_set`（仅 remote）+ 规则引用规则集时的存在性核对 | 见 2.3b |
 
 `Request.Options` 是**指针且允许为 nil**：nil 表示"调用方尚未接入选项"，
 此时生成的配置与接入前逐字节一致。这是让选项能**逐块接入**的关键——
 不必一次性改完所有调用方与既有测试。
 
-### 2.3 一处**故意没做**的地方（重要）
+### 2.2b 后端仍缺的两项（都有明确原因，不是遗漏）
+
+**① 混合端口。** `Options.Inbound.MixedPort` 在模型里，但生成器仍按
+`Request.Inbound.HTTPPort` / `SocksPort` 生成**两个分开的入站**
+（`http-in` + `socks-in`），而不是 `ui-options.md` 2.4 节要求的
+一个 `type: "mixed"` 入站。
+
+**没有顺手改掉，是因为它会强制所有调用方和既有测试一起改**
+（`Request.Inbound` 的两个端口字段、IPC 契约、C++ 镜像、以及
+断言这两个入站的测试）。这属于「一次性切换」，不是能增量接入的一块，
+需要单独一批做完并单独验证。
+
+**② 启动项。** `Options.App`（开机自启、启动最小化、自动连接、主题等）
+**不属于配置生成**——它们不产生任何 sing-box 字段，是应用自身的行为，
+要接到 `apps/desktop/src/app/settings.{hpp,cpp}` 与 Android 侧。
+放在编译器里做才是错的。
+
+`ui-options.md` 2.5 节里「覆写目的地址」对应的
+`route.rules[].action: sniff` **尚未生成**，只生成了入站层的
+`sniff_override_destination`（两者在 sing-box 里是不同层面的东西，
+见 2.3）。
+
+### 2.3 嗅探：原先悬着的问题**已用源码解决**（并已实现）
 
 `ui-options.md` 的嗅探一节写了「嗅探协议 TLS / HTTP / QUIC」，
-但 sing-box 的**入站**嗅探是 `sniff: true/false`，
-协议列表未必是入站字段（新版本里它更像路由侧的东西）。
+但 sing-box 的**入站**嗅探是否接受协议列表，此前无法确认，因此没有实现。
 
-**没有真核心可以验证，因此没有实现。**
-猜一个字段名会生成一份核心拒绝的配置，而错误信息来自核心深处——
-这正是设计文档里批评过的「伪选项」。宁可留着不做。
+**这次直接读了参考源码，问题解决了。**
+依据：`src/references/sing-box-testing/option/inbound.go`
 
-**如果接手的人有条件跑真实 sing-box，请先确认这个字段，再实现。**
-顺带把确认结果写进 `capability.go` 的能力表。
+```
+SniffEnabled             bool               `json:"sniff,omitempty"`
+SniffOverrideDestination bool               `json:"sniff_override_destination,omitempty"`
+SniffTimeout             badoption.Duration `json:"sniff_timeout,omitempty"`
+```
+
+**结论：入站层只有上面三个字段，协议列表确实不在入站里。**
+它住在**路由动作**里 —— `option/rule_action.go` 的 `RouteActionSniff`：
+
+```
+Sniffer badoption.Listable[string] `json:"sniffer,omitempty"`
+        enum:"tls,http,quic,dns,stun,bittorrent,dtls,ssh,rdp,ntp"`
+```
+
+而路由动作需要单独一条 `action: "sniff"` 的规则才生效。
+
+因此现在的做法是：**忠实生成入站层的 `sniff` 与 `sniff_override_destination`，
+并对协议列表明确报告「本版本不生效」**——
+既不塞进入站（会被核心当成未知字段拒绝启动），也不静默丢弃
+（用户会以为按 tls 嗅探已经生效）。
+
+需要在界面上把这一点写清楚，否则它就是设计文档批评过的「伪选项」：
+用户改了协议列表，而它没有作用。
+
+路由动作形式的 `sniffer` 列表尚未生成，已作为后续项记在下面。
+
+### 2.3b 规则集：同样的方式解决
+
+规则集字段依据 `option/rule_set.go`，几条容易做错的地方已按源码实现：
+
+| 事实 | 处理 |
+|---|---|
+| `type` 取 `inline` / `local` / `remote` | 只生成 `remote`（见下） |
+| `format` 取 `source` / `binary` | 显式值先校验，非法值报错跳过而不是照抄 |
+| `format` 留空时核心按 `url` 后缀推断（`.srs`→binary，`.json`→source） | 留空时我们按同样规则推断并写死；推断不出来则**不猜**，报明确警告 |
+| 多标签时才要求 URL 含 `{tag}` 占位符 | 单标签，不需要占位符 |
+| `update_interval` 是时长字符串 | 写成 `"%dh"` |
+
+**为什么只生成 `remote`**：`local` 规则集要的是核心进程能读到的一条
+本地文件路径，而「规则集文件放在哪」属于运行时布局（runtime 层的事），
+不是界面选项。没有 `path` 就编一个 `local` 规则集，只会生成一份
+核心启动时找不到文件的配置。因此本地规则集明确跳过并写进报告。
+
+### 2.3c 顺带发现并修掉的一个**真实缺陷**（重要教训）
+
+在核对 TUN 字段时发现：**`dns_hijack` 这个字段在 sing-box 里根本不存在。**
+
+- 原来 `domain.TUNSettings.DNSHijack` 默认 `["any:53"]`，生成器直接写成
+  `in["dns_hijack"] = ...`，而 `ui-options.md` 里也把它当成既定事实写着。
+- 核实依据：`option/tun.go` 的 `TunInboundOptions` 里只有
+  `dns_mode`（enum `disabled,native,hijack`）与 `dns_address`
+  （`badoption.Listable[netip.Addr]`，**只接受 IP 不含端口**）。
+- **后果**：核心对未知字段是拒绝启动的，也就是**每一份开了 TUN 的配置都起不来**。
+- 已改为生成 `dns_mode` / `dns_address`，原语义（劫持 DNS 到核心自己的
+  DNS 模块）正好就是 `dns_mode: "hijack"`，功能没有损失。
+  并加了回归测试 `TestTUNDNSModeUsesRealFields`，它同时断言
+  「不该有的键不存在」——只断言新键存在是拦不住旧键被加回来的。
+
+**教训：字段名「看起来很合理」正是它一直没被发现的原因。**
+从源码里挑字段时，必须**确认那个名字真的出现过**，而不是照着一个
+像命名惯例的名字推断。这类错误在文本级检查里完全看不出来——
+10 项本机检查当时（以及现在）全是绿的。
+
+**接手的人应当怀疑其他未经核对的字段。** 已经逐字段核对过的有：
+出站协议字段、TLS、transport、DNS 段、TUN 入站、分应用、嗅探、
+代理组、规则集、route 规则。**尚未逐一核对**的包括
+`ui-options.md` 2.6 / 2.7 两节（订阅与应用设置——它们不生成 sing-box
+配置，风险较低）。
 
 ### 2.4 一次失败的尝试（避免重复）
+
 
 曾把整个后端（B1）委派给一个子代理，**运行很多轮零代码产出**，最终取消。
 后来又切小了一次（只做 DNS + TUN + 分应用），**同样零产出、无收尾报告**。

@@ -235,6 +235,18 @@ func (r *Request) perAppOptions() *domain.PerApp {
 	return &r.Options.Inbound.PerApp
 }
 
+// sniffOptions 返回嗅探设置；未接入选项时为 nil，此时入站层
+// 不会写 sniff 相关字段。
+//
+// 与 TUN 一样，嗅探只在 TUN 模式下有意义：系统代理与本地端口
+// 拿到的已经是明文目标地址，没有可嗅探的东西。
+func (r *Request) sniffOptions() *domain.SniffSettings {
+	if r.Options == nil {
+		return nil
+	}
+	return &r.Options.Inbound.Sniffer
+}
+
 // validate 做与核心无关的请求级校验。
 func (r *Request) validate() error {
 	if !r.Core.Valid() {
