@@ -5,31 +5,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 只在值非空时写入的 JSON 辅助。
- *
- * 它们**必须存在**，因为本文件各处都在调用；而它们此前只被调用、没有被定义，
- * 于是编译期报出一串「Unresolved reference ... because of a receiver type
- * mismatch」——错误信息指向调用点，看起来像类型用错了，实际是函数根本不存在。
- * 这是「写到一半」最典型的表现：调用方先写完，被调用方没跟上。
- *
- * 做成 [JSONObject] 的扩展函数而不是顶层函数，是为了让
- * `putIfNotEmpty("k", v)` 这种写法在 `JSONObject` 的方法体里自然成立
- * （`this` 就是接收者），与 Go 侧 `omitempty` 的语义一致。
- */
-internal fun JSONObject.putIfNotEmpty(key: String, value: String?) {
-    if (!value.isNullOrEmpty()) {
-        put(key, value)
-    }
-}
-
-/** 只在值非 0 时写入。与 Go 侧的 `omitempty` 对 int 的行为一致。 */
-internal fun JSONObject.putIfNonZero(key: String, value: Int) {
-    if (value != 0) {
-        put(key, value)
-    }
-}
-
-/**
  * 客户端选项模型 / the client option model.
  *
  * **这是 Go 端 shared/domain/options.go 的镜像。** 每个 JSON 字段名都与那边的
