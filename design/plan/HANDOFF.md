@@ -396,22 +396,31 @@ CI 变慢、**本机完全没有 JDK/NDK/SDK/真机因此无法验证**。
 
 不要把「VPN 能建立」写成「Android 能用」。
 
-### 2.2b 后端仍缺的两项（都有明确原因，不是遗漏）
+### 2.2b 后端仍缺的一项（另一项已完成）
 
-**① 混合端口。** `Options.Inbound.MixedPort` 在模型里，但生成器仍按
+**① 混合端口 —— 已完成（2026-10-16）。**
+
+`Options.Inbound.MixedPort` 此前只是个「用户看到的值」：生成器仍按
 `Request.Inbound.HTTPPort` / `SocksPort` 生成**两个分开的入站**
-（`http-in` + `socks-in`），而不是 `ui-options.md` 2.4 节要求的
-一个 `type: "mixed"` 入站。
+（`http-in` + `socks-in`），而 `SocksPort` 是程序用 `MixedPort + 1`
+自己派生的。用户按自己的端口规划填了 7890，实际却占用了 7891——
+当 7891 属于别的程序时核心起不来，而配置文件里根本看不出
+那个端口是从哪来的。
 
-**没有顺手改掉，是因为它会强制所有调用方和既有测试一起改**
-（`Request.Inbound` 的两个端口字段、IPC 契约、C++ 镜像、以及
-断言这两个入站的测试）。这属于「一次性切换」，不是能增量接入的一块，
-需要单独一批做完并单独验证。
+现在改成**一个 `type: "mixed"` 入站**（sing-box 注册了 `C.TypeMixed`，
+同一端口同时提供 HTTP 与 SOCKS），`Request.Inbound` 的两个端口字段
+合并为 `MixedPort`。连带改了：
 
-**② 启动项。** `Options.App`（开机自启、启动最小化、自动连接、主题等）
-**不属于配置生成**——它们不产生任何 sing-box 字段，是应用自身的行为，
-要接到 `apps/desktop/src/app/settings.{hpp,cpp}` 与 Android 侧。
-放在编译器里做才是错的。
+- `coordinator.planForMode` 的 `system_proxy.http` 与 `.socks`
+  现在指向**同一个地址**。这一点很要紧：Windows 的系统代理里这两个是
+  独立的键，写不同地址会让 socks 那条指向没人监听的端口，
+  表现是「浏览器能上网、走 SOCKS 的程序连不上」。
+- `validate()` 里「两个端口必须不同」那条校验随之删除（不再有两个端口）。
+
+**② 启动项 —— 仍未做。** `Options.App`（开机自启、启动最小化、
+自动连接、主题等）**不属于配置生成**——它们不产生任何 sing-box 字段，
+是应用自身的行为，要接到 `apps/desktop/src/app/settings.{hpp,cpp}`
+与 Android 侧。放在编译器里做才是错的。
 
 `ui-options.md` 2.5 节里「覆写目的地址」对应的
 `route.rules[].action: sniff` **尚未生成**，只生成了入站层的
