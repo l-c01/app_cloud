@@ -183,8 +183,7 @@ func systemProxyRequest() ConnectRequest {
 			SelectedNodeID: "node-1",
 			Inbound: compiler.InboundOptions{
 				Listen:    "127.0.0.1",
-				HTTPPort:  7890,
-				SocksPort: 7891,
+				MixedPort: 7890,
 			},
 			Policy: compiler.PolicyGlobal,
 		},
@@ -689,15 +688,24 @@ func TestLocalProxyModeDoesNotTouchSystemSettings(t *testing.T) {
 
 func TestPlanForModeProducesExpectedValues(t *testing.T) {
 	req := &compiler.Request{
-		Inbound: compiler.InboundOptions{Listen: "127.0.0.1", HTTPPort: 7890, SocksPort: 7891},
+		Inbound: compiler.InboundOptions{Listen: "127.0.0.1", MixedPort: 7890},
 	}
 
 	sp := planForMode("system_proxy", req)
 	if sp["system_proxy.http"] != "127.0.0.1:7890" {
 		t.Errorf("system_proxy.http = %q", sp["system_proxy.http"])
 	}
-	if sp["system_proxy.socks"] != "127.0.0.1:7891" {
-		t.Errorf("system_proxy.socks = %q", sp["system_proxy.socks"])
+	// socks 与 http 必须指向**同一个**地址。
+	//
+	// 核心只监听一个 mixed 端口，因此两个键写不同地址就会让其中一条
+	// 指向没人监听的端口——表现是「浏览器能上网、走 SOCKS 的程序连不上」。
+	// 这条断言把「两者必须一致」钉住，而不是各断言各的。
+	if sp["system_proxy.socks"] != "127.0.0.1:7890" {
+		t.Errorf("system_proxy.socks = %q，期望与 http 相同的 127.0.0.1:7890", sp["system_proxy.socks"])
+	}
+	if sp["system_proxy.http"] != sp["system_proxy.socks"] {
+		t.Errorf("http 与 socks 必须以同一个 mixed 端口接管，实际 %q / %q",
+			sp["system_proxy.http"], sp["system_proxy.socks"])
 	}
 
 	if len(planForMode("local_proxy", req)) != 0 {
