@@ -4,18 +4,15 @@
 > [`STATUS.md`](STATUS.md)（阶段状态权威来源）与
 > [`../../design/architecture/ui-options.md`](../architecture/ui-options.md)（选项设计）。
 
-更新时间：2026-10-15 · 当前阶段：**后端配置生成完成并通过 CI，接下来接 IPC 与界面**
+更新时间：2026-10-15 · 当前阶段：**后端配置生成基本完成，接下来接 IPC 与界面**
 
 ---
 
 ## 0. 一句话现状
 
 **三个平台的应用产物都已构建成功并核对过内容；单内核（sing-box）收敛已完成并通过 CI；
-「Clash 级别的那套配置选项」在 Go 后端已经生成完毕（DNS、TUN、分应用、规则、代理组、
-规则集、嗅探）并通过 CI 7/7，但 IPC 与界面一层都还没接——选项现在改不了，
-也没有界面能改。**
-
-**下一步是 B2（IPC 契约）**，见 2.1。
+「Clash 级别的那套配置选项」在 Go 后端已基本生成完毕（DNS、TUN、分应用、规则、代理组、
+规则集、嗅探），但界面与 IPC 一层都还没接——选项现在改不了，也没有界面能改。**
 
 ---
 
@@ -93,26 +90,10 @@
 | route | 用户规则 + 兜底动作；**内建规则一律在用户规则之前** | `695557d` |
 | 代理组 | `selector` / `urltest` 出站；**负载均衡不生成**而是报告（sing-box 无等价物） | `9d57bdf` |
 | 规则集 | `route.rule_set`（仅 remote）+ 规则引用规则集时的存在性核对 | 见 2.3b |
-| 嗅探 | 入站层 `sniff` / `sniff_override_destination`；协议列表明确报告不生效 | 见 2.3 |
-| TUN DNS 缺陷修复 | 去掉不存在的 `dns_hijack`，改用真实的 `dns_mode` / `dns_address` | 见 2.3c |
-
-**这一批（规则集 + 嗅探 + 缺陷修复）已通过 CI 7/7**；
-本机 `10/10` 只是文本级检查，不代表能编译。过程中 CI 连续暴露了三类问题，
-都是**本机检查看不见**的：注释与 `func` 挤在同一行导致语法错误、
-两条测试用错策略（global 而非 rule）导致断言恒空、
-gofmt 要求去掉注释里成对的反引号。三次都已修掉，
-每条教训都写进了第 4 节的坑表。
 
 `Request.Options` 是**指针且允许为 nil**：nil 表示"调用方尚未接入选项"，
 此时生成的配置与接入前逐字节一致。这是让选项能**逐块接入**的关键——
 不必一次性改完所有调用方与既有测试。
-
-### 2.2c 写测试时的一个坑（这次踩了两次）
-
-规则集与用户规则**只在规则模式下生成**（global / direct 都不看规则）。
-因此凡是断言 `route.*` 的测试**不能**复用那个用 global 策略的
-`compileWithOptions`——否则断言看到的是空列表，看起来像「生成器坏了」，
-实际是测试没走到那条路径。已加 `compileInRuleMode` 专供这类用例。
 
 ### 2.2b 后端仍缺的两项（都有明确原因，不是遗漏）
 
@@ -215,33 +196,16 @@ Sniffer badoption.Listable[string] `json:"sniffer,omitempty"`
 
 ### 2.4 一次失败的尝试（避免重复）
 
+
 曾把整个后端（B1）委派给一个子代理，**运行很多轮零代码产出**，最终取消。
 后来又切小了一次（只做 DNS + TUN + 分应用），**同样零产出、无收尾报告**。
 
-**当时的结论是「这类 Go 后端改动不要再委派」。这条结论已部分作废**——
-见下面的更新。
-
+**结论：这类 Go 后端改动不要再委派**，自己做。
 子代理在文档整理、跨包机械清理上表现很好（单内核收敛的三个批次都是它们做的），
 但在"需要新增代码并自己验证"的任务上反复失败。
 
-原因当时是推测的：它们无法编译，只能靠检查脚本判断，而检查脚本不报错时
+原因是推测的：它们无法编译，只能靠检查脚本判断，而检查脚本不报错时
 它们可能陷入反复确认。反过来，机械性的替换/删除有明确的完成信号。
-
-**2026-10-15 更新：本机装上了工作区本地的 Go 之后，这个推测成立了一半。**
-那两次失败期间，检查脚本确实**不报错就代表成功**——因为它们只能做文本级检查。
-现在子代理可以自己跑：
-
-```powershell
-& .\tools\scripts\go-local.ps1 -Command test ./...
-```
-
-也就是**有了明确的完成信号**。因此：
-
-- **Go 改动的委派可以重新尝试**，但委派说明里必须明确要求
-  子代理自己跑 `go-local.ps1 -Command vet/test`，并把输出作为交付证据；
-- 仍然不要委派「需要判断设计取舍」的改动——那两次失败里也混着
-  「不知道要交付什么」的问题，不只是编译；
-- 交付报告仍要**当证据看**：自评成功时自己复核（第 3.4 节）。
 
 ---
 
@@ -250,26 +214,9 @@ Sniffer badoption.Listable[string] `json:"sniffer,omitempty"`
 ### 3.1 环境
 
 - 仓库根：`D:\workai\xbaord`，**只在这个目录内改文件**
-- **本机已有 Go（2026-10-15 起）**：`D:\workai\toolchain\go`，**工作区本地、不写 PATH、
-  不写注册表**，不要了直接删目录。用 `tools/scripts/go-local.ps1` 调用：
-  ```powershell
-  & .\tools\scripts\go-local.ps1 -Command vet  ./...
-  & .\tools\scripts\go-local.ps1 -Command test ./...
-  & .\tools\scripts\go-local.ps1 -Command fmt            # 等价于 CI 的 gofmt 检查
-  ```
-  它自己设 `GOROOT`/`GOCACHE`/`GOMODCACHE`/`GOTOOLCHAIN=local`，目录都在
-  `D:\workai\toolchain` 下。**`go build`/`go test` 现在能本地跑**，
-  Go 侧的改动不必再靠 CI 往返。
-- **本机仍然没有 CMake / JDK / Android SDK，也没有 MSVC**
-  （`vswhere` 与 `C:\Program Files\Microsoft Visual Studio` 都不存在；
-  此前「桌面端能编译」是 CI 的 Linux runner 做的，不是本机）。
-  因此 **C++ 与 Kotlin 仍然只能靠 CI**。
+- 本机**没有 Go / CMake / JDK / Android SDK**，无法编译
 - Shell 是 Windows PowerShell 5.1；`git` 在 `C:\Program Files\Git\cmd\git.exe`（**不在 PATH**）
-- **`github.com:443` 与 `dl.google.com` 不可达**；`api.github.com`、
-  `go.dev`、`proxy.golang.org`、`mirrors.aliyun.com` 可用
-- 装 Go 时官方下载站（`go.dev/dl`、`dl.google.com/go`）**全部 404**，
-  改用 `https://mirrors.aliyun.com/golang/`，并**用官方 JSON 里的 SHA256 校验**后
-  才解压——镜像能用不等于字节一致，校验通过才说明一致
+- **`github.com:443` 不可达**；`api.github.com` 与 `codeload.github.com` 可用
 - 开工前先 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`
 
 ### 3.2 推送
@@ -295,33 +242,10 @@ $rc.tree.sha -eq (git rev-parse 'HEAD^{tree}')
 & .\tools\scripts\run-all-checks.ps1 -LogPath "output\reports\verification-run-<日期>.txt" -Quiet
 ```
 
-11 项检查。**其中只有「Go formatting」会编译/解析 Go，且只在装了本地
-Go 时运行**；它会报 `SKIP`（不是 PASS）——**SKIP 表示什么都没验证**，
-不要把 SKIP 读成通过。
+10 项本机检查。**注意：它们只做文本级检查，不编译任何东西。**
+编译与单元测试只能靠 GitHub Actions（push 会触发 `ci.yml`）。
 
-Go 侧真正的验证是这两条（本地可直接跑）：
-
-```powershell
-& .\tools\scripts\go-local.ps1 -Command vet  ./...
-& .\tools\scripts\go-local.ps1 -Command test ./...
-```
-
-**C++、Kotlin、以及 Go 的完整构建仍然只有 CI 能证明。**
-push 会触发 `ci.yml`（7 个作业）。
-
-`check-go-symbols.ps1` 在这些纯文本检查里最有用——它能发现「引用了已删除的符号」。
-
-**但这套检查有一个已验证的盲区：它不解析 Go 语法。**
-一次改动里 `// 说明。func TestX(...)` 被拼成一行（`func` 落进注释，
-函数体成了游离语句），**当时 10 项检查依然全绿**，而 CI 直接失败。
-现在这条盲区已由本地 `go vet`/`go test` 覆盖，但**没装 Go 的机器上仍然存在**，
-所以那台机器上还应做两件廉价的机械核对：
-
-1. **声明是否在行首**：扫 `\S\s+(func|type)\s+\w+\(`；
-2. **注释里是否有成对的反引号**：gofmt 会把它们规范成弯引号，
-   于是「本机看起来没问题」的文件在 CI 的格式化作业里失败。
-
-两条都是几行 PowerShell 就能扫的（见第 4 节坑表最后两行）。
+`check-go-symbols.ps1` 是最有用的一个——它能发现「引用了已删除的符号」。
 
 ### 3.4 省上下文的做法（这个项目验证过有效）
 
@@ -351,9 +275,6 @@ push 会触发 `ci.yml`（7 个作业）。
 | `Start-Process` 复制环境变量 | 父子进程都有 `NO_PROXY`/`no_proxy` 时抛异常 | 改用 `cmd /c ... > file` 读字节 |
 | git 提交信息用 `-m` 传多行中文 | PowerShell 转义拆坏消息 | 写文件 + `-F` |
 | 测试断言 Windows 模式位 | `runtime/ipc` 与 `journalfile` 两个测试**时好时坏** | 平台不适用要显式 skip |
-| **注释与 `func` 挤在同一行** | 编辑时把 `// 说明。func TestX(...)` 拼到一行，`func` 落进注释，函数体成了游离语句；CI 报 `expected declaration, found opts` | **10 项本机检查全绿也发现不了**——它们只做文本级检查，不解析 Go 语法。改完 Go 后要专门扫一遍「声明是否在行首」，不能只信检查脚本 |
-| **注释里成对的反引号** | gofmt 把注释中的成对反引号规范成弯引号，格式化作业因此失败 | 本机没有 gofmt 就不该在注释里用成对反引号。`adapter.go` 里那份带列表缩进的没事，别照抄它的形式 |
-| **测试用了错误的策略** | 断言 `route.rule_set` 的用例复用了 global 策略的辅助函数，结果恒为空列表，看起来像生成器坏了 | 规则集与用户规则**只在规则模式下生成**。测 route 的用例必须显式用 rule 策略 |
 
 ---
 
