@@ -98,9 +98,6 @@ struct AppContext {
     // 比让用户点了之后收到「不支持该操作」更难排查。
     bool Supports(const std::string& operation) const;
 
-    // Supports 报告服务端是否声明支持某操作。
-    bool Supports(const std::string& operation) const;
-
     // ServiceAvailable 报告后台服务是否可用。
     bool ServiceAvailable() const { return ipc.IsConnected(); }
 
