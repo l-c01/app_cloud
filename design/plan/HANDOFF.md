@@ -54,6 +54,36 @@ IPC 有 8 个会话/订阅操作，两端界面都已接上：桌面端有登录
 Android 的 IPC 客户端——凡是「两个模块约定一件事」的地方。
 判断方法：问「这件事有没有一个测试，同时看见约定两端的实现？」
 
+### 第四处：接管失败时按 `applied` 判断，回滚被整段跳过
+
+`Connect` 的回滚路径用 `len(applied) > 0` 判断「是否改过网络」。
+但 **`Apply` 失败不等于什么都没改**——平台层可能已经写了前几项设置
+才返回错误，而 `applied` 是随成功结果一起返回的，出错时仍是 nil。
+判据为假 → **回滚被跳过** → 机器停在「代理指向不存在的端口」，即断网。
+
+已改为按 `snapshot` 判断：它非空表示「已取到改动前的状态，并且就要动手改」，
+这才是该准备回滚的时刻。
+
+这条**不是读代码发现的**，而是新加的 `TestWiringApplyFailureRollsBack`
+第一次运行就失败，直接指向了那行判据。
+
+### 接入方式与平台能力必须对得上（Android 侧的一处默认值错误）
+
+两个事实放在一起会出问题：
+
+- `netmgr.NoopBackend`（未实现的平台，含 Android）的 `Apply` 会**明确失败**，
+  理由是「only local proxy mode is available」；
+- 但 Android 的 `ClientOptions.defaults()` 里 `trafficEntry = system_proxy`
+  （照抄了桌面端的默认值）。
+
+于是 Android 用户第一次点「连接」就会失败，而且失败原因看起来像配置错误，
+实际是这个**默认值本身选错了**。已改为 `local_proxy`，并在注释里写明
+TUN 落地后应当改成 `tun`。
+
+顺带确认了一件好事：`NoopBackend.Apply` 是**明确报错**而不是假装成功。
+如果它返回成功，用户会看到「已连接」而流量根本没走代理——
+那比报错糟得多。
+
 ### 一个容易踩的坑：Android 不在 push 触发的 CI 里
 
 `.github/workflows/build-android.yml` **只有 `workflow_dispatch`**，
