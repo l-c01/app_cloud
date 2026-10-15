@@ -159,7 +159,17 @@ data class ClientOptions(
                 listen = "127.0.0.1",
                 mixedPort = 7890,
                 allowLan = false,
-                trafficEntry = TrafficEntry.SYSTEM_PROXY,
+                // 默认「仅本地代理」，**不是** system_proxy。
+                //
+                // system_proxy 在 Android 上没有实现，平台的网络后端会明确
+                // 拒绝接管（报「only local proxy mode is available」）。
+                // 把它当成默认值，后果是用户第一次点「连接」就失败，
+                // 而失败原因看起来像配置错误，实际是这个默认值本身选错了。
+                //
+                // 用 local_proxy 作默认是「至少不会假装成功」的选择：
+                // 它会如实建立本地端口，用户能否上网取决于别的应用怎么用这个端口。
+                // TUN 落地之后（见 ADR-0006）这里应当改成 TUN。
+                trafficEntry = TrafficEntry.LOCAL_PORT,
                 perApp = PerApp(mode = PerAppMode.ALL),
                 tun = TunSettings(
                     enabled = false,
