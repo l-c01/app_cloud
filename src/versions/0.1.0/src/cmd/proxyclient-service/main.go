@@ -295,17 +295,10 @@ type startParams struct {
 type switchNodeParams struct {
 	// Compile 是带新选中节点的完整编译请求。
 	//
-	// 它**可为 nil**：登录、订阅与节点集合现在都住在服务端会话里
-	// （runtime/session），界面只需要说「切到这个节点」。
-	// 要求界面回传一份完整请求等于要求它维护节点集合的第二份副本，
-	// 而两份副本不一致时会出现「切到了不存在的节点」。
+	// 之所以要求完整请求而不是只给一个节点 ID：服务端不持有节点列表
+	// （那是客户端的资产），只给 ID 会让服务必须维护一份副本，
+	// 两份副本不一致时会出现「切换到了不存在的节点」。
 	Compile *compiler.Request `json:"compile"`
-	// NodeID 是要切换到的节点 ID；Compile 为 nil 时使用。
-	//
-	// 字段名与 SelectNodeParams 及 SelectNodeResult 的 selectedNodeId 保持一致：
-	// 同一个概念在协议里只应有一种拼写，否则界面很容易发对一个、
-	// 发错另一个，而错的那个表现为「服务端说参数无效」。
-	NodeID string `json:"nodeId,omitempty"`
 }
 
 type setModeParams struct {
@@ -491,101 +484,35 @@ func (h *serviceHandler) start(ctx context.Context, params json.RawMessage) (any
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, h.badParams("start", err)
 	}
-
-	// 编译请求可以来自两处，优先级明确：
-	//
-	//   1. 调用方显式给出（req.Compile）——保留给「用一份手写的请求连接」
-	//      这类场景，也是既有测试与老客户端走的路径；
-	//   2. 否则由**服务端会话**构造（登录 → 拉订阅 → 选项 → 编译请求）。
-	//
-	// 必须支持第 2 条：登录、订阅与选项现在都住在服务端
-	// （见 runtime/session），界面只需说「连接」。界面并不知道
-	// 节点集合与选项的最新状态，让它自己拼一份请求等于要求它
-	// 维护第二份副本，而两份副本不一致时会出现
-	// 「界面显示 A、实际连 B」。
-	compileReq := req.Compile
-	if compileReq == nil {
-		built, serr := h.buildRequestFromSession()
-		if serr != nil {
-			return nil, h.sessionRPCError("start", serr)
+	if req.Compile == nil {
+		return nil, &ipc.RPCError{
+			Code:       ipc.CodeInvalidParams,
+			MessageKey: "core.config_rejected",
+			Message:    "a compile request is required to start",
+			Retryable:  false,
 		}
-		compileReq = built
 	}
 
-	// 接入方式。三层回退，顺序有意义：
-	//
-	//   1. 调用方显式给出（req.Mode）；
-	//   2. 本次进程内最后一次 SetNetworkMode 的选择；
-	//   3. **会话选项里的 TrafficEntry**（界面上「流量接入方式」那一项）。
-	//
-	// 第 3 层是必须的，不能省。planForMode("") 返回**空计划**，也就是
-	// 「不接管任何网络设置」——于是核心起来了、状态显示「已连接」，
-	// 但系统代理根本没被改动，用户的流量一点都没走代理。
-	// 而界面从来不发 mode（它只发「连接」），所以缺了这一层时，
-	// 默认路径上**永远不会有任何接管**，而且看起来一切正常。
-	//
-	// 用选项模型而不是让界面多发一个字段：同一件事只能有一个来源，
-	// 否则界面显示的接入方式与实际接管的可能不一致。
-	mode := req.Mode
-	if mode == "" {
-		mode = h.lastMode
-	}
-	if mode == "" {
-		mode = h.sessions.TrafficEntry()
-	}
-
-	// 就绪地址：调用方没给就按入站配置推出来。
-	//
-	// **不能默认留空。** 留空意味着「不校验就绪」，于是服务会在核心还没
-	// 开始监听时就把系统代理指向它——用户看到的是「连上了，但浏览器
-	// 完全打不开网页」，而真正的原因只是早了几百毫秒。
-	// 接管网络之前先确认监听端口可用，是这条链路上最该守住的一步。
-	//
-	// 推导逻辑在 compiler.InboundOptions.ReadyAddress()，那里可以被单测覆盖。
-	readyAddress := req.ReadyAddress
-	if readyAddress == "" {
-		readyAddress = compileReq.Inbound.ReadyAddress()
-	}
-
-	h.runner.setReadyAddress(readyAddress)
-	h.lastMode = mode
+	h.runner.setReadyAddress(req.ReadyAddress)
+	h.lastMode = req.Mode
 
 	if err := h.coordinator.Connect(ctx, coordinator.ConnectRequest{
-		Compile: compileReq,
-		Mode:    mode,
+		Compile: req.Compile,
+		Mode:    req.Mode,
 	}); err != nil {
 		rpcErr := h.internal("start", err)
 		rpcErr.MessageKey = coordinator.MessageKeyFor(err)
 		return nil, rpcErr
 	}
 
-	readyVerified := readyAddress != ""
+	readyVerified := req.ReadyAddress != ""
 	return map[string]any{
 		"ok": true,
 		// 明确告诉客户端「就绪是否被验证过」：只看「启动成功」
 		// 会把「进程起来了但还没监听」当成可用。
 		"readyVerified": readyVerified,
-		// 回传实际使用的接入方式：界面据此显示「用哪种方式接管的」，
-		// 而不是显示它自己以为的那个。
-		"mode":  mode,
-		"state": h.runtimeState(),
+		"state":         h.runtimeState(),
 	}, nil
-}
-
-// readyAddressFor 已移到 compiler.InboundOptions.ReadyAddress()：
-// 它完全由入站配置决定，放在那里可以被单测覆盖，而放在本文件只能靠
-// 真的起一次核心来验证。
-
-// buildRequestFromSession 用服务端会话构造一次编译请求。
-//
-// 会话不存在或还没拉订阅时返回分类明确的错误，
-// 而不是让调用方拿到一份空节点列表去猜。
-func (h *serviceHandler) buildRequestFromSession() (*compiler.Request, *session.Error) {
-	sess := h.sessions.Session()
-	if sess == nil {
-		return nil, session.ErrNotConfigured()
-	}
-	return sess.BuildRequest()
 }
 
 func (h *serviceHandler) switchNode(ctx context.Context, params json.RawMessage) (any, *ipc.RPCError) {
@@ -593,39 +520,13 @@ func (h *serviceHandler) switchNode(ctx context.Context, params json.RawMessage)
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, h.badParams("switchNode", err)
 	}
-	// 两条路径，与 start 一致：
-	//   1. 调用方给出完整请求（老客户端与既有测试）；
-	//   2. 只给出节点 ID（现在的界面），由服务端在会话里选定该节点后
-	//      构造请求。
-	compileReq := req.Compile
-	if compileReq == nil {
-		if req.NodeID == "" {
-			return nil, &ipc.RPCError{
-				Code:       ipc.CodeInvalidParams,
-				MessageKey: "session.error.node_not_found",
-				Message:    "switching a node requires either a compile request or a nodeId",
-				FieldPath:  "nodeId",
-				Retryable:  false,
-			}
+	if req.Compile == nil {
+		return nil, &ipc.RPCError{
+			Code:       ipc.CodeInvalidParams,
+			MessageKey: "core.config_rejected",
+			Message:    "switching a node requires a full compile request",
+			Retryable:  false,
 		}
-		sess := h.sessions.Session()
-		if sess == nil {
-			return nil, h.sessionRPCError("switchNode", session.ErrNotConfigured())
-		}
-		// 注意顺序：先选定再构造请求，否则请求里带的还是旧节点。
-		//
-		// 已选中同一个节点时跳过：NodeIDByRef 会加锁，而 SetOptions
-		// 与它共享同一把锁，重复调用没有意义。
-		if sess.SelectedNodeID() != req.NodeID {
-			if serr := sess.SelectNodeByID(req.NodeID); serr != nil {
-				return nil, h.sessionRPCError("switchNode", serr)
-			}
-		}
-		built, serr := sess.BuildRequest()
-		if serr != nil {
-			return nil, h.sessionRPCError("switchNode", serr)
-		}
-		compileReq = built
 	}
 
 	// 切换节点是一次完整的重连：断开 → 用新节点重新编译并连接。
@@ -635,7 +536,7 @@ func (h *serviceHandler) switchNode(ctx context.Context, params json.RawMessage)
 		return nil, h.internal("switchNode/disconnect", err)
 	}
 	if err := h.coordinator.Connect(ctx, coordinator.ConnectRequest{
-		Compile: compileReq,
+		Compile: req.Compile,
 		Mode:    h.lastMode,
 	}); err != nil {
 		rpcErr := h.internal("switchNode/connect", err)
@@ -964,13 +865,6 @@ func (h *serviceHandler) internal(op string, err error) *ipc.RPCError {
 // 而不是静默不做事。用户因此能区分「我配错了」和「这个平台还没做」。
 func platformBackend() netmgr.Backend {
 	switch runtime.GOOS {
-	case "windows":
-		// Windows 走注册表 + wininet 刷新。
-		//
-		// 这一支此前**不存在**：platform/winproxy 早已有完整实现
-		// （含所有权校验与注入防护），但没有任何代码引用它，
-		// 于是 Windows 落到下面的 NoopBackend，系统代理接管是死代码。
-		return netmgr.NewWindowsBackend(nil)
 	case "linux":
 		// GNOME 后端在非 GNOME 桌面上会报告不可用，
 		// 由 gnome.Available 判定，这里不预先假设。
