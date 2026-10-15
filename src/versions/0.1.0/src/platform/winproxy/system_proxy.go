@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // registryKey 是当前用户的 Internet Settings 键。
@@ -82,19 +83,89 @@ func (u UnavailableRunner) Run(context.Context, string, ...string) ([]byte, erro
 	return nil, errors.New("winproxy: " + reason)
 }
 
+// Notifier 在写入注册表之后通知系统「代理设置变了」。
+//
+// 为什么必须有这一步：注册表是**存储**，不是通知机制。
+// 只改注册表时，**已经在运行**的应用（浏览器、微信、各种 Electron 程序）
+// 会继续用启动时读到的旧设置，而新启动的程序正常。
+// 于是用户看到的是「连上了，但浏览器还是直连」——
+// 他会去怀疑核心、怀疑节点，而真正的原因是少了一次通知。
+//
+// 做成接口是为了可测：真实实现在 Windows 上调用 wininet.dll，
+// 本机与 CI 的 Linux 作业都跑不了它，而「是否在写入后调用过通知」
+// 这件事本身是必须被验证的。用假实现断言调用次数即可。
+type Notifier interface {
+	// Notify 通知系统刷新代理设置。
+	//
+	// 返回的错误**不应**让整个接管失败：注册表已经写成功了，
+	// 失败的后果只是「部分应用需要重启才能生效」，比回滚更好。
+	// 调用方据此报告一条降级提示。
+	Notify() error
+}
+
 // Manager 管理当前用户的系统代理设置。
 type Manager struct {
-	runner Runner
+	runner   Runner
+	notifier Notifier
+
+	// mu 保护 notifyErr。Manager 会被并发的 IPC 调用共享，
+	// 而「写入 → 通知 → 读结果」不是原子的。
+	mu        sync.Mutex
+	notifyErr error
 }
 
 // New 构造 Manager。
 //
 // runner 为 nil 时使用 ExecRunner（即真的调用 reg.exe）。
+// notifier 为 nil 时使用本平台的默认实现（Windows 上调用 wininet，
+// 其它平台为空实现——那里的注册表路径本来也不会被走到）。
 func New(runner Runner) *Manager {
 	if runner == nil {
 		runner = ExecRunner{}
 	}
-	return &Manager{runner: runner}
+	return &Manager{runner: runner, notifier: platformNotifier{}}
+}
+
+// SetNotifier 替换通知实现，供测试注入假实现。
+func (m *Manager) SetNotifier(n Notifier) {
+	if n == nil {
+		return
+	}
+	m.notifier = n
+}
+
+// notify 在写入成功后通知系统；失败时返回错误由调用方降级处理。
+func (m *Manager) notify() error {
+	if m.notifier == nil {
+		return nil
+	}
+	return m.notifier.Notify()
+}
+
+// setNotifyError 记录「通知系统刷新」这一步的结果。
+//
+// 它单独存而不是混进返回的 map：那个 map 是**写入的键值对**，
+// 会原样交给协调器用于将来的恢复。往里塞一个不是设置的键
+// 会让恢复时去注册表里找一个不存在的值。
+func (m *Manager) setNotifyError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.notifyErr = err
+}
+
+// NotifyError 返回最近一次写入后通知系统的结果。
+//
+// 非 nil 表示注册表已经改对了，但**部分正在运行的应用可能不会立即生效**。
+// 调用方应当把它作为一条降级提示呈现给用户，而不是当作接管失败：
+// 回滚一次正确的写入只会让状态更糟。
+//
+// 读取后即清空，避免上一次的失败被重复报告给下一次无关的操作。
+func (m *Manager) NotifyError() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	err := m.notifyErr
+	m.notifyErr = nil
+	return err
 }
 
 // proxyValuePattern 校验代理值形如 host:port。
@@ -191,6 +262,13 @@ func (m *Manager) ApplySystemProxy(ctx context.Context, host string, port int) (
 		}
 	}
 
+	// 最后一步：通知系统刷新。
+	//
+	// 放在所有写操作之后。失败**不**让接管失败（见 Notifier 的说明）：
+	// 注册表已经改对了，只是部分正在运行的应用要等重启才生效。
+	// 因此记下来由调用方报告一条降级提示，而不是回滚一次正确的写入。
+	m.setNotifyError(m.notify())
+
 	return applied, nil
 }
 
@@ -249,6 +327,10 @@ func (m *Manager) ApplyPAC(ctx context.Context, pacURL string) (map[string]strin
 		return nil, err
 	}
 	applied[keyProxyEnable] = "0"
+
+	// PAC 接管同样要通知系统，理由与静态代理一致。
+	m.setNotifyError(m.notify())
+
 	return applied, nil
 }
 
@@ -310,6 +392,11 @@ func (m *Manager) Restore(ctx context.Context, original, applied map[string]stri
 			result.Missing = append(result.Missing, key)
 		}
 	}
+
+	// 恢复同样要通知系统。少了这一步，「断开连接」之后
+	// 已经在运行的应用仍然以为自己该走代理，于是全部断网——
+	// 用户看到的是「断开之后没网了」，而注册表其实已经恢复正确。
+	m.setNotifyError(m.notify())
 
 	return result, nil
 }

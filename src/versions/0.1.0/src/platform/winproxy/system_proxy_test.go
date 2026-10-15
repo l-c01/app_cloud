@@ -442,3 +442,132 @@ func TestSnapshotTreatsNotFoundAsAbsent(t *testing.T) {
 		t.Errorf("snapshot = %v, want empty", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 写入后的系统刷新通知
+// ---------------------------------------------------------------------------
+
+// fakeNotifier 记录通知次数，并可返回预设错误。
+type fakeNotifier struct {
+	calls int
+	err   error
+}
+
+func (f *fakeNotifier) Notify() error {
+	f.calls++
+	return f.err
+}
+
+// 写入系统代理之后**必须**通知系统刷新。
+//
+// 为什么这是一条必须有的测试：只改注册表时，已经在运行的应用
+// （浏览器、微信、Electron 程序）会继续用启动时读到的旧设置，
+// 而新启动的程序正常。用户看到的是「连上了，但浏览器还是直连」，
+// 于是去怀疑核心和节点——真正的原因只是少了一次通知。
+//
+// 而这一次通知在 Linux CI 上根本无法真实执行（它调 wininet），
+// 所以「到底有没有调用」只能靠注入的假实现来验证。
+func TestApplySystemProxyNotifiesTheSystem(t *testing.T) {
+	r := newFakeRunner()
+	m := New(r)
+	n := &fakeNotifier{}
+	m.SetNotifier(n)
+
+	if _, err := m.ApplySystemProxy(context.Background(), "127.0.0.1", 7890); err != nil {
+		t.Fatalf("ApplySystemProxy: %v", err)
+	}
+	if n.calls != 1 {
+		t.Errorf("写入后应当通知系统一次，实际 %d 次", n.calls)
+	}
+	if err := m.NotifyError(); err != nil {
+		t.Errorf("通知成功时不应留下错误，实际 %v", err)
+	}
+}
+
+// PAC 接管同样必须通知系统。
+func TestApplyPACNotifiesTheSystem(t *testing.T) {
+	r := newFakeRunner()
+	m := New(r)
+	n := &fakeNotifier{}
+	m.SetNotifier(n)
+
+	if _, err := m.ApplyPAC(context.Background(), "http://127.0.0.1:7892/proxy.pac"); err != nil {
+		t.Fatalf("ApplyPAC: %v", err)
+	}
+	if n.calls != 1 {
+		t.Errorf("写入 PAC 后应当通知系统一次，实际 %d 次", n.calls)
+	}
+}
+
+// 恢复设置之后也必须通知系统。
+//
+// 少了这一步，「断开连接」之后已经在运行的应用仍然以为自己该走代理，
+// 于是全部断网——用户看到的是「断开之后没网了」，
+// 而注册表其实已经恢复正确。
+func TestRestoreNotifiesTheSystem(t *testing.T) {
+	r := newFakeRunner()
+	r.outputs["query"] = "    ProxyEnable    REG_DWORD    0x1\r\n"
+	m := New(r)
+	n := &fakeNotifier{}
+	m.SetNotifier(n)
+
+	_, err := m.Restore(context.Background(),
+		map[string]string{keyProxyServer: "127.0.0.1:7890"},
+		map[string]string{keyProxyEnable: "1"})
+	if err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if n.calls != 1 {
+		t.Errorf("恢复后应当通知系统一次，实际 %d 次", n.calls)
+	}
+}
+
+// 通知失败**不得**让接管失败。
+//
+// 注册表已经改对了：回滚一次正确的写入只会让状态更糟。
+// 正确做法是记下来，由调用方作为降级提示呈现——
+// 「已生效，但部分正在运行的应用需要重启」。
+func TestNotifyFailureDoesNotFailTakeover(t *testing.T) {
+	r := newFakeRunner()
+	m := New(r)
+	n := &fakeNotifier{err: errors.New("wininet exploded")}
+	m.SetNotifier(n)
+
+	applied, err := m.ApplySystemProxy(context.Background(), "127.0.0.1", 7890)
+	if err != nil {
+		t.Fatalf("通知失败不应让接管失败，实际 %v", err)
+	}
+	if applied[keyProxyEnable] != "1" {
+		t.Errorf("注册表写入应当完成，实际 enabled=%q", applied[keyProxyEnable])
+	}
+
+	// 但失败必须**可见**：静默吞掉会让用户永远不知道
+	// 「为什么有些应用没走代理」。
+	nerr := m.NotifyError()
+	if nerr == nil {
+		t.Fatalf("通知失败时必须记录下来")
+	}
+	if !strings.Contains(nerr.Error(), "wininet") {
+		t.Errorf("记录的错误应当说明原因，实际 %v", nerr)
+	}
+}
+
+// NotifyError 读取后即清空。
+//
+// 不清空的话，一次失败会被重复报告给后续每一个无关的操作，
+// 用户会以为一直在出错。
+func TestNotifyErrorIsClearedAfterReading(t *testing.T) {
+	r := newFakeRunner()
+	m := New(r)
+	m.SetNotifier(&fakeNotifier{err: errors.New("boom")})
+
+	if _, err := m.ApplySystemProxy(context.Background(), "127.0.0.1", 7890); err != nil {
+		t.Fatalf("ApplySystemProxy: %v", err)
+	}
+	if m.NotifyError() == nil {
+		t.Fatalf("第一次读取应当拿到错误")
+	}
+	if err := m.NotifyError(); err != nil {
+		t.Errorf("第二次读取应当为空，实际 %v", err)
+	}
+}
