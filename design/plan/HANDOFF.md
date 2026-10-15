@@ -275,6 +275,7 @@ $rc.tree.sha -eq (git rev-parse 'HEAD^{tree}')
 | `Start-Process` 复制环境变量 | 父子进程都有 `NO_PROXY`/`no_proxy` 时抛异常 | 改用 `cmd /c ... > file` 读字节 |
 | git 提交信息用 `-m` 传多行中文 | PowerShell 转义拆坏消息 | 写文件 + `-F` |
 | 测试断言 Windows 模式位 | `runtime/ipc` 与 `journalfile` 两个测试**时好时坏** | 平台不适用要显式 skip |
+| **注释与 `func` 挤在同一行** | 编辑时把 `// 说明。func TestX(...)` 拼到一行，`func` 落进注释，函数体成了游离语句；CI 报 `expected declaration, found opts` | **10 项本机检查全绿也发现不了**——它们只做文本级检查，不解析 Go 语法。改完 Go 后要专门扫一遍「声明是否在行首」，不能只信检查脚本 |
 
 ---
 
