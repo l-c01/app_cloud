@@ -801,54 +801,23 @@ func (s *Session) Account() *AccountInfo {
 // 服务进程启动日志转发前应调用它，把节点密码、会话凭据、订阅链接
 // 一次性登记进去；否则核心日志里一旦回显凭据就会被写进文件。
 func (s *Session) Scrubber() *secrets.Scrubber {
-	sc := secrets.NewScrubber()
-	for _, v := range s.Secrets() {
-		sc.Add(v)
-	}
-	return sc
-}
-
-// Secrets 返回当前会话中所有属于凭据的字符串。
-//
-// 它存在的理由：脱敏器是**累积**的（secrets.Scrubber 只有 Add，
-// 没有「重新登记」），而服务进程会经历多次登录与订阅刷新。
-// 因此每次拿到新会话后，调用方需要把这一批凭据追加登记进去，
-// 而这个方法就是那批值的唯一来源。
-//
-// 返回的切片本身也是敏感数据，调用方不得记录它。
-func (s *Session) Secrets() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	out := make([]string, 0, 2+2*len(s.nodes))
-	if s.sessionToken != "" {
-		out = append(out, s.sessionToken)
-	}
-	if s.subscriptionURL != "" {
-		out = append(out, s.subscriptionURL)
-	}
+	sc := secrets.NewScrubber()
+	sc.FromSession(s.sessionToken, "", s.subscriptionURL, "")
 	for _, n := range s.nodes {
 		if n == nil {
 			continue
 		}
 		if n.Password != "" {
-			out = append(out, n.Password)
+			sc.Add(n.Password)
 		}
 		if n.UUID != "" {
-			out = append(out, n.UUID)
+			sc.Add(n.UUID)
 		}
 	}
-	return out
-}
-
-// SubscriptionInfo 返回最近一次订阅拉取的结果；从未拉取过时为 nil。
-func (s *Session) SubscriptionInfo() *SubscriptionInfo {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.lastSync.IsZero() && len(s.nodes) == 0 {
-		return nil
-	}
-	return s.subscriptionInfoLocked()
+	return sc
 }
 
 // String 返回会话的可安全打印形式。
