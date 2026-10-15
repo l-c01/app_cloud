@@ -281,21 +281,12 @@ object ServiceHandleStore {
             if (!file.isFile) continue
             sawFile = true
 
-            // 读文件与解析 JSON 都用 runCatching，并且**不用**
-            // `continue` 跳出内联 lambda：那需要 Kotlin 2.2 的
-            // "break continue in inline lambdas"，而本工程的语言版本更低，
-            // 用它会直接编译失败（报的是「only available since language
-            // version 2.2」，与代码逻辑无关）。
-            //
-            // 因此这里改成把结果包成可空值，失败时记下原因并跳过本次循环。
-            val text = runCatching { file.readText() }.getOrNull()
-            if (text == null) {
-                lastDetail = "the state file is unreadable"
+            val text = runCatching { file.readText() }.getOrElse { error ->
+                lastDetail = error.message ?: error.javaClass.simpleName
                 continue
             }
-            val json = runCatching { JSONObject(text) }.getOrNull()
-            if (json == null) {
-                lastDetail = "the state file is not valid JSON"
+            val json = runCatching { JSONObject(text) }.getOrElse { error ->
+                lastDetail = "the state file is not valid JSON: ${error.message}"
                 continue
             }
 
