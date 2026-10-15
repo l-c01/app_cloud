@@ -512,7 +512,20 @@ func (h *serviceHandler) start(ctx context.Context, params json.RawMessage) (any
 		compileReq = built
 	}
 
-	h.runner.setReadyAddress(req.ReadyAddress)
+	// 就绪地址：调用方没给就按入站配置推出来。
+	//
+	// **不能默认留空。** 留空意味着「不校验就绪」，于是服务会在核心还没
+	// 开始监听时就把系统代理指向它——用户看到的是「连上了，但浏览器
+	// 完全打不开网页」，而真正的原因只是早了几百毫秒。
+	// 接管网络之前先确认监听端口可用，是这条链路上最该守住的一步。
+	//
+	// 推导逻辑在 compiler.InboundOptions.ReadyAddress()，那里可以被单测覆盖。
+	readyAddress := req.ReadyAddress
+	if readyAddress == "" {
+		readyAddress = compileReq.Inbound.ReadyAddress()
+	}
+
+	h.runner.setReadyAddress(readyAddress)
 	h.lastMode = req.Mode
 
 	if err := h.coordinator.Connect(ctx, coordinator.ConnectRequest{
@@ -524,7 +537,7 @@ func (h *serviceHandler) start(ctx context.Context, params json.RawMessage) (any
 		return nil, rpcErr
 	}
 
-	readyVerified := req.ReadyAddress != ""
+	readyVerified := readyAddress != ""
 	return map[string]any{
 		"ok": true,
 		// 明确告诉客户端「就绪是否被验证过」：只看「启动成功」
@@ -533,6 +546,10 @@ func (h *serviceHandler) start(ctx context.Context, params json.RawMessage) (any
 		"state":         h.runtimeState(),
 	}, nil
 }
+
+// readyAddressFor 已移到 compiler.InboundOptions.ReadyAddress()：
+// 它完全由入站配置决定，放在那里可以被单测覆盖，而放在本文件只能靠
+// 真的起一次核心来验证。
 
 // buildRequestFromSession 用服务端会话构造一次编译请求。
 //
