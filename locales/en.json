@@ -71,6 +71,7 @@
     "netmgr.scope.pac": "PAC only affects applications that read the system PAC setting; rules are served by the local PAC service",
     "netmgr.scope.tun": "TUN captures traffic on a virtual interface; whether administrator rights are required and which traffic is excluded depends on the implementation",
     "netmgr.scope.none": "No system network settings were changed",
+    "netmgr.notify_failed": "The proxy settings were written, but notifying the system to refresh failed; applications that are already running may still use the old settings until they are restarted",
 
     "subscription.unavailable": "The subscription is unavailable (it may have expired, run out of quota, or the account may be banned)",
     "subscription.unauthorized": "The subscription link is invalid or has expired",
