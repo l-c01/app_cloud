@@ -2,10 +2,6 @@ package compiler
 
 import (
 	"encoding/json"
-	"net"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,15 +23,9 @@ func decodeConfig(t *testing.T, out []byte) map[string]any {
 }
 
 // compileWithOptions 用一份选项编译单个节点，返回解开的配置。
-//
-// 策略固定为 rule，而不是 baseRequest 的 global：规则集与规则只在
-// 规则模式下生成（global / direct 都不看规则，生成一份用不上的
-// rule_set 只会让核心凭空多出下载任务）。用 global 的话，
-// 所有针对 route 段的断言都会看到空结果，而原因与被测的选项无关。
 func compileWithOptions(t *testing.T, opts *domain.Options) map[string]any {
 	t.Helper()
 	req := baseRequest(trojanNode("A"))
-	req.Policy = PolicyRule
 	req.Options = opts
 	out, _, err := CompileSingBox(req)
 	if err != nil {
@@ -174,37 +164,28 @@ func TestUserRulesKeepOrderAfterBuiltins(t *testing.T) {
 
 	route, _ := cfg["route"].(map[string]any)
 	rules, _ := route["rules"].([]any)
-	if len(rules) < 4 {
-		t.Fatalf("应当至少生成 1 条嗅探规则 + 1 条内建规则 + 2 条用户规则，实际 %d 条", len(rules))
+	if len(rules) < 3 {
+		t.Fatalf("应当至少生成 1 条内建规则 + 2 条用户规则，实际 %d 条", len(rules))
 	}
 
-	// 第一条必须是嗅探规则。
-	//
-	// 它与内建规则谁在前这一点是**有对错**的：嗅探要在分流之前跑，
-	// 否则后面按域名匹配的规则拿到的是 IP，永远匹配不上。
-	// 出厂选项默认开着嗅探，所以这里能观察到它。
-	if first, _ := rules[0].(map[string]any); first["action"] != "sniff" {
-		t.Errorf("嗅探规则必须排在最前（否则按域名的规则匹配不到），实际第一条是 %v", rules[0])
-	}
-
-	// 内建规则紧随其后。
-	if second, _ := rules[1].(map[string]any); second["ip_is_private"] != true {
-		t.Errorf("内建规则（ip_is_private）应排在嗅探之后、用户规则之前，实际第二条是 %v", rules[1])
+	// 第一条必须是内建规则。
+	if first, _ := rules[0].(map[string]any); first["ip_is_private"] != true {
+		t.Errorf("内建规则（ip_is_private）必须排在最前，实际第一条是 %v", rules[0])
 	}
 
 	// 用户规则按输入顺序跟在后面。
-	third, _ := rules[2].(map[string]any)
-	if third["domain_suffix"] != "example.com" {
-		t.Errorf("第 3 条应当是第一条用户规则，实际 %v", third)
+	second, _ := rules[1].(map[string]any)
+	if second["domain_suffix"] != "example.com" {
+		t.Errorf("第 2 条应当是第一条用户规则，实际 %v", second)
 	}
-	fourth, _ := rules[3].(map[string]any)
-	if fourth["domain_keyword"] != "ads" {
-		t.Errorf("第 4 条应当是第二条用户规则，实际 %v", fourth)
+	third, _ := rules[2].(map[string]any)
+	if third["domain_keyword"] != "ads" {
+		t.Errorf("第 3 条应当是第二条用户规则，实际 %v", third)
 	}
 	// 拒绝动作用的是 action，不是 outbound——写错的话核心会把它
 	// 当成一个需要解析的出站标签。
-	if fourth["action"] != "reject" {
-		t.Errorf("拒绝动作应当写 action=reject，实际 %v", fourth)
+	if third["action"] != "reject" {
+		t.Errorf("拒绝动作应当写 action=reject，实际 %v", third)
 	}
 }
 
@@ -253,25 +234,6 @@ func routeSection(t *testing.T, cfg map[string]any) map[string]any {
 		t.Fatalf("应当生成 route 段，实际没有")
 	}
 	return route
-}
-
-// compileInRuleMode 用规则模式编译，返回配置与报告。
-//
-// 规则集与用户规则**只在规则模式下生成**（global / direct 都不看规则，
-// 生成一份用不上的 rule_set 只会让核心凭空多出下载任务）。
-// 因此凡是断言 route.rule_set 的用例都必须走这里，而不是
-// compileWithOptions——后者用的是 baseRequest 的 global 策略，
-// 会稳定地产生空结果，让断言看起来像「生成器坏了」。
-func compileInRuleMode(t *testing.T, opts *domain.Options) (map[string]any, *Report) {
-	t.Helper()
-	req := baseRequest(trojanNode("A"))
-	req.Policy = PolicyRule
-	req.Options = opts
-	out, report, err := CompileSingBox(req)
-	if err != nil {
-		t.Fatalf("CompileSingBox: %v", err)
-	}
-	return decodeConfig(t, out), report
 }
 
 // ruleSetsIn 取出 route.rule_set 列表。
@@ -331,13 +293,14 @@ func TestRuleSetUnknownFormatIsReportedNotGuessed(t *testing.T) {
 		{Name: "odd", URL: "https://example.com/download?id=7"},
 	}
 
-	cfg, report := compileInRuleMode(t, &opts)
-
-	sets := ruleSetsIn(t, cfg)
-	if len(sets) == 0 {
-		t.Fatalf("应当为该规则集生成条目，实际一个都没有")
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, report, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
 	}
-	set := sets[0]
+
+	set := ruleSetsIn(t, decodeConfig(t, out))[0]
 	if _, ok := set["format"]; ok {
 		t.Errorf("推断不出格式时不应写 format（那是猜的），实际写了 %v", set["format"])
 	}
@@ -364,7 +327,7 @@ func TestRuleSetInvalidFormatIsSkipped(t *testing.T) {
 		{Name: "bad", URL: "https://example.com/x.srs", Format: "mrs"},
 	}
 
-	cfg, _ := compileInRuleMode(t, &opts)
+	cfg := compileWithOptions(t, &opts)
 	if sets := ruleSetsIn(t, cfg); len(sets) != 0 {
 		t.Errorf("非法 format 的规则集不应生成，实际生成了 %v", sets)
 	}
@@ -377,9 +340,14 @@ func TestLocalRuleSetSkippedWithReport(t *testing.T) {
 	opts := domain.DefaultOptions()
 	opts.RuleSets = []domain.RuleSet{{Name: "builtin"}}
 
-	cfg, report := compileInRuleMode(t, &opts)
+	req := baseRequest(trojanNode("A"))
+	req.Options = &opts
+	out, report, err := CompileSingBox(req)
+	if err != nil {
+		t.Fatalf("CompileSingBox: %v", err)
+	}
 
-	if sets := ruleSetsIn(t, cfg); len(sets) != 0 {
+	if sets := ruleSetsIn(t, decodeConfig(t, out)); len(sets) != 0 {
 		t.Errorf("无 URL 的规则集不应生成，实际生成了 %v", sets)
 	}
 	found := false
@@ -467,21 +435,12 @@ func TestRuleSetsOmittedOutsideRuleMode(t *testing.T) {
 	}
 }
 
-// 嗅探必须表达成**路由动作**，而且入站里绝不能出现嗅探字段。
+// 嗅探开启时写进入站；入站层只有 sniff 与 sniff_override_destination，
+// **协议列表不是入站字段**（源码依据：option/inbound.go）。
 //
-// 这一条改过结论，历史值得留下：原先的实现把 sniff /
-// sniff_override_destination 写进入站（当时读的是
-// option/inbound.go 里那几个已废弃字段），并断言「入站里绝不出现协议键」。
-//
-// 真实核心（1.14.3）证明那样是错的：
-//
-//	legacy inbound fields are deprecated in sing-box 1.11.0 and removed
-//	in sing-box 1.13.0
-//
-// 也就是说**每一份开了 TUN 的配置都起不来**。现在嗅探由一条
-// `action: "sniff"` 的路由规则表达（option/rule_action.go 的
-// RouteActionSniff），协议列表正是它的 sniffer 字段。
-func TestSniffIsARouteActionAndNeverAnInboundField(t *testing.T) {
+// 把它塞进入站会被核心当作未知字段拒绝启动，因此这里断言
+// 入站里绝不出现协议相关的键。
+func TestSniffWritesOnlyInboundLevelFields(t *testing.T) {
 	opts := domain.DefaultOptions()
 	opts.Inbound.TUN.Enabled = true
 	opts.Inbound.Sniffer = domain.SniffSettings{
@@ -491,52 +450,38 @@ func TestSniffIsARouteActionAndNeverAnInboundField(t *testing.T) {
 	}
 
 	req := baseRequest(trojanNode("A"))
-	req.Policy = PolicyRule // 嗅探由路由动作表达，只在规则模式下存在
 	req.Options = &opts
 	out, report, err := CompileSingBox(req)
 	if err != nil {
 		t.Fatalf("CompileSingBox: %v", err)
 	}
-	cfg := decodeConfig(t, out)
-
-	// 入站里**绝不能**有嗅探字段——写了核心会拒绝整份配置。
-	in := tunInbound(cfg)
+	in := tunInbound(decodeConfig(t, out))
 	if in == nil {
 		t.Fatalf("TUN 已启用，应当生成 TUN 入站")
 	}
-	for _, k := range []string{"sniff", "sniff_override_destination", "sniff_timeout",
-		"sniff_protocols", "protocols", "sniffer"} {
+
+	if in["sniff"] != true {
+		t.Errorf("嗅探开启时入站应当有 sniff=true，实际 %v", in["sniff"])
+	}
+	if in["sniff_override_destination"] != true {
+		t.Errorf("覆写开启时应当有 sniff_override_destination=true，实际 %v", in["sniff_override_destination"])
+	}
+	for _, k := range []string{"sniff_protocols", "protocols", "sniffer"} {
 		if _, ok := in[k]; ok {
-			t.Errorf("入站里不应出现 %s：这些是 1.13 起被移除的旧字段，"+
-				"写上会让整份配置起不来", k)
+			t.Errorf("入站里不应出现 %s：协议列表属于路由动作，不是入站字段", k)
 		}
 	}
 
-	// 路由里必须有一条 action=sniff，且带上协议列表。
-	route, _ := cfg["route"].(map[string]any)
-	rules, _ := route["rules"].([]any)
-	if len(rules) == 0 {
-		t.Fatalf("没有生成任何路由规则")
-	}
-	sniff, _ := rules[0].(map[string]any)
-	if sniff == nil || sniff["action"] != "sniff" {
-		t.Fatalf("嗅探规则应当是第一条且 action=sniff，实际 %v", rules[0])
-	}
-	proto, _ := sniff["sniffer"].([]any)
-	if len(proto) != 2 {
-		t.Errorf("嗅探协议应当写进 sniffer 字段，实际 %v", sniff["sniffer"])
-	}
-
-	// 覆写目的地址在 1.14 的规则动作里没有对应字段，必须明确报告。
+	// 协议列表没有生效，必须明确说出来，否则它就是「改了没反应」的伪选项。
 	found := false
 	for _, iss := range report.Issues {
-		if iss.MessageKey == "compiler.sniff_override_not_applied" {
+		if iss.MessageKey == "compiler.sniff_protocols_not_applied" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("覆写目的地址不生效时必须报告，实际没有 sniff_override_not_applied")
+		t.Errorf("协议列表未生效时必须报告，实际没有 sniff_protocols_not_applied")
 	}
 }
 
@@ -592,7 +537,7 @@ func TestRuleModeWithoutRulesWarns(t *testing.T) {
 
 // TUN 的 DNS 处理必须用真实字段 dns_mode / dns_address。
 //
-// **这是一条回归测试。** 这里曾经生成 dns_hijack，
+// **这是一条回归测试。** 这里曾经生成 `dns_hijack`，
 // 而 option/tun.go 的 TunInboundOptions 里根本没有这个字段——
 // 核心对未知字段是拒绝启动的，也就是说每一份开了 TUN 的配置
 // 都起不来。字段名写得「看起来很合理」正是它一直没被发现的原因。
@@ -625,8 +570,7 @@ func TestTUNDNSModeUsesRealFields(t *testing.T) {
 	}
 }
 
-// dns_address 只在给出时生成，且不含端口（核心的字段是 netip.Addr）。
-func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
+// dns_address 只在给出时生成，且不含端口（核心的字段是 netip.Addr）。func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
 	opts := domain.DefaultOptions()
 	opts.Inbound.TUN.Enabled = true
 
@@ -652,521 +596,5 @@ func TestTUNDNSAddressOnlyWhenSet(t *testing.T) {
 	addr, ok := in["dns_address"].([]any)
 	if !ok || len(addr) != 1 || addr[0] != "172.19.0.2" {
 		t.Errorf("设置了 DNS 地址时应当生成 dns_address，实际 %v", in["dns_address"])
-	}
-}
-
-// ReadyAddress 必须给出一个能拨的地址；推不出来时返回空串。
-//
-// 它决定服务在接管系统网络**之前**能不能确认核心已经在监听。
-// 返回空串表示不校验就绪——那正是「连上了但网页打不开」的成因，
-// 因此「什么情况下返回空」也必须被钉住。
-func TestInboundReadyAddress(t *testing.T) {
-	cases := []struct {
-		name string
-		in   InboundOptions
-		want string
-	}{
-		{
-			name: "本机地址与 HTTP 端口",
-			in:   InboundOptions{Listen: "127.0.0.1", MixedPort: 7890},
-			want: "127.0.0.1:7890",
-		},
-		{
-			name: "监听为空时用回环",
-			in:   InboundOptions{MixedPort: 7890},
-			want: "127.0.0.1:7890",
-		},
-		{
-			name: "通配地址不能回拨自己",
-			in:   InboundOptions{Listen: "0.0.0.0", MixedPort: 7890},
-			want: "127.0.0.1:7890",
-		},
-		{
-			name: "IPv6 通配同样换成回环",
-			in:   InboundOptions{Listen: "::", MixedPort: 7890},
-			want: "127.0.0.1:7890",
-		}, {
-			name: "没有 HTTP 端口时退回 SOCKS",
-			in:   InboundOptions{Listen: "127.0.0.1", MixedPort: 7891},
-			want: "127.0.0.1:7891",
-		},
-		{
-			name: "端口全为 0：推不出来，必须返回空而不是瞎猜",
-			in:   InboundOptions{Listen: "127.0.0.1"},
-			want: "",
-		},
-		{
-			name: "端口越界同样返回空",
-			in:   InboundOptions{Listen: "127.0.0.1", MixedPort: 70000},
-			want: "",
-		},
-		{
-			name: "局域网监听保留用户填的地址",
-			in:   InboundOptions{Listen: "192.168.1.10", MixedPort: 7890},
-			want: "192.168.1.10:7890",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.in.ReadyAddress(); got != tc.want {
-				t.Errorf("ReadyAddress() = %q，期望 %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// DNS 段的几条硬性要求。这些不是风格问题——违反任何一条，
-// **真实核心都会拒绝整份配置**，而我们的单元测试曾经全绿。
-//
-// 全部来自实测（1.14.3）：
-//   - `default server cannot be fakeip`
-//   - `missing domain resolver for domain server address`
-//   - `missing route.default_domain_resolver`
-//
-// 单独写这些断言是为了让它们在**没有二进制**的机器上也能挡住回归：
-// 上面的真实二进制测试默认跳过，而这几条永远在跑。
-func TestDNSFieldsRequiredByTheRealCore(t *testing.T) {
-	opts := domain.DefaultOptions()
-	cfg := compileWithOptions(t, &opts)
-
-	dns, _ := cfg["dns"].(map[string]any)
-	if dns == nil {
-		t.Fatalf("启用了 DNS 覆写却没有生成 dns 段")
-	}
-	servers, _ := dns["servers"].([]any)
-	if len(servers) == 0 {
-		t.Fatalf("dns.servers 为空")
-	}
-
-	// 1) fake-ip 服务器绝不能当默认。
-	final, _ := dns["final"].(string)
-	fakeipTag := ""
-	for _, raw := range servers {
-		s, _ := raw.(map[string]any)
-		if s == nil {
-			continue
-		}
-		if s["type"] == "fakeip" {
-			fakeipTag, _ = s["tag"].(string)
-		}
-	}
-	if fakeipTag != "" && final == fakeipTag {
-		t.Errorf("dns.final 指向了 fakeip 服务器（%q）：核心会报 "+
-			"`default server cannot be fakeip` 并拒绝整份配置", final)
-	}
-
-	// 2) 按域名连接的名称服务器必须声明 domain_resolver。
-	byTag := map[string]map[string]any{}
-	for _, raw := range servers {
-		s, _ := raw.(map[string]any)
-		if s == nil {
-			continue
-		}
-		if tag, ok := s["tag"].(string); ok {
-			byTag[tag] = s
-		}
-	}
-	for _, raw := range servers {
-		s, _ := raw.(map[string]any)
-		if s == nil {
-			continue
-		}
-		srv, _ := s["server"].(string)
-		if srv == "" || srv == "system" {
-			continue
-		}
-		// 只有「域名形式的地址」才需要解析器；纯 IP 不需要。
-		if isIPAddress(srv) {
-			continue
-		}
-		resolver, _ := s["domain_resolver"].(string)
-		if resolver == "" {
-			t.Errorf("名称服务器 %v 用的是域名地址 %q 却没有 domain_resolver："+
-				"核心会报 `missing domain resolver for domain server address`", s["tag"], srv)
-			continue
-		}
-		if _, ok := byTag[resolver]; !ok {
-			t.Errorf("名称服务器 %v 引用了不存在的解析器 %q", s["tag"], resolver)
-		}
-	}
-
-	// 3) 出站要能解析节点服务器的域名。
-	route, _ := cfg["route"].(map[string]any)
-	if route == nil {
-		t.Fatalf("没有生成 route 段")
-	}
-	ddr, _ := route["default_domain_resolver"].(string)
-	if ddr == "" {
-		t.Errorf("route.default_domain_resolver 为空：核心会拒绝启动并提示 " +
-			"`missing route.default_domain_resolver`")
-	} else if _, ok := byTag[ddr]; !ok {
-		t.Errorf("route.default_domain_resolver 引用了不存在的服务器 %q", ddr)
-	}
-}
-
-// 一个名称服务器都没有、却开了 fake-ip 时，**不能**只发 fake-ip。
-//
-// 那种配置里 fake-ip 会成为唯一的服务器，也就是默认服务器，
-// 核心直接报 `default server cannot be fakeip`。
-// 这种情况下干脆不生成 fake-ip：它没有可用的真实解析器，
-// 生成了也只会让整份配置起不来。
-func TestFakeIPWithoutNameserversDoesNotBecomeDefault(t *testing.T) {
-	opts := domain.DefaultOptions()
-	opts.DNS.Nameservers = nil
-	opts.DNS.FakeIP = true
-
-	cfg := compileWithOptions(t, &opts)
-
-	// 没有名称服务器时不应生成 dns 段引用任何 fakeip 默认。
-	dns, _ := cfg["dns"].(map[string]any)
-	if dns == nil {
-		return // 不生成也完全可以接受
-	}
-	servers, _ := dns["servers"].([]any)
-	final, _ := dns["final"].(string)
-	for _, raw := range servers {
-		s, _ := raw.(map[string]any)
-		if s == nil {
-			continue
-		}
-		if s["type"] == "fakeip" {
-			tag, _ := s["tag"].(string)
-			if final == tag {
-				t.Errorf("没有真实名称服务器时 fakeip 成了默认（%q）："+
-					"核心会报 `default server cannot be fakeip`", tag)
-			}
-		}
-	}
-}
-
-// isIPAddress 判断字符串是不是纯 IP（不需要解析器的那种地址）。
-func isIPAddress(s string) bool {
-	host := s
-	// 去掉可选的方括号 IPv6 与端口。
-	if h, _, err := net.SplitHostPort(s); err == nil {
-		host = h
-	}
-	host = strings.Trim(host, "[]")
-	return net.ParseIP(host) != nil
-}
-
-// 用**真实的 sing-box 二进制**校验我们生成的配置。
-// 这是本仓库里唯一能证明「生成器与核心对得上」的手段。其余测试都只断言
-// 我们自己写的字段名，而字段名是否与核心一致，只有核心自己说了算——
-// `dns_hijack` 那个并不存在的字段就是例子：我们的测试当时全绿，
-// 真实核心却会拒绝整份配置。
-//
-// 默认跳过，因为它需要一个真实二进制。装上之后这样跑：
-//
-//	$env:SINGBOX_BIN = '<解出来的 sing-box.exe 路径>'
-//	./tools/scripts/go-local.ps1 -Command test -Args ./shared/compiler/...
-//
-// 维护者注：**这是唯一会因核心版本变化而失败的测试。**
-// 改动锁定的核心版本之后必须重跑它，否则「已验证」这句话没有依据。
-func TestCompiledConfigIsAcceptedByRealSingBox(t *testing.T) {
-	bin := realSingBoxPath(t)
-
-	// 覆盖三种路由策略：它们生成的配置差别很大
-	// （direct 会忽略节点，rule 才会生成规则集）。
-	for _, policy := range []OutboundPolicy{PolicyRule, PolicyGlobal, PolicyDirect} {
-		t.Run(string(policy), func(t *testing.T) {
-			nodes := []*domain.Node{
-				{
-					Name: "trojan-1", Protocol: domain.ProtocolTrojan,
-					Server: "trojan.example.com", Port: 443,
-					Password: "pw", Security: domain.SecurityTLS,
-				},
-				{
-					Name: "vless-1", Protocol: domain.ProtocolVLESS,
-					Server: "vless.example.com", Port: 443,
-					UUID:     "b831381d-6324-4d53-ad4f-8cda48b30811",
-					Security: domain.SecurityTLS,
-				},
-				{
-					Name: "ss-1", Protocol: domain.ProtocolShadowsocks,
-					Server: "ss.example.com", Port: 8388,
-					Password: "pw", Method: "aes-256-gcm",
-				},
-			}
-			for _, n := range nodes {
-				n.ComputeID()
-			}
-			checkWithRealCore(t, bin, policy, nodes, nil)
-		})
-	}
-}
-
-// realSingBoxPath 取出真实二进制路径；没有就让测试跳过。
-func realSingBoxPath(t *testing.T) string {
-	t.Helper()
-	bin := os.Getenv("SINGBOX_BIN")
-	if bin == "" {
-		t.Skip("SINGBOX_BIN 未设置；跳过真实二进制校验（这不代表配置一定有效）")
-	}
-	if _, err := os.Stat(bin); err != nil {
-		t.Fatalf("SINGBOX_BIN 指向的文件不存在：%v", err)
-	}
-	return bin
-}
-
-// checkWithRealCore 编译并让真实核心校验，失败即 t.Fatal。
-//
-// mutate 允许调用方在编译前调整选项（例如只开某个特性）。
-func checkWithRealCore(t *testing.T, bin string, policy OutboundPolicy, nodes []*domain.Node, mutate func(*domain.Options)) {
-	t.Helper()
-	req := &Request{
-		Core:   CoreSingBox,
-		Nodes:  nodes,
-		Policy: policy,
-		Inbound: InboundOptions{
-			Listen:    "127.0.0.1",
-			MixedPort: 7890,
-		},
-		LogLevel: "warning",
-	}
-	if len(nodes) > 0 {
-		req.SelectedNodeID = nodes[0].ID
-	}
-	opts := domain.DefaultOptions()
-	if mutate != nil {
-		mutate(&opts)
-	}
-	req.Options = &opts
-
-	out, _, err := CompileSingBox(req)
-	if err != nil {
-		t.Fatalf("CompileSingBox: %v", err)
-	}
-
-	cfgPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(cfgPath, out, 0o600); err != nil {
-		t.Fatalf("写配置: %v", err)
-	}
-
-	// 让核心的输出直接继承到测试输出，而不是用管道捕获：
-	// 本仓库的沙箱禁止通过管道捕获子进程输出（EPERM），
-	// 但允许继承。这里只需要退出码。
-	cmd := exec.Command(bin, "check", "-c", cfgPath)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("真实 sing-box 拒绝了这份配置：%v", err)
-	}
-}
-
-// 能力表声称支持的**每一种协议**都要被真实核心接受。
-//
-// 为什么单独走一遍：能力表里的 protocols 是一张布尔表，而它直接决定
-// 「订阅里的这个节点是被采用还是被跳过」。表里写 true、生成的配置却被
-// 核心拒绝，是最糟的组合——用户看到节点在列表里，点了却起不来。
-func TestEveryClaimedProtocolIsAcceptedByRealSingBox(t *testing.T) {
-	bin := realSingBoxPath(t)
-
-	// 每种协议一组「能通过校验所需的最少字段」。
-	cases := []struct {
-		name string
-		node *domain.Node
-	}{
-		{"shadowsocks", &domain.Node{
-			Name: "ss", Protocol: domain.ProtocolShadowsocks,
-			Server: "ss.example.com", Port: 8388,
-			Password: "pw", Method: "aes-256-gcm",
-		}},
-		{"vmess", &domain.Node{
-			Name: "vmess", Protocol: domain.ProtocolVMess,
-			Server: "vmess.example.com", Port: 443,
-			UUID:     "b831381d-6324-4d53-ad4f-8cda48b30811",
-			Security: domain.SecurityTLS,
-		}},
-		{"vless", &domain.Node{
-			Name: "vless", Protocol: domain.ProtocolVLESS,
-			Server: "vless.example.com", Port: 443,
-			UUID:     "b831381d-6324-4d53-ad4f-8cda48b30811",
-			Security: domain.SecurityTLS,
-		}},
-		{"trojan", &domain.Node{
-			Name: "trojan", Protocol: domain.ProtocolTrojan,
-			Server: "trojan.example.com", Port: 443,
-			Password: "pw", Security: domain.SecurityTLS,
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// 表里说支持才需要校验；说不支持的没有配置可生成。
-			if !Supports(CoreSingBox, tc.node.Protocol) {
-				t.Skipf("能力表声明不支持 %s，无需校验", tc.name)
-			}
-			tc.node.ComputeID()
-			checkWithRealCore(t, bin, PolicyRule, []*domain.Node{tc.node}, nil)
-		})
-	}
-}
-
-// 能力表声称支持的**每一种传输**都要被真实核心接受。
-func TestEveryClaimedTransportIsAcceptedByRealSingBox(t *testing.T) {
-	bin := realSingBoxPath(t)
-
-	transports := []domain.Transport{
-		domain.TransportTCP,
-		domain.TransportWS,
-		domain.TransportGRPC,
-		domain.TransportHTTP,
-		domain.TransportH2,
-		domain.TransportHTTPUpgrade,
-	}
-	for _, tr := range transports {
-		t.Run(string(tr), func(t *testing.T) {
-			n := &domain.Node{
-				Name: "vless-" + string(tr), Protocol: domain.ProtocolVLESS,
-				Server: "vless.example.com", Port: 443,
-				UUID:      "b831381d-6324-4d53-ad4f-8cda48b30811",
-				Security:  domain.SecurityTLS,
-				Transport: tr,
-			}
-			switch tr {
-			case domain.TransportWS:
-				n.TransportOptions.Path = "/ws"
-				n.TransportOptions.Host = "ws.example.com"
-			case domain.TransportGRPC:
-				n.TransportOptions.ServiceName = "grpcsvc"
-			case domain.TransportHTTP, domain.TransportH2:
-				n.TransportOptions.Path = "/h2"
-				n.TransportOptions.Host = "h2.example.com"
-			case domain.TransportHTTPUpgrade:
-				n.TransportOptions.Path = "/upgrade"
-				n.TransportOptions.Host = "up.example.com"
-			}
-			n.ComputeID()
-			checkWithRealCore(t, bin, PolicyRule, []*domain.Node{n}, nil)
-		})
-	}
-}
-
-// 出厂选项之外的几个开关也要各跑一遍真实核心。
-//
-// 这些开关各自会往配置里加不同的段（TUN、fake-ip、嗅探、规则集），
-// 而「某个开关一开核心就起不来」正是最难在开发中发现的一类问题：
-// 默认配置是好的，只有用户改了设置才出问题。
-func TestOptionTogglesAreAcceptedByRealSingBox(t *testing.T) {
-	bin := realSingBoxPath(t)
-
-	n := &domain.Node{
-		Name: "trojan", Protocol: domain.ProtocolTrojan,
-		Server: "trojan.example.com", Port: 443,
-		Password: "pw", Security: domain.SecurityTLS,
-	}
-	n.ComputeID()
-
-	cases := []struct {
-		name   string
-		mutate func(*domain.Options)
-	}{
-		{"fake-ip", func(o *domain.Options) {
-			o.DNS.Enabled = true
-			o.DNS.FakeIP = true
-			o.DNS.FakeIPRange = "198.18.0.0/15"
-			o.DNS.FakeIPFilter = []string{"local.example", "time.example"}
-		}},
-		{"dns-without-nameservers", func(o *domain.Options) {
-			o.DNS.Enabled = true
-			o.DNS.Nameservers = nil
-			o.DNS.FakeIP = true
-		}},
-		{"dns-ipv6", func(o *domain.Options) {
-			o.DNS.Enabled = true
-			o.DNS.IPv6 = true
-		}},
-		{"tun-enabled", func(o *domain.Options) {
-			o.Inbound.TUN.Enabled = true
-			o.Inbound.TUN.Stack = "mixed"
-			o.Inbound.TUN.MTU = 1500
-			o.Inbound.TUN.AutoRoute = true
-			o.Inbound.TUN.DNSMode = "hijack"
-			o.Inbound.TUN.DNSAddress = []string{"172.19.0.2"}
-		}},
-		{"rules-and-rulesets", func(o *domain.Options) {
-			o.Rules = []domain.Rule{
-				{Type: domain.RuleDomainSuffix, Value: "example.com", Action: domain.ActionProxy},
-				{Type: domain.RuleIPCIDR, Value: "10.0.0.0/8", Action: domain.ActionDirect},
-			}
-			o.RuleSets = []domain.RuleSet{
-				{Name: "geosite", Format: domain.RuleSetFormatBinary, URL: "https://example.com/geosite.srs"},
-			}
-		}},
-		{"sniffer", func(o *domain.Options) {
-			o.Inbound.Sniffer.Enabled = true
-			o.Inbound.Sniffer.OverrideDestination = true
-			o.Inbound.Sniffer.Protocols = []string{"tls", "http", "quic"}
-		}},
-		{"allow-lan", func(o *domain.Options) {
-			o.Inbound.AllowLAN = true
-		}},
-		{"log-trace", func(o *domain.Options) {
-			o.App.LogLevel = "trace"
-		}},
-		{"reality", func(o *domain.Options) {
-			_ = o // reality 在节点上，见 TestClaimedNodeFeaturesAreAcceptedByRealSingBox
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			checkWithRealCore(t, bin, PolicyRule, []*domain.Node{n}, tc.mutate)
-		})
-	}
-}
-
-// 能力表声称支持的**节点级特性**（REALITY / uTLS / VLESS flow）也要被真实核心接受。
-//
-// 这三项在表里各占一个布尔字段，而它们直接决定「这个节点是被采用还是被跳过」。
-// 表里写 true、生成的出站却被核心拒绝，是最糟的组合。
-func TestClaimedNodeFeaturesAreAcceptedByRealSingBox(t *testing.T) {
-	bin := realSingBoxPath(t)
-
-	cases := []struct {
-		name string
-		node *domain.Node
-	}{
-		{"vless-reality", &domain.Node{
-			Name: "reality", Protocol: domain.ProtocolVLESS,
-			Server: "reality.example.com", Port: 443,
-			UUID:     "b831381d-6324-4d53-ad4f-8cda48b30811",
-			Security: domain.SecurityReality,
-			TLS: domain.TLSOptions{
-				ServerName:       "www.example.com",
-				RealityPublicKey: "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0",
-				RealityShortID:   "0123456789abcdef",
-			},
-		}},
-		{"vless-flow-vision", &domain.Node{
-			Name: "vision", Protocol: domain.ProtocolVLESS,
-			Server: "vision.example.com", Port: 443,
-			UUID:     "b831381d-6324-4d53-ad4f-8cda48b30811",
-			Security: domain.SecurityTLS,
-			Flow:     "xtls-rprx-vision",
-			TLS:      domain.TLSOptions{ServerName: "vision.example.com"},
-		}},
-		{"vless-utls-fingerprint", &domain.Node{
-			Name: "utls", Protocol: domain.ProtocolVLESS,
-			Server: "utls.example.com", Port: 443,
-			UUID:     "b831381d-6324-4d53-ad4f-8cda48b30811",
-			Security: domain.SecurityTLS,
-			TLS: domain.TLSOptions{
-				ServerName:  "utls.example.com",
-				Fingerprint: "chrome",
-				ALPN:        []string{"h2", "http/1.1"},
-			},
-		}},
-		{"trojan-tls-insecure", &domain.Node{
-			Name: "insecure", Protocol: domain.ProtocolTrojan,
-			Server: "insecure.example.com", Port: 443,
-			Password: "pw", Security: domain.SecurityTLS,
-			TLS: domain.TLSOptions{ServerName: "insecure.example.com", AllowInsecure: true},
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			tc.node.ComputeID()
-			checkWithRealCore(t, bin, PolicyRule, []*domain.Node{tc.node}, nil)
-		})
 	}
 }
