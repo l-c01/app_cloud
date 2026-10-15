@@ -692,9 +692,17 @@ func (c *Coordinator) recordJournal(entry *JournalEntry, gen uint64, stage State
 func planForMode(mode string, req *compiler.Request) NetworkSettings {
 	switch mode {
 	case "system_proxy":
+		// 一个 mixed 端口同时提供 HTTP 与 SOCKS，因此两个键指向**同一个**地址。
+		//
+		// 这一点很要紧：Windows 的系统代理设置里 http 与 socks 是两个独立的
+		// 键，此前它们指向两个不同的端口（7890 与 7891）。核心现在只监听
+		// 一个端口，若这里仍按旧结构写两个不同地址，socks 那条就会指向
+		// 一个没人监听的端口——表现是「浏览器能上网、但某些走 SOCKS 的
+		// 程序连不上」，很难联想到系统代理的设置项。
+		addr := fmt.Sprintf("%s:%d", loopback(req), req.Inbound.MixedPort)
 		values := NetworkSettings{
-			"system_proxy.http":  fmt.Sprintf("%s:%d", loopback(req), req.Inbound.HTTPPort),
-			"system_proxy.socks": fmt.Sprintf("%s:%d", loopback(req), req.Inbound.SocksPort),
+			"system_proxy.http":  addr,
+			"system_proxy.socks": addr,
 		}
 		return values
 	case "pac":
