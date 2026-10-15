@@ -145,13 +145,10 @@ type TUNSettings struct {
 	StrictRoute bool `json:"strict_route"`
 	// DNSMode 是 TUN 的 DNS 处理方式，取 disabled / native / hijack。
 	//
-	// **这里曾经写作 `dns_hijack []string`（默认 `["any:53"]`）——那是个
+	// **这里曾经写作 dns_hijack（一个 []string，默认 ["any:53"]）——那是个
 	// 不存在的字段。** 核实依据：src/references/sing-box-testing/option/tun.go
-	// 里 TunInboundOptions 只有
-	//
-	//	DNSMode    string `json:"dns_mode,omitempty" enum:"disabled,native,hijack"`
-	//	DNSAddress badoption.Listable[netip.Addr] `json:"dns_address,omitempty"`
-	//
+	// 的 TunInboundOptions 里只有 DNSMode（枚举 disabled / native / hijack）
+	// 与 DNSAddress（badoption.Listable[netip.Addr]，只接受 IP 不含端口），
 	// 没有任何 dns_hijack。写进去会被核心按「未知字段」拒绝启动，
 	// 而错误信息来自核心的解析器深处——这正是设计文档批评的伪选项。
 	//
@@ -282,8 +279,8 @@ type RuleSet struct {
 }
 
 // RuleSetFormatSource 与 RuleSetFormatBinary 是 sing-box 接受的两个
-// rule_set.format 取值（源码依据：option/rule_set.go 的
-// `Format string \`json:"format,omitempty" enum:"source,binary"\``）。
+// rule_set.format 取值（源码依据：option/rule_set.go 的 Format 字段，
+// 其枚举为 source 与 binary 两个值）。
 const (
 	RuleSetFormatSource = "source"
 	RuleSetFormatBinary = "binary"
