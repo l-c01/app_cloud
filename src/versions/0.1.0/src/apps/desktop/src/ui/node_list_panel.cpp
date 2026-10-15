@@ -8,6 +8,23 @@
 
 namespace pcx::ui {
 
+namespace {
+
+// IndexOfNode 返回 id 对应的下标；找不到返回 -1。
+//
+// 返回 -1 而不是 0：跳到第一个会让「选中的节点已被订阅淘汰」
+// 表现成「界面自作主张换了我的节点」。
+int IndexOfNode(const std::vector<ipc::NodeView>& nodes, const std::string& id) {
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].id == id) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+}  // namespace
+
 NodeListPanel::NodeListPanel(wxWindow* parent, app::AppContext& context)
     : wxPanel(parent, wxID_ANY), context_(context) {
     BuildLayout();
