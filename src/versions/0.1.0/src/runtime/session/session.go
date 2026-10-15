@@ -50,18 +50,6 @@ type Config struct {
 	UserAgent string
 	// Now 便于测试注入时间；为 nil 时用 time.Now。
 	Now func() time.Time
-
-	// Panel 与 Fetcher 允许替换面板客户端与订阅拉取器。
-	//
-	// 生产代码**应当留空**：留空时 New 会按 PanelURL 构造真实的客户端。
-	// 存在的理由是贯通测试（runtime/coordinator/wiring_test.go）——
-	// 那条测试要验证的是「会话 → 编译器 → 协调器」之间的接线，
-	// 因此只在最外层用假实现：假面板、假订阅，而中间全是真的。
-	// 没有这两个注入点，那条测试就只能连着真实网络跑。
-	//
-	// 注入时 HTTPClient 会被忽略（由注入者自行决定怎么发请求）。
-	Panel   Subscriber
-	Fetcher Fetcher
 }
 
 // Session 持有一次「面板会话 + 订阅 + 选项」的完整状态。
@@ -124,19 +112,12 @@ func New(cfg Config) (*Session, error) {
 
 	// 面板地址先规范化再作为命名空间：凭据按服务器隔离，
 	// 换面板不会读到上一台服务器的凭据。
-	//
-	// 注入的面板客户端优先：贯通测试需要在不起 HTTP 服务的前提下
-	// 走完整条链路。地址仍然要校验，因为命名空间依赖它。
-	client := cfg.Panel
-	if client == nil {
-		real, err := panel.NewClient(cfg.PanelURL, cfg.AllowInsecureHTTP, panel.WithHTTPClient(cfg.HTTPClient))
-		if err != nil {
-			return nil, newError(KindInvalidConfig, "session.error.panel_url_invalid").
-				withField("panelUrl").
-				withDetail("%v", err).
-				withCause(err)
-		}
-		client = real
+	client, err := panel.NewClient(cfg.PanelURL, cfg.AllowInsecureHTTP, panel.WithHTTPClient(cfg.HTTPClient))
+	if err != nil {
+		return nil, newError(KindInvalidConfig, "session.error.panel_url_invalid").
+			withField("panelUrl").
+			withDetail("%v", err).
+			withCause(err)
 	}
 
 	ns, err := secrets.NewNamespaced(cfg.Store, normalizeNamespace(cfg.PanelURL))
@@ -147,17 +128,13 @@ func New(cfg Config) (*Session, error) {
 			withCause(err)
 	}
 
-	fetcher := cfg.Fetcher
-	if fetcher == nil {
-		real := subscription.NewFetcher(cfg.HTTPClient)
-		real.UserAgent = cfg.UserAgent
-		// 显式向 Xboard 请求节点 URI 列表（flag=general）。
-		//
-		// 不请求的话服务端可能返回 Clash YAML，而那个格式本版本尚未实现；
-		// 与其让用户遇到「格式不支持」，不如一开始就要求服务端给能用的格式。
-		real.Flag = "general"
-		fetcher = real
-	}
+	fetcher := subscription.NewFetcher(cfg.HTTPClient)
+	fetcher.UserAgent = cfg.UserAgent
+	// 显式向 Xboard 请求节点 URI 列表（flag=general）。
+	//
+	// 不请求的话服务端可能返回 Clash YAML，而那个格式本版本尚未实现；
+	// 与其让用户遇到「格式不支持」，不如一开始就要求服务端给能用的格式。
+	fetcher.Flag = "general"
 
 	nowFn := cfg.Now
 	if nowFn == nil {
@@ -715,40 +692,20 @@ func (s *Session) BuildRequest() (*compiler.Request, *Error) {
 		req.SelectedNodeID = selected.ID
 	}
 
-	// 本地代理端口。
+	// 端口映射：选项模型用的是「混合端口」，而编译请求当前仍接受
+	// 分离的 http/socks 端口（见 HANDOFF 2.2b）。
 	//
-	// **必须无条件设置，不能只在 TUN 模式下设。** 编译器的 Request.validate()
-	// 要求 http/socks 两个端口都落在 1..65535 且互不相同；而 TUN 在桌面端
-	// **默认是关的**（默认接入方式是系统代理），于是原来的写法会让每次
-	// 「连接」都得到一个无效请求，直接报 "invalid http port: 0"。
-	// 这类缺陷编译期看不出来，只有在真的点一次连接时才会暴露。
-	//
-	// 需要两个不同的端口是因为编译请求当前仍按分离的 http/socks 入站生成
-	// （见 HANDOFF 2.2b 的「混合端口」一项）；选项模型里的 MixedPort 是
-	// 用户看到的那一个，这里由它派生出内部的两个。
-	httpPort := s.options.Inbound.MixedPort
-	if httpPort <= 0 {
-		// 选项被写成 0 也不要紧：退回协议里的常规端口，
-		// 而不是把一个必然被拒绝的请求交出去。
-		httpPort = defaultMixedPort
+	// 这里暂时让两者取同一个值会让编译器拒绝（它要求两者不同），
+	// 因此**只在明确配置了 TUN 时**才把混合端口交给它；
+	// 其余情况沿用 0 让调用方自行填。这是一个已知的过渡状态，
+	// 等混合入站落地后这里会消失。
+	if s.options.Inbound.TUN.Enabled && s.options.Inbound.MixedPort > 0 {
+		req.Inbound.HTTPPort = s.options.Inbound.MixedPort
+		req.Inbound.SocksPort = s.options.Inbound.MixedPort + 1
 	}
-	socksPort := httpPort + 1
-	if socksPort > 65535 {
-		// 有人把端口写成 65534/65535 时不能溢出：退回常规端口对，
-		// 让用户得到一个能用的代理，而不是一条「端口非法」。
-		httpPort, socksPort = defaultMixedPort, defaultMixedPort+1
-	}
-	req.Inbound.HTTPPort = httpPort
-	req.Inbound.SocksPort = socksPort
 
 	return req, nil
 }
-
-// defaultMixedPort 是 MixedPort 缺失或不可用时的回退值。
-//
-// 与 domain.DefaultOptions() 的 7890 保持一致：出厂配置与回退值不同
-// 会让「我没改过设置，为什么端口变了」变成一个查不出来的问题。
-const defaultMixedPort = 7890
 
 // policyForRouteMode 把界面的路由模式映射到编译器的策略。
 //
@@ -844,54 +801,23 @@ func (s *Session) Account() *AccountInfo {
 // 服务进程启动日志转发前应调用它，把节点密码、会话凭据、订阅链接
 // 一次性登记进去；否则核心日志里一旦回显凭据就会被写进文件。
 func (s *Session) Scrubber() *secrets.Scrubber {
-	sc := secrets.NewScrubber()
-	for _, v := range s.Secrets() {
-		sc.Add(v)
-	}
-	return sc
-}
-
-// Secrets 返回当前会话中所有属于凭据的字符串。
-//
-// 它存在的理由：脱敏器是**累积**的（secrets.Scrubber 只有 Add，
-// 没有「重新登记」），而服务进程会经历多次登录与订阅刷新。
-// 因此每次拿到新会话后，调用方需要把这一批凭据追加登记进去，
-// 而这个方法就是那批值的唯一来源。
-//
-// 返回的切片本身也是敏感数据，调用方不得记录它。
-func (s *Session) Secrets() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	out := make([]string, 0, 2+2*len(s.nodes))
-	if s.sessionToken != "" {
-		out = append(out, s.sessionToken)
-	}
-	if s.subscriptionURL != "" {
-		out = append(out, s.subscriptionURL)
-	}
+	sc := secrets.NewScrubber()
+	sc.FromSession(s.sessionToken, "", s.subscriptionURL, "")
 	for _, n := range s.nodes {
 		if n == nil {
 			continue
 		}
 		if n.Password != "" {
-			out = append(out, n.Password)
+			sc.Add(n.Password)
 		}
 		if n.UUID != "" {
-			out = append(out, n.UUID)
+			sc.Add(n.UUID)
 		}
 	}
-	return out
-}
-
-// SubscriptionInfo 返回最近一次订阅拉取的结果；从未拉取过时为 nil。
-func (s *Session) SubscriptionInfo() *SubscriptionInfo {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.lastSync.IsZero() && len(s.nodes) == 0 {
-		return nil
-	}
-	return s.subscriptionInfoLocked()
+	return sc
 }
 
 // String 返回会话的可安全打印形式。
