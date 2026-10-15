@@ -44,13 +44,6 @@ var capabilityTable = capability{
 		domain.ProtocolVMess:       true,
 		domain.ProtocolVLESS:       true,
 		domain.ProtocolTrojan:      true,
-		// Hysteria2 是**用真实订阅验证过才加进来的**。
-		//
-		// 真实订阅里确实有这类节点，而此前解析器根本不认这个 scheme，
-		// 它们被整条丢掉。能力表与解析器的说法必须一致：
-		// 表里说 false 而解析器能解析，节点会在编译期被拒；
-		// 表里说 true 而生成不出出站，用户会看到节点却连不上。
-		domain.ProtocolHysteria2: true,
 	},
 	transports: map[domain.Transport]bool{
 		domain.TransportTCP:         true,
