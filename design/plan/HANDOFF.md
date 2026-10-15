@@ -4,18 +4,34 @@
 > [`STATUS.md`](STATUS.md)（阶段状态权威来源）与
 > [`../../design/architecture/ui-options.md`](../architecture/ui-options.md)（选项设计）。
 
-更新时间：2026-10-15 · 当前阶段：**后端配置生成完成并通过 CI，接下来接 IPC 与界面**
+更新时间：2026-10-15 · 当前阶段：**主链已接通（后端），界面接线进行中**
 
 ---
 
 ## 0. 一句话现状
 
-**三个平台的应用产物都已构建成功并核对过内容；单内核（sing-box）收敛已完成并通过 CI；
-「Clash 级别的那套配置选项」在 Go 后端已经生成完毕（DNS、TUN、分应用、规则、代理组、
-规则集、嗅探）并通过 CI 7/7，但 IPC 与界面一层都还没接——选项现在改不了，
-也没有界面能改。**
+**「登录 → 取订阅 → 编译 → 连接」这条主链的后端已经接通并测试通过。**
+这是此前最大的缺口：IPC 契约里原本**没有登录、也没有取订阅**，
+界面只能连接一份已经构造好的配置，从来没有人把 shared/panel、
+shared/subscription 与 shared/compiler 串起来。
 
-**下一步是 B2（IPC 契约）**，见 2.1。
+现在有了 `runtime/session`（凭据 → 编译请求）与 8 个新的 IPC 操作，
+Go 侧全部有测试覆盖。**但界面还没有接上去**，平台网络接管
+（Windows 系统代理 / Android TUN）也还没做完——
+所以它仍然不是一个「能用的客户端」，只是主链通了。
+
+### 本机现在能编译 Go 了（重要）
+
+工具链在工作区本地 `D:\workai\toolchain\go`（不写 PATH、不写注册表，
+不要了直接删目录）。用 `tools/scripts/go-local.ps1`：
+
+```powershell
+& .\tools\scripts\go-local.ps1 -Command vet  -Args ./...
+& .\tools\scripts\go-local.ps1 -Command test -Args ./...
+& .\tools\scripts\go-local.ps1 -Command fmt
+```
+
+**Go 改动不必再靠 CI 往返。** C++ 与 Kotlin 仍然只有 CI 能证明。
 
 ---
 
@@ -72,14 +88,46 @@
 | 步骤 | 范围 | 说明 |
 |---|---|---|
 | **B1** | Go 后端：`shared/domain` 选项模型 + `shared/compiler` 生成 | **基本完成**（见 2.2）。已完成：选项模型、DNS、TUN+分应用、route 规则、代理组、规则集、嗅探。**未完成：混合端口、启动项（见 2.2b）** |
-| **B2** | IPC 契约：`runtime/ipc/protocol.go` + C++ `apps/desktop/src/core/ipc_protocol.{hpp,cpp}` | 两侧一起改 |
-| **B3** | 桌面界面：`apps/desktop/src/ui/pro_panel.{hpp,cpp}`（高级）+ `simple_panel`（简易） | |
-| **B4** | Android 界面：`apps/android/.../ui/ProxyApp.kt` | |
-| **B5** | i18n 文案：`locales/{zh-CN,en}.json` 两侧同步 | |
-| **B6** | 双语文档同步 | |
+| **B2** | IPC 契约：`runtime/ipc/protocol.go` + C++ `apps/desktop/src/core/ipc_protocol.{hpp,cpp}` | **完成**：新增 8 个会话/订阅操作，两侧已对齐，见 2.5 |
+| **B2b** | 主链后端：`runtime/session`（凭据 → 编译请求） | **完成**，见 2.5。这是此前**完全没有**的一块 |
+| **B3** | 桌面界面：`apps/desktop/src/ui/pro_panel.{hpp,cpp}`（高级）+ `simple_panel`（简易）+ 登录/节点 | **进行中** |
+| **B4** | Android 界面：`apps/android/.../ui/ProxyApp.kt` | **进行中** |
+| **B5** | i18n 文案：`locales/{zh-CN,en}.json` 两侧同步 | 会话/订阅的 25 个键已补；界面新增文案待补 |
+| **B6** | 双语文档同步 | 待办 |
+| **B7** | 平台网络接管：Windows 系统代理/TUN、Android TUN 交给核心 | **未开始**，见 2.6 |
 
-**下一步应当是 B2**：后端能生成的选项已经不少，但界面还一个都没接上去。
-继续往 B1 里加选项的边际收益在下降。
+**下一步：B3/B4 的收尾，然后 B7。** 主链后端已通，剩下的价值几乎都在
+「让它真的能用」——界面接上、以及平台真的接管流量。
+
+### 2.5 主链后端（本次新增，最重要的一块）
+
+此前 `shared/panel`、`shared/subscription`、`shared/compiler` 各自都有实现与测试，
+**但没有任何东西把它们串起来**，IPC 契约里也没有登录与取订阅。
+界面只能连接一份已经构造好的配置——这不是一个客户端。
+
+新增 `runtime/session` 包：
+
+| 文件 | 职责 |
+|---|---|
+| `session.go` | 登录/登出/恢复、拉订阅、列节点、选节点、读写选项、**构造编译请求** |
+| `manager.go` | 持有「当前是哪台面板的会话」，地址变化时重建 |
+| `classify.go` | 把 panel 与 subscription 的错误词汇表翻译成「用户该做什么」 |
+| `errors.go` | 分类与文案键；`ScrubURL` 处理路径里带 token 的订阅链接 |
+
+几个刻意做的判断，改动前请先读它们的注释：
+
+- **重新拉订阅后若已选节点消失，清空选择并提示**，而不是留着不存在的 ID
+  让编译器悄悄回退到第一个节点——那会造成「界面显示 A、实际连 B」
+- **面板地址变化时绝不复用会话**：否则新面板的凭据会写进旧面板的命名空间
+- 订阅请求显式带 `flag=general`，向 Xboard 要节点 URI 列表；
+  否则可能拿到尚未实现的 Clash YAML
+- 凭据存储目前用 `secrets.NewUnavailableStore()`（平台安全存储尚未落地），
+  它会让界面如实提示「本次可用，但不会记住登录」
+
+IPC 新增 8 个操作：`Login` `Logout` `GetSessionState` `RefreshSubscription`
+`ListNodes` `SelectNode` `GetOptions` `SetOptions`。
+`SessionState` 与 `NodeView` **刻意不含任何凭据**，并有测试断言这一点。
+
 
 ### 2.2 进度：后端配置生成层已完成的各块
 
@@ -113,6 +161,52 @@ gofmt 要求去掉注释里成对的反引号。三次都已修掉，
 因此凡是断言 `route.*` 的测试**不能**复用那个用 global 策略的
 `compileWithOptions`——否则断言看到的是空列表，看起来像「生成器坏了」，
 实际是测试没走到那条路径。已加 `compileInRuleMode` 专供这类用例。
+
+### 2.6 平台网络接管（B7，尚未开始）——「能连上」的真正门槛
+
+**这一块不做，前面所有工作都只是「配置生成正确」。**
+
+#### Windows
+
+`platform/winproxy` 已经能写注册表，但**写完没有通知系统刷新**。
+缺的是 `wininet.dll` 的：
+
+```
+InternetSetOptionW(nil, INTERNET_OPTION_SETTINGS_CHANGED, nil, 0)
+InternetSetOptionW(nil, INTERNET_OPTION_REFRESH, nil, 0)
+```
+
+缺这一步时，**已经在运行的应用不会立即使用新代理**——
+用户点了「连接」却发现浏览器还是直连，然后会去怀疑核心。
+需要一个 `//go:build windows` 文件 + 非 Windows 的桩。
+
+#### Android：这里有一个**必须先决定**的问题（不要猜）
+
+`apps/android/.../vpn/ProxyVpnService.kt` 目前能把 VpnService 建立起来、
+能拿到 TUN 的 `ParcelFileDescriptor`，但**没有把它交给核心**，
+所以**VPN 能建立，却不会代理任何流量**。
+
+难点不在代码而在一个尚未决定的设计问题：Android 上 sing-box 拿到 TUN fd 的方式，
+取决于核心以什么形式集成：
+
+| 路线 | 含义 | 代价 |
+|---|---|---|
+| AAR 内嵌（gomobile） | 核心作为库跑在应用进程内，直接把 fd 交给它 | 需要写一层 Go 绑定并在 CI 里构建 AAR；Android 侧才能拿到 `startVpnService(fd)` 这类入口 |
+| 预构建二进制 + 进程 | 独立进程 + `--vpn-service` / fd 继承 | 需要核心支持从 fd 接管，且要处理进程生命周期与权限 |
+| tun2socks 桥接 | 应用内把 TUN 流量转成 SOCKS 交给核心 | 多一层转发、多一份依赖，性能与故障面都变差 |
+
+**在没有真实 Android 设备与真实核心的情况下，无法验证任何一条**，
+而猜一个接口会得到「编译通过、运行即崩」的代码——
+这正是 `ui-options.md` 第 0 节批评的伪选项在平台层的等价物。
+
+**因此建议的下一步**（需要用户的真实设备与核心）：
+1. 先读 `src/references/ClashMetaForAndroid-main` 看一个真实的 Android 代理客户端
+   是怎么把 VpnService 交给内核的（那是可核实的事实，不是猜测）；
+2. 据此定下路线，写进 ADR；
+3. 再实现，并在真实设备上验证「流量真的走了代理」。
+
+**在那之前，Android 的这一格必须继续标记为未实现。**
+不要把「VPN 能建立」写成「Android 能用」。
 
 ### 2.2b 后端仍缺的两项（都有明确原因，不是遗漏）
 
@@ -354,6 +448,8 @@ push 会触发 `ci.yml`（7 个作业）。
 | **注释与 `func` 挤在同一行** | 编辑时把 `// 说明。func TestX(...)` 拼到一行，`func` 落进注释，函数体成了游离语句；CI 报 `expected declaration, found opts` | **10 项本机检查全绿也发现不了**——它们只做文本级检查，不解析 Go 语法。改完 Go 后要专门扫一遍「声明是否在行首」，不能只信检查脚本 |
 | **注释里成对的反引号** | gofmt 把注释中的成对反引号规范成弯引号，格式化作业因此失败 | 本机没有 gofmt 就不该在注释里用成对反引号。`adapter.go` 里那份带列表缩进的没事，别照抄它的形式 |
 | **测试用了错误的策略** | 断言 `route.rule_set` 的用例复用了 global 策略的辅助函数，结果恒为空列表，看起来像生成器坏了 | 规则集与用户规则**只在规则模式下生成**。测 route 的用例必须显式用 rule 策略 |
+| **写死的计数留在测试文件里** | 新增 8 个 IPC 操作后，`protocol.go`、C++ 镜像都改了，但 Go 与 C++ **测试里写死的操作数**没改。本地全套检查（含 IPC 契约检查）全绿，CI 的 C++ 单测才失败 | 契约检查只读**协议源文件**；计数在**测试文件**里它就看不到。已加 `check-ipc-operation-count.ps1` 同时读三处。**教训：检查器覆盖的是它读的那些文件，不是你以为的那一类问题** |
+| **参数位置绑定被静默覆盖** | `go-local.ps1 -Command build ./...` 把 `./...` 绑到了 `-ToolchainDir`，脚本报「找不到工具链」，看起来像环境坏了 | PowerShell 的 `ValueFromRemainingArguments` 会与后面的具名参数打架。改成必须显式 `-Args ./...`，并在注释里写清为什么 |
 
 ---
 
