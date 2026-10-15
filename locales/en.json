@@ -23,10 +23,11 @@
     "compiler.proxy_group_skipped": "This proxy group could not be fully compiled (see the message); it was skipped or downgraded",
     "compiler.final_action_unavailable": "The fallback action is unavailable, so unmatched traffic goes through the proxy to avoid leaking it",
     "compiler.no_route_rules": "No routing rule took effect (none configured, or all were skipped), so everything except built-in private-address direct routing goes through the proxy; this leaks no traffic but is not the same as rule-based routing",
+    "compiler.sniff_override_not_applied": "The current core (sing-box {0}) has no rule-action field for overriding the destination with the sniffed result, so it was not generated; sniffing itself still applies.",
+    "compiler.sniff_requires_rule_mode": "Sniffing only applies in rule mode (it is expressed as a route action); the current mode is global or direct, so no sniffing rule was generated.",
     "compiler.rule_set_invalid": "This rule-set definition is invalid (see the message); it was skipped, and rules referencing it were skipped too",
     "compiler.rule_set_local_unsupported": "A built-in rule set needs a local file path readable by the core, which belongs to the runtime layout and is not generated here; it was skipped",
     "compiler.rule_set_format_unknown": "The rule-set format cannot be inferred from the URL suffix, so the core decides; if loading fails, set source or binary explicitly",
-    "compiler.sniff_protocols_not_applied": "The sniffing protocol list is a route action in sing-box, not an inbound field, so it was not generated; only sniffing itself is enabled on the inbound",
     "compiler.plugin_mapped": "The SS plugin parameter was mapped to sing-box's plugin field",
     "compiler.duplicate_node": "Node {0} has exactly the same connection parameters as an earlier node (both outbound tags are {1}), so it was skipped; keeping both would make the core refuse to start on a duplicate tag",
 

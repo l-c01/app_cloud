@@ -23,10 +23,11 @@
     "compiler.proxy_group_skipped": "该代理组无法完整生成（原因见消息），已跳过或降级",
     "compiler.final_action_unavailable": "兜底动作不可用，已按「全部经代理」处理以避免流量泄漏",
     "compiler.no_route_rules": "本次没有生效的分流规则（未配置规则，或配置的规则都被跳过），除内建的私有地址直连外将全部经代理；这不会泄漏流量，但与「按规则分流」的预期不同",
+    "compiler.sniff_override_not_applied": "「用嗅探结果覆写目的地址」在当前核心版本（sing-box {0}）的规则动作里没有对应字段，本次未生成；嗅探本身仍然生效。",
+    "compiler.sniff_requires_rule_mode": "嗅探只在「规则分流」模式下生效（它由一条路由动作表达）；当前是全局或直连模式，本次未生成嗅探规则。",
     "compiler.rule_set_invalid": "规则集定义无效（原因见消息），已跳过；引用它的规则也会一并跳过",
     "compiler.rule_set_local_unsupported": "内置规则集需要核心可读的本地文件路径，属于运行时布局，本层不生成，已跳过",
     "compiler.rule_set_format_unknown": "无法从地址后缀推断规则集格式，已交由核心自行判断；若加载失败请显式指定 source 或 binary",
-    "compiler.sniff_protocols_not_applied": "嗅探协议列表在 sing-box 里属于路由动作，不是入站字段，本版本未生成；入站层只启用嗅探本身",
     "compiler.plugin_mapped": "SS 插件参数已映射到 sing-box 的 plugin 字段",
     "compiler.duplicate_node": "节点 {0} 与前面的节点连接参数完全相同（出站 tag 均为 {1}），本次编译已跳过它；同时保留两者会导致核心因重复 tag 拒绝启动",
 
