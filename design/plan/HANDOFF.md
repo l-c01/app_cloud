@@ -4,21 +4,50 @@
 > [`STATUS.md`](STATUS.md)（阶段状态权威来源）与
 > [`../../design/architecture/ui-options.md`](../architecture/ui-options.md)（选项设计）。
 
-更新时间：2026-10-15 · 当前阶段：**主链已接通（后端），界面接线进行中**
+更新时间：2026-10-16 · 当前阶段：**两端界面已接通并各自构建通过；剩下平台接管与真机验证**
 
 ---
 
 ## 0. 一句话现状
 
-**「登录 → 取订阅 → 编译 → 连接」这条主链的后端已经接通并测试通过。**
-这是此前最大的缺口：IPC 契约里原本**没有登录、也没有取订阅**，
-界面只能连接一份已经构造好的配置，从来没有人把 shared/panel、
-shared/subscription 与 shared/compiler 串起来。
+**两个平台的界面都接通并各自构建通过了 —— 这是本项目第一次。**
 
-现在有了 `runtime/session`（凭据 → 编译请求）与 8 个新的 IPC 操作，
-Go 侧全部有测试覆盖。**但界面还没有接上去**，平台网络接管
-（Windows 系统代理 / Android TUN）也还没做完——
-所以它仍然不是一个「能用的客户端」，只是主链通了。
+| 验证 | 结果 |
+|---|---|
+| Go（本地 `go build/vet/test ./...`） | 通过 |
+| CI checks（7 个作业，含 C++ 两个构建） | **7/7 通过** |
+| `Build Android`（手动入口，arm64-v8a） | **通过**（此前从未编译过 Kotlin） |
+
+「登录 → 取订阅 → 编译 → 连接」的后端主链在 `runtime/session` 里，
+IPC 有 8 个会话/订阅操作，两端界面都已接上：桌面端有登录页、节点列表、
+简易/高级七页选项；Android 有登录页、节点列表、会话面板、
+简易/专业模式。文案中英各齐全（`check-i18n-keys` 237 个引用键全命中）。
+
+**仍然不是「能用的成品」**，差的正是「真的接管流量」：
+
+- **Windows 系统代理已接通**（`netmgr/windows.go` + wininet 刷新通知）；
+  但**从未在真实 Windows 上跑过**。
+- **Android 的 TUN 仍未交给核心**：方案已定（[`ADR-0006`](../adr/ADR-0006-Android-核心集成方式.md)：
+  libbox/gomobile AAR + 自实现 `PlatformInterface`），**实现未开始**，
+  需要 NDK 与真机，本机都还没有。**VPN 能建立但仍然不代理流量。**
+- 从未连接过真实面板、从未拉起真实 sing-box。全部运行期结论仍是 `not_run`。
+
+### 一个容易踩的坑：Android 不在 push 触发的 CI 里
+
+`.github/workflows/build-android.yml` **只有 `workflow_dispatch`**，
+而 `ci.yml` 不编译 Kotlin。也就是说**push 全绿并不代表 Android 能编译**——
+本项目已经吃过这个亏：一批约 3000 行的 Kotlin 在「CI 全绿」的状态下
+被提交，首次手动触发构建才暴露出 57 个编译错误。
+
+改完 Android 后必须手动触发：
+
+```powershell
+# 用 GitHub API 触发（本机没有 gh CLI）
+Invoke-WebRequest "https://api.github.com/repos/<owner>/<repo>/actions/workflows/384624012/dispatches" `
+  -Method POST -Headers $headers -ContentType 'application/json' `
+  -Body '{"ref":"main","inputs":{"version_dir":"src/versions/0.1.0","abi":"arm64-v8a","build_type":"test"}}'
+```
+
 
 ### 本机现在能编译 Go 了（重要）
 
@@ -465,6 +494,11 @@ push 会触发 `ci.yml`（7 个作业）。
 | **写死的计数留在测试文件里** | 新增 8 个 IPC 操作后，`protocol.go`、C++ 镜像都改了，但 Go 与 C++ **测试里写死的操作数**没改。本地全套检查（含 IPC 契约检查）全绿，CI 的 C++ 单测才失败 | 契约检查只读**协议源文件**；计数在**测试文件**里它就看不到。已加 `check-ipc-operation-count.ps1` 同时读三处。**教训：检查器覆盖的是它读的那些文件，不是你以为的那一类问题** |
 | **参数位置绑定被静默覆盖** | `go-local.ps1 -Command build ./...` 把 `./...` 绑到了 `-ToolchainDir`，脚本报「找不到工具链」，看起来像环境坏了 | PowerShell 的 `ValueFromRemainingArguments` 会与后面的具名参数打架。改成必须显式 `-Args ./...`，并在注释里写清为什么 |
 | **有测试、没有调用点** | `platform/winproxy` 实现完整、444 行测试全过，但**没有任何代码 import 它**；Windows 落在 NoopBackend，系统代理接管是死代码。该包自己的测试永远发现不了 | 判断「功能是否可用」要顺着**调用链**查到起点，而不是看那个包的测试。对每个「我以为做完了」的功能，问一句：**谁调用它**？ |
+| **push 全绿 ≠ Android 能编译** | `build-android.yml` 只有 `workflow_dispatch`，`ci.yml` 不编译 Kotlin。约 3000 行 Kotlin 在「CI 全绿」下被提交，首次手动触发才暴露 57 个编译错误 | **Android 必须在提交后手动触发 `Build Android`**。把「哪个平台由哪个入口验证」写进交接文档，否则新会话会以为 push 已经覆盖了 |
+| **`receiver type mismatch` 不等于参数类型错** | Kotlin 扩展函数写成裸调用（`putIfNotEmpty(...)` 而函数是 `JSONObject.putIfNotEmpty`）时报 "Unresolved reference ... because of a receiver type mismatch"。我按字面理解成「值的类型不对」，于是去**补了一个重复定义**，反而制造出 "Conflicting overloads" | 这条消息里的 receiver 指**扩展函数的接收者**。看到它先确认函数**是否已存在**、以及调用点有没有给它接收者，别急着新建 |
+| **`messages[key, *args]` 是语法错误** | 带 vararg 的 `operator get` 不能在方括号里展开数组，星号被当成乘号（报 "Unresolved reference 'times'"） | 用 `messages.get(key, *args)` |
+| **wxWidgets 没有那些 wxID_\*** | 自造 `wxID_LOGOUT` / `wxID_VIEW_OPTIONS` 报 "was not declared in this scope"（它还建议 `wxID_LOWEST`） | 自定义命令 ID 从 `wxID_HIGHEST + 1` 起自己定义，不要从 1 起（1 以下被标准 ID 占用，撞上的表现是菜单触发别的命令） |
+| **`wxRadioBox` 没有 `Append()`** | 先建空框再逐个 `Append` 报 "has no member named 'Append'" | 选项必须在**构造时**一次给全（`wxArrayString`），只有 `wxItemContainer` 那一族才有 Append |
 
 ---
 
