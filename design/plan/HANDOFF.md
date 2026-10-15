@@ -102,6 +102,32 @@ Invoke-WebRequest "https://api.github.com/repos/<owner>/<repo>/actions/workflows
 
 ## 2. 未完成 ← 从这里继续
 
+### 2.0 刚刚修掉的一个「每次连接都会失败」的缺陷（本轮）
+
+**症状**：默认配置下点「连接」必然失败，报 `invalid http port: 0`。
+
+**原因**：`session.BuildRequest()` 只在 **TUN 开启**时才设置本地代理端口，
+而 TUN 在桌面端**默认是关的**（默认接入方式是系统代理）。于是两个端口都是 0，
+而 `compiler.Request.validate()` 要求它们落在 1..65535 且互不相同。
+
+**更糟的是它的连带后果**：`coordinator.planForMode()` 用
+`req.Inbound.HTTPPort` 拼出系统代理地址，所以修复前它会把系统代理写成
+`127.0.0.1:0` —— **那会让整台机器完全断网**，而不是仅仅代理不可用。
+
+**为什么它躲过了所有检查**：两端界面、IPC、服务、编译器各自都通过，
+链路上每一环单看都对。只有把「会话构造出来的请求」真的交给编译器，
+才会暴露。这正是本项目反复出现的同一类问题（见 1.2 的「有测试、没有调用点」）：
+**每一环都对，接线处错。**
+
+**留下的做法**：新增的回归测试不再断言「端口非零」这种具体表现，
+而是**把请求交给 `CompileSingBox`，让校验器说话**——那样任何会让请求
+被拒的字段都会在这里暴露。这类「跨模块的契约」断言应当尽量交给
+真正的校验器，而不是在测试里复述它的规则。
+
+**下一步应当继续找同类问题**：链路上还有哪些「各模块单独都过、
+合起来才出错」的地方？尤其是运行期才生效的部分（就绪校验、网络接管、
+恢复流程）。
+
 ### 2.1 选项实现（主体工作：后端已基本完成）
 
 用户的要求（原文）：
@@ -499,6 +525,7 @@ push 会触发 `ci.yml`（7 个作业）。
 | **`messages[key, *args]` 是语法错误** | 带 vararg 的 `operator get` 不能在方括号里展开数组，星号被当成乘号（报 "Unresolved reference 'times'"） | 用 `messages.get(key, *args)` |
 | **wxWidgets 没有那些 wxID_\*** | 自造 `wxID_LOGOUT` / `wxID_VIEW_OPTIONS` 报 "was not declared in this scope"（它还建议 `wxID_LOWEST`） | 自定义命令 ID 从 `wxID_HIGHEST + 1` 起自己定义，不要从 1 起（1 以下被标准 ID 占用，撞上的表现是菜单触发别的命令） |
 | **`wxRadioBox` 没有 `Append()`** | 先建空框再逐个 `Append` 报 "has no member named 'Append'" | 选项必须在**构造时**一次给全（`wxArrayString`），只有 `wxItemContainer` 那一族才有 Append |
+| **各模块单独都对，接线处错** | 默认配置点「连接」必失败：`session.BuildRequest()` 只在 TUN 开启时设端口，而桌面默认用系统代理（TUN 关）→ 端口为 0 → 编译器拒绝。连带后果更糟：`planForMode` 会把系统代理写成 `127.0.0.1:0`，**整机断网** | 两端界面、IPC、服务、编译器各自都通过，谁也发现不了。**跨模块的契约要交给真正的校验器断言**（这里是把请求交给 `CompileSingBox`），而不是在测试里复述它的规则 |
 
 ---
 
