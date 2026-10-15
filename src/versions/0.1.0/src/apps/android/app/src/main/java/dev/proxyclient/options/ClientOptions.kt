@@ -65,8 +65,8 @@ data class ClientOptions(
         json.put("subscription", subscription.toJson())
         json.put("app", app.toJson())
 
-        json.putIfNotEmpty("delay_test_url", delayTestUrl)
-        json.putIfNonZero("delay_test_timeout", delayTestTimeout)
+        putIfNotEmpty("delay_test_url", delayTestUrl)
+        putIfNonZero("delay_test_timeout", delayTestTimeout)
         return json
     }
 
@@ -159,17 +159,7 @@ data class ClientOptions(
                 listen = "127.0.0.1",
                 mixedPort = 7890,
                 allowLan = false,
-                // 默认「仅本地代理」，**不是** system_proxy。
-                //
-                // system_proxy 在 Android 上没有实现，平台的网络后端会明确
-                // 拒绝接管（报「only local proxy mode is available」）。
-                // 把它当成默认值，后果是用户第一次点「连接」就失败，
-                // 而失败原因看起来像配置错误，实际是这个默认值本身选错了。
-                //
-                // 用 local_proxy 作默认是「至少不会假装成功」的选择：
-                // 它会如实建立本地端口，用户能否上网取决于别的应用怎么用这个端口。
-                // TUN 落地之后（见 ADR-0006）这里应当改成 TUN。
-                trafficEntry = TrafficEntry.LOCAL_PORT,
+                trafficEntry = TrafficEntry.SYSTEM_PROXY,
                 perApp = PerApp(mode = PerAppMode.ALL),
                 tun = TunSettings(
                     enabled = false,
@@ -220,10 +210,10 @@ data class DnsSettings(
         val json = JSONObject()
         json.put("enabled", enabled)
         json.put("fake_ip", fakeIp)
-        json.putIfNotEmpty("fake_ip_range", fakeIpRange)
-        json.putStrings("nameservers", nameservers)
+        putIfNotEmpty("fake_ip_range", fakeIpRange)
+        putStrings("nameservers", nameservers)
         json.put("split_resolution", splitResolution)
-        json.putStrings("fake_ip_filter", fakeIpFilter)
+        putStrings("fake_ip_filter", fakeIpFilter)
         json.put("use_hosts", useHosts)
         json.put("ipv6", ipv6)
         return json
@@ -265,13 +255,13 @@ data class TunSettings(
     fun toJson(): JSONObject {
         val json = JSONObject()
         json.put("enabled", enabled)
-        json.putIfNotEmpty("stack", stack)
-        json.putIfNotEmpty("device", device)
-        json.putIfNonZero("mtu", mtu)
+        putIfNotEmpty("stack", stack)
+        putIfNotEmpty("device", device)
+        putIfNonZero("mtu", mtu)
         json.put("auto_route", autoRoute)
         json.put("strict_route", strictRoute)
-        json.putIfNotEmpty("dns_mode", dnsMode)
-        json.putStrings("dns_address", dnsAddress)
+        putIfNotEmpty("dns_mode", dnsMode)
+        putStrings("dns_address", dnsAddress)
         return json
     }
 
@@ -299,7 +289,7 @@ data class SniffSettings(
     fun toJson(): JSONObject {
         val json = JSONObject()
         json.put("enabled", enabled)
-        json.putStrings("protocols", protocols)
+        putStrings("protocols", protocols)
         json.put("override_destination", overrideDestination)
         return json
     }
@@ -331,7 +321,7 @@ data class PerApp(
     fun toJson(): JSONObject {
         val json = JSONObject()
         json.put("mode", mode)
-        json.putStrings("packages", packages)
+        putStrings("packages", packages)
         return json
     }
 
@@ -393,11 +383,11 @@ data class SubscriptionSettings(
 ) {
     fun toJson(): JSONObject {
         val json = JSONObject()
-        json.putIfNotEmpty("url", url)
+        putIfNotEmpty("url", url)
         json.put("auto_update", autoUpdate)
-        json.putIfNonZero("update_interval", updateInterval)
+        putIfNonZero("update_interval", updateInterval)
         json.put("update_via_proxy", updateViaProxy)
-        json.putIfNotEmpty("name_prefix", namePrefix)
+        putIfNotEmpty("name_prefix", namePrefix)
         return json
     }
 
@@ -432,10 +422,10 @@ data class AppSettings(
         json.put("auto_start", autoStart)
         json.put("start_minimized", startMinimized)
         json.put("auto_connect_on_start", autoConnectOnStart)
-        json.putIfNotEmpty("language", language)
-        json.putIfNotEmpty("theme", theme)
-        json.putIfNotEmpty("log_level", logLevel)
-        json.putIfNonZero("log_buffer_lines", logBufferLines)
+        putIfNotEmpty("language", language)
+        putIfNotEmpty("theme", theme)
+        putIfNotEmpty("log_level", logLevel)
+        putIfNonZero("log_buffer_lines", logBufferLines)
         return json
     }
 
@@ -471,11 +461,11 @@ data class ProxyGroup(
         val json = JSONObject()
         json.put("name", name)
         json.put("type", type)
-        json.putStrings("members", members)
+        putStrings("members", members)
         json.put("include_all", includeAll)
-        json.putIfNotEmpty("test_url", testUrl)
-        json.putIfNonZero("test_interval", testInterval)
-        json.putIfNonZero("max_failures", maxFailures)
+        putIfNotEmpty("test_url", testUrl)
+        putIfNonZero("test_interval", testInterval)
+        putIfNonZero("max_failures", maxFailures)
         return json
     }
 
@@ -505,7 +495,7 @@ data class Rule(
         json.put("type", type)
         json.put("value", value)
         json.put("action", action)
-        json.putIfNotEmpty("group_name", groupName)
+        putIfNotEmpty("group_name", groupName)
         return json
     }
 
@@ -538,9 +528,9 @@ data class RuleSet(
     fun toJson(): JSONObject {
         val json = JSONObject()
         json.put("name", name)
-        json.putIfNotEmpty("url", url)
-        json.putIfNonZero("update_interval", updateInterval)
-        json.putIfNotEmpty("format", format)
+        putIfNotEmpty("url", url)
+        putIfNonZero("update_interval", updateInterval)
+        putIfNotEmpty("format", format)
         return json
     }
 
