@@ -30,24 +30,10 @@
 
 #ifndef WX_PRECOMP
 #include <wx/wx.h>
+#include <wx/notebook.h>
 #include <functional>
 #include <vector>
 #endif
-
-// wx/notebook.h **必须在 #ifndef WX_PRECOMP 之外**。
-//
-// 这条曾经是错的，而且只在 Windows 上暴露：定义 WX_PRECOMP 时
-// （MSVC / vcpkg 那条构建路径会定义它）整个 #ifndef 块被跳过，
-// 于是 wxNotebook 成了一个未知类型，报错是一串
-// 「missing ';' before '*'」和「notebook_: undeclared identifier」——
-// 指向成员声明处，而不是真正的原因（少了一个头文件）。
-//
-// Linux 上定义与不定义 WX_PRECOMP 都没事，因为那边的构建恰好不定义它，
-// 于是这个缺陷在 Linux CI 上一直是绿的。
-//
-// 教训：**wx 的子模块头文件不要放进入这个条件块**。
-// 它只该包住 <wx/wx.h> 那种「预编译头已经提供」的伞头文件。
-#include <wx/notebook.h>
 
 #include <string>
 

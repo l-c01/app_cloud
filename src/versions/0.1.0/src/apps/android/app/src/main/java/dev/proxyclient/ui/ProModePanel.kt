@@ -236,10 +236,12 @@ fun ProModePanel(
             )
             ChoiceRow(
                 label = messages["ui.label.tun_stack"],
-                // 技术取值原样显示（system / gvisor / mixed）：文案表的标签
-                // 本来就把这些取值列在括号里，另造一套中文名会让用户对不上
-                // 核心文档里的写法。理由见 OptionLabels.kt 的模块说明。
-                choices = rawChoices(TunStack.choices, draft.inbound.tun.stack),
+                choices = labelledChoices(
+                    messages,
+                    TunStack.choices,
+                    draft.inbound.tun.stack,
+                    ::tunStackLabelKey,
+                ),
                 selected = draft.inbound.tun.stack,
                 enabled = editable && draft.inbound.tun.enabled,
                 onSelect = { value ->
@@ -280,7 +282,12 @@ fun ProModePanel(
             )
             ChoiceRow(
                 label = messages["ui.label.tun_dns_mode"],
-                choices = rawChoices(TunDnsMode.choices, draft.inbound.tun.dnsMode),
+                choices = labelledChoices(
+                    messages,
+                    TunDnsMode.choices,
+                    draft.inbound.tun.dnsMode,
+                    ::tunDnsModeLabelKey,
+                ),
                 selected = draft.inbound.tun.dnsMode,
                 enabled = editable && draft.inbound.tun.enabled,
                 onSelect = { value ->
@@ -422,14 +429,24 @@ fun ProModePanel(
 
             ChoiceRow(
                 label = messages["ui.label.app_theme"],
-                choices = rawChoices(AppTheme.choices, draft.app.theme),
+                choices = labelledChoices(
+                    messages,
+                    AppTheme.choices,
+                    draft.app.theme,
+                    ::appThemeLabelKey,
+                ),
                 selected = draft.app.theme,
                 enabled = editable,
                 onSelect = { value -> update { it.copy(app = it.app.copy(theme = value)) } },
             )
             ChoiceRow(
                 label = messages["ui.label.app_log_level"],
-                choices = rawChoices(LogLevel.choices, draft.app.logLevel),
+                choices = labelledChoices(
+                    messages,
+                    LogLevel.choices,
+                    draft.app.logLevel,
+                    ::logLevelLabelKey,
+                ),
                 selected = draft.app.logLevel,
                 enabled = editable,
                 onSelect = { value -> update { it.copy(app = it.app.copy(logLevel = value)) } },
