@@ -59,7 +59,8 @@ func baseRequest(nodes ...*domain.Node) *Request {
 		Nodes: nodes,
 		Inbound: InboundOptions{
 			Listen:    "127.0.0.1",
-			MixedPort: 7890,
+			HTTPPort:  7890,
+			SocksPort: 7891,
 		},
 		Policy: PolicyGlobal,
 	}
@@ -246,15 +247,9 @@ func TestSelectedNodeMissingFallsBackWithWarning(t *testing.T) {
 
 // 全部节点不可编译时必须报错，不得产出空壳配置。
 func TestNoCompilableNodeFails(t *testing.T) {
-	// 用 TUIC 当例子，**不是** hysteria2。
-	//
-	// 这条用例原先写的是 hysteria2，注释还写着「首轮不支持」。
-	// hysteria2 实现之后，这个「坏节点」就变成好节点了，用例随之失败——
-	// 这是好事：它说明实现确实生效了。但必须回来改用例，
-	// 换成当前确实不支持的协议，否则它会一直红着，最后被人关掉。
 	bad := &domain.Node{
 		Name:     "bad",
-		Protocol: domain.ProtocolTUIC, // 能力表里仍是 false
+		Protocol: domain.ProtocolHysteria2, // 首轮不支持
 		Server:   "h.example.com",
 		Port:     443,
 	}
@@ -277,12 +272,8 @@ func TestRequestValidation(t *testing.T) {
 		mutate func(*Request)
 	}{
 		{"unknown core", func(r *Request) { r.Core = "mihomo" }},
-		// 「两个端口必须不同」这条校验随旧结构一起去掉了：
-		// 现在只有一个 mixed 端口，没有「两个端口」可言。
-		// 越界与零值仍然要拦。
-		{"zero port", func(r *Request) { r.Inbound.MixedPort = 0 }},
-		{"port too large", func(r *Request) { r.Inbound.MixedPort = 70000 }},
-		{"negative port", func(r *Request) { r.Inbound.MixedPort = -1 }},
+		{"same ports", func(r *Request) { r.Inbound.SocksPort = r.Inbound.HTTPPort }},
+		{"zero http port", func(r *Request) { r.Inbound.HTTPPort = 0 }},
 		{"empty listen", func(r *Request) { r.Inbound.Listen = "" }},
 		{"unknown policy", func(r *Request) { r.Policy = "smart" }},
 		{"empty policy", func(r *Request) { r.Policy = "" }},
