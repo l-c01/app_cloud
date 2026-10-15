@@ -347,10 +347,16 @@ func TestCapabilitySummaryIsAvailable(t *testing.T) {
 	if !ok {
 		t.Fatal("sing-box capability missing")
 	}
-	// 能力表必须显式标注「尚未实测」，避免被误当作已验证结论。
-	if singbox.VerifiedAgainst != "unverified" {
-		t.Errorf("the capability table must stay marked unverified until G4: %q",
-			singbox.VerifiedAgainst)
+	// 能力表必须如实标注它被验证到了什么程度。
+	//
+	// 这条断言改过结论：原先要求它**永远**是 "unverified"，理由是
+	// 「G4 用官方二进制逐项复核之后才允许改」。那次复核在 2026-10-16
+	// 真的做了（见 capability.go 的注释），因此现在允许它带上版本号。
+	//
+	// 但不能因此放松：**空串不行**。空串既不是「已验证」也不是「未验证」，
+	// 它只会让界面上的提示凭空消失，读者无从判断该不该信这张表。
+	if singbox.VerifiedAgainst == "" {
+		t.Error("能力表必须标注验证状态：要么 unverified，要么给出实测过的核心版本")
 	}
 	if !Supports(CoreSingBox, domain.ProtocolTrojan) {
 		t.Error("sing-box should support trojan")

@@ -1,34 +1,133 @@
 {
-  "schemaVersion": "1.0.0",
-  "status": "unresolved_template_not_for_release",
-  "appVersion": "0.1.0",
-  "releaseBuildMustRejectNullPins": true,
-  "note": "本文件由 G0/G1 冻结后填写；占位锁文件不得进入发布构建（见设计基线 §10.2）。核心采用官方预构建二进制，见 ADR-0003。",
-  "sources": {
-    "xboard_ref": { "commit": null, "note": "仅作契约/配置参考，不编译" },
-    "sing_box_core": {
-      "distribution": "official_prebuilt",
-      "version": null,
-      "sha256": null,
-      "upstream": "https://github.com/SagerNet/sing-box/releases",
-      "note": "锁定官方 Release 版本与校验和；本文件不得伪造数值"
-    }
-  },
-  "toolchains": {
-    "go": null,
-    "cmake": null,
-    "wxWidgets": null,
-    "msvc": null,
-    "linux_compiler": null,
-    "jdk": null,
-    "gradle": null,
-    "agp": null,
-    "kotlin": null,
-    "ndk": null,
-    "android_compile_sdk": null,
-    "android_min_sdk": null
-  },
-  "actions": {},
-  "baseImages": {},
-  "ruleResources": []
+    "schemaVersion":  "1.0.0",
+    "status":  "resolved",
+    "appVersion":  "0.1.0",
+    "releaseBuildMustRejectNullPins":  true,
+    "note":  [
+                 "Pinned 2026-10-16. Core distribution policy: ADR-0003 (official prebuilt + SHA256 + atomic replace).",
+                 "Single core: sing-box only (ADR-0005).",
+                 "version/sha256 at this level are the REFERENCE pin (windows-amd64).",
+                 "Per-architecture hashes live in `assets`; the fetch step MUST verify the hash of the",
+                 "architecture it actually downloads, because one global hash checked against a different",
+                 "architecture would pass while the wrong binary is being installed.",
+                 "Every sha256 here was read from the GitHub releases API digest field and the first four",
+                 "(android-arm64, windows-amd64, windows-386, linux-amd64) were independently re-computed",
+                 "from downloaded archives; all four matched.",
+                 "release-direct CDN (github.com/.../releases/download) is unreachable from some networks;",
+                 "https://ghproxy.net/\u003curl\u003e was verified to serve byte-identical archives."
+             ],
+    "sources":  {
+                    "xboard_ref":  {
+                                       "commit":  null,
+                                       "note":  "Reference only for contract/config; not compiled. Pin when the real panel is available."
+                                   },
+                    "sing_box_core":  {
+                                          "distribution":  "official_prebuilt",
+                                          "version":  "1.14.3",
+                                          "sha256":  "d8b86ef58936dba9230ec6a57ffa4243933f3c14ef4809828b6c553440ed1518",
+                                          "upstream":  "https://github.com/SagerNet/sing-box/releases",
+                                          "verifiedAgainst":  "sha256 recomputed from downloaded archives for 4 of 9 assets",
+                                          "assets":  {
+                                                         "windows-amd64":  {
+                                                                               "asset":  "sing-box-1.14.3-windows-amd64.zip",
+                                                                               "sha256":  "d8b86ef58936dba9230ec6a57ffa4243933f3c14ef4809828b6c553440ed1518",
+                                                                               "size":  32853953,
+                                                                               "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-windows-amd64.zip"
+                                                                           },
+                                                         "windows-386":  {
+                                                                             "asset":  "sing-box-1.14.3-windows-386.zip",
+                                                                             "sha256":  "8706eeca87cbca2fc9eee704948e8b5a27ea66056fedac0caa063ccedf1acab5",
+                                                                             "size":  26654818,
+                                                                             "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-windows-386.zip"
+                                                                         },
+                                                         "windows-arm64":  {
+                                                                               "asset":  "sing-box-1.14.3-windows-arm64.zip",
+                                                                               "sha256":  "195b35424c6e3f5913954c7f08c5d8ba2d2199f6d18eb27a3972a5a29cdaa78c",
+                                                                               "size":  29431701,
+                                                                               "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-windows-arm64.zip"
+                                                                           },
+                                                         "linux-amd64":  {
+                                                                             "asset":  "sing-box-1.14.3-linux-amd64.tar.gz",
+                                                                             "sha256":  "e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee",
+                                                                             "size":  31678266,
+                                                                             "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-amd64.tar.gz"
+                                                                         },
+                                                         "linux-386":  {
+                                                                           "asset":  "sing-box-1.14.3-linux-386.tar.gz",
+                                                                           "sha256":  "92dad4663615d2cb30fb8feba48787e8529b1940004341712b0d0d4548cb42ff",
+                                                                           "size":  25781782,
+                                                                           "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-386.tar.gz"
+                                                                       },
+                                                         "linux-arm64":  {
+                                                                             "asset":  "sing-box-1.14.3-linux-arm64.tar.gz",
+                                                                             "sha256":  "29dae24d76bea3bc62d07dd3e60cfc12003de7debbd6b768df9be9c68360174e",
+                                                                             "size":  29110944,
+                                                                             "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-arm64.tar.gz"
+                                                                         },
+                                                         "android-arm64-v8a":  {
+                                                                                   "asset":  "sing-box-1.14.3-android-arm64.tar.gz",
+                                                                                   "sha256":  "149569b5dbf01958e6598beb3a13078d6fc0e353ef06f4aff85f5f28bc23593b",
+                                                                                   "size":  25589071,
+                                                                                   "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-android-arm64.tar.gz"
+                                                                               },
+                                                         "android-armeabi-v7a":  {
+                                                                                     "asset":  "sing-box-1.14.3-android-arm.tar.gz",
+                                                                                     "sha256":  "0c0df4fbf85656896d5b604e9eb4e556c1a3f68dd615b0ece3f9f6bd5adab5d6",
+                                                                                     "size":  26110218,
+                                                                                     "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-android-arm.tar.gz"
+                                                                                 },
+                                                         "android-x86":  {
+                                                                             "asset":  "sing-box-1.14.3-android-386.tar.gz",
+                                                                             "sha256":  "5812c457335efa711116cbc0b01a4810a95f0838ef2b1693e88bf06446160161",
+                                                                             "size":  28416361,
+                                                                             "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-android-386.tar.gz"
+                                                                         },
+                                                         "docker-amd64":  {
+                                                                              "asset":  "sing-box-1.14.3-linux-amd64.tar.gz",
+                                                                              "sha256":  "e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee",
+                                                                              "size":  31678266,
+                                                                              "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-amd64.tar.gz",
+                                                                              "note":  "Docker runs on Linux; same archive as linux-amd64."
+                                                                          },
+                                                         "docker-386":  {
+                                                                            "asset":  "sing-box-1.14.3-linux-386.tar.gz",
+                                                                            "sha256":  "92dad4663615d2cb30fb8feba48787e8529b1940004341712b0d0d4548cb42ff",
+                                                                            "size":  25781782,
+                                                                            "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-386.tar.gz",
+                                                                            "note":  "Docker runs on Linux; same archive as linux-386."
+                                                                        },
+                                                         "docker-arm64":  {
+                                                                              "asset":  "sing-box-1.14.3-linux-arm64.tar.gz",
+                                                                              "sha256":  "29dae24d76bea3bc62d07dd3e60cfc12003de7debbd6b768df9be9c68360174e",
+                                                                              "size":  29110944,
+                                                                              "url":  "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-arm64.tar.gz",
+                                                                              "note":  "Docker runs on Linux; same archive as linux-arm64."
+                                                                          }
+                                                     }
+                                      }
+                },
+    "toolchains":  {
+                       "go":  "1.27.2",
+                       "cmake":  null,
+                       "wxWidgets":  null,
+                       "msvc":  null,
+                       "linux_compiler":  null,
+                       "jdk":  null,
+                       "gradle":  null,
+                       "agp":  null,
+                       "kotlin":  null,
+                       "ndk":  null,
+                       "android_compile_sdk":  null,
+                       "android_min_sdk":  null,
+                       "go_note":  "go.mod requires 1.24; 1.27.2 is the toolchain actually used and verified for this version dir. Official checksum for go1.27.2.windows-amd64.zip is 1314008898bd40df77af4b014f777f08873dbdfbcd3d92308728ee03304fe04f (79008081 bytes), matching the archive this workspace installed."
+                   },
+    "actions":  {
+
+                },
+    "baseImages":  {
+
+                   },
+    "ruleResources":  [
+
+                      ]
 }

@@ -34,7 +34,13 @@
 param(
     [Parameter(Mandatory = $true)][string]$TargetId,
     [Parameter(Mandatory = $true)][string]$OutDir,
-    [string]$VersionDir = ''
+    [string]$VersionDir = '',
+    # Optional download mirror prefix, e.g. "https://ghproxy.net".
+    # Explicit opt-in: the release CDN is unreachable from some networks, but
+    # switching hosts silently is not something a packaging step should decide.
+    # The sha256 check still applies, so a mirror can serve a bad file but not
+    # get it installed.
+    [string]$Mirror = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -96,15 +102,112 @@ if ($unresolved.Count -gt 0) {
 Write-Host "core pins are resolved; fetching assets for target $TargetId"
 Write-Host "  sing-box arch: $($target.singBoxAssetArch)"
 
-# The download and extraction is intentionally not implemented as a best-effort
-# path: until versions.lock.json carries real asset URLs and checksums there is
-# nothing correct to download.
+# --- 3) pick the asset for THIS target ---------------------------------------
 #
-# When the pins are filled in, each asset record must provide:
-#   version, sha256, and one url per asset architecture.
-# The fetch must then:
-#   1. download to a temporary file,
-#   2. compute sha256 and compare with the pin (mismatch => abort, delete),
-#   3. only then move the binary into $OutDir.
-Write-Error "the download step is not implemented yet: versions.lock.json carries no asset URLs. This is expected until the core versions are pinned."
-exit 1
+# The pin must be looked up **per architecture**. A single global hash checked
+# against a download for a different architecture would pass while the wrong
+# binary is being installed - the archive for another arch has a different hash,
+# so the check would either fail confusingly or, worse, be loosened to "any
+# pinned hash" and then prove nothing at all.
+#
+# There is no fallback to "latest": that would defeat the entire point of a pin.
+$assets = $lockJson.sources.sing_box_core.assets
+$pin = $null
+if ($assets) { $pin = $assets.$TargetId }
+if (-not $pin) {
+    Write-Error ("target '$TargetId' has no pinned asset in versions.lock.json " +
+        "(expected under sources.sing_box_core.assets.$TargetId). " +
+        'Add the pin rather than downloading an unpinned binary.')
+    exit 1
+}
+foreach ($field in @('asset', 'sha256', 'url')) {
+    if ([string]::IsNullOrWhiteSpace($pin.$field)) {
+        Write-Error "the pin for '$TargetId' is missing '$field' in versions.lock.json"
+        exit 1
+    }
+}
+
+$expected = $pin.sha256.ToLowerInvariant()
+
+# The mirror is an explicit opt-in, never automatic. A checksum makes a mirror
+# safe to USE, but it does not make silently fetching from a third party the
+# right default.
+$assetUrl = $pin.url
+if (-not [string]::IsNullOrWhiteSpace($Mirror)) {
+    $assetUrl = $Mirror.TrimEnd('/') + '/' + $pin.url
+    Write-Host "  mirror    : $Mirror"
+}
+Write-Host "  asset     : $($pin.asset)"
+Write-Host "  expected  : $expected"
+
+$tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('pcx-cores-' + [guid]::NewGuid().ToString('n'))
+New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
+
+try {
+    $archive = Join-Path $tmpRoot $pin.asset
+
+    # --- download to a temporary file, never straight into place ---
+    Write-Host "  downloading..."
+    $progressBackup = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'   # per-chunk progress makes this very slow
+    try {
+        Invoke-WebRequest -Uri $assetUrl -OutFile $archive -UseBasicParsing
+    } finally {
+        $ProgressPreference = $progressBackup
+    }
+
+    if (-not (Test-Path $archive)) {
+        Write-Error "download produced no file: $assetUrl"
+        exit 1
+    }
+
+    # --- verify BEFORE anything can use it ---
+    $actual = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) {
+        # Delete the bad download: leaving it around invites someone to "just use
+        # it" later, and the whole point of verification is that failure is final.
+        Remove-Item $archive -Force
+        Write-Error ("sha256 mismatch for '$($pin.asset)': expected $expected, got $actual. " +
+            'The download was deleted. Do not continue with this asset.')
+        exit 1
+    }
+    Write-Host "  sha256 ok"
+
+    # --- extract, then place only the verified payload ---
+    $extract = Join-Path $tmpRoot 'extract'
+    New-Item -ItemType Directory -Force -Path $extract | Out-Null
+
+    if ($pin.asset.EndsWith('.zip')) {
+        Expand-Archive -Path $archive -DestinationPath $extract -Force
+    } elseif ($pin.asset.EndsWith('.tar.gz') -or $pin.asset.EndsWith('.tgz')) {
+        # tar is present on Windows 10+ and everywhere on Linux.
+        & tar -xzf $archive -C $extract
+        if ($LASTEXITCODE -ne 0) { Write-Error "tar failed to extract $($pin.asset)"; exit 1 }
+    } else {
+        Write-Error "unsupported archive type: $($pin.asset)"
+        exit 1
+    }
+
+    $binary = Get-ChildItem -Path $extract -Recurse -File |
+        Where-Object { $_.Name -in @('sing-box.exe', 'sing-box') } | Select-Object -First 1
+    if (-not $binary) {
+        Write-Error "no sing-box binary found inside $($pin.asset)"
+        exit 1
+    }
+
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    Copy-Item $binary.FullName -Destination (Join-Path $OutDir $binary.Name) -Force
+
+    # Windows builds need libcronet.dll next to the executable. Copying the whole
+    # verified payload directory is simpler and less error-prone than maintaining
+    # a list of which side files each release happens to ship.
+    Get-ChildItem -Path $binary.Directory -File |
+        Where-Object { $_.FullName -ne $binary.FullName } |
+        ForEach-Object { Copy-Item $_.FullName -Destination (Join-Path $OutDir $_.Name) -Force }
+
+    Write-Host "  placed    : $($binary.Name) -> $OutDir"
+} finally {
+    Remove-Item $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+exit 0

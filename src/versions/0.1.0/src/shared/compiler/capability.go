@@ -62,10 +62,26 @@ var capabilityTable = capability{
 	reality:       true,
 	utls:          true,
 	flow:          true,
-	// verifiedAgainst 是刻意保留的标记：本表**尚未**针对锁定版本实测，
-	// 因此所有结论都要在报告里如实呈现。只有 G4 用固定版本的官方二进制
-	// 逐项复核之后，才允许把它改成已验证。
-	verifiedAgainst: "unverified",
+	// verifiedAgainst 记录本表实际被验证到的核心版本。
+	//
+	// **这次是真的验证过了，不是猜的。** 2026-10-16 用官方预构建的
+	// sing-box 1.14.3（windows-amd64，sha256 与 versions.lock.json 的
+	// 锁定值一致）逐项复核：把每种协议、每种传输、以及 REALITY / uTLS /
+	// flow 各生成一份配置，交给 `sing-box check` 校验。
+	//
+	// 复核结果修掉了四个此前会让核心拒绝整份配置的缺陷：
+	//   - fake-ip 被当成默认名称服务器（`default server cannot be fakeip`）
+	//   - 按域名连接的 DoH 服务器没有 domain_resolver
+	//   - 出站没有 route.default_domain_resolver
+	//   - 嗅探写在入站上（1.13 起被移除的旧字段）
+	//   - REALITY 节点缺少 uTLS 指纹（`uTLS is required by reality client`）
+	//
+	// 复现方式见 TestEveryClaimedProtocolIsAcceptedByRealSingBox 等用例；
+	// 需要设置 SINGBOX_BIN 指向真实二进制。
+	//
+	// **仍未验证的部分**：以上只证明「配置被核心接受」，
+	// 不证明流量真的能穿过代理。那需要真实面板与真实节点。
+	verifiedAgainst: "1.14.3",
 }
 
 // Supports 返回目标核心是否支持指定协议。

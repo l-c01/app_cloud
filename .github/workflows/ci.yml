@@ -425,3 +425,69 @@ jobs:
         run: |
           if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
           ./tools/scripts/check-i18n-keys.ps1
+
+  # ---------------------------------------------------------------------------
+  # 7) 用真实核心校验生成的配置
+  # ---------------------------------------------------------------------------
+  #
+  # 为什么值得单列一个作业：其余所有测试都只断言**我们自己写的字段名**，
+  # 而字段名是否与核心一致，只有核心自己说了算。这个仓库已经因此吃过两次亏：
+  #   - TUN 里写了一个不存在的 `dns_hijack` 字段；
+  #   - 嗅探写在入站上（1.13 起被移除的旧字段），
+  #     以及 fake-ip 被当成默认名称服务器。
+  # 两种情况下我们自己的测试全绿，真实核心却拒绝整份配置。
+  #
+  # 核心来自 versions.lock.json 的锁定版本与 sha256，
+  # 用仓库自己的 fetch-cores.ps1 下载并校验——因此这个作业同时也在验证
+  # 「锁定信息是可用的」，而不是只验证配置。
+  core-conformance:
+    name: Real core accepts generated config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Go version from the lock file
+        id: goversion
+        run: |
+          set -euo pipefail
+          lock="${VERSION_DIR}/deploy/targets/versions.lock.json"
+          pinned=$(jq -r '.toolchains.go // empty' "$lock")
+          if [ -z "$pinned" ] || [ "$pinned" = "null" ]; then
+            pinned="1.24"
+          fi
+          echo "version=$pinned" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.goversion.outputs.version }}
+          cache: false
+
+      - name: Fetch and verify the pinned core
+        shell: pwsh
+        run: |
+          if ($PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows) { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force }
+          ./src/versions/0.1.0/deploy/packaging/fetch-cores.ps1 `
+            -TargetId linux-amd64 -OutDir "$PWD/out/core"
+
+      # 核心必须以可执行位存在；fetch-cores 只保证内容正确，
+      # 而 Linux 上「文件在但不可执行」与「文件不在」的报错完全不同。
+      - name: Compile a config and let the real core judge it
+        run: |
+          set -euo pipefail
+          bin="$PWD/out/core/sing-box"
+          chmod +x "$bin"
+          "$bin" version
+          # 先把绝对路径定下来：下面的 cd 会让相对路径产生歧义，
+          # 而 SINGBOX_BIN 是子进程要用的，写错时表现为「测试被跳过」——
+          # 一个静默跳过的验证比没有验证更危险，因为它看起来是绿的。
+          cd "${GO_MODULE_DIR}"
+          test -x "$bin"
+          SINGBOX_BIN="$bin" go test ./shared/compiler/... -count=1 -v 2>&1 |
+            tee /tmp/conformance.log
+          # 明确要求校验用例真的跑过，而不是被跳过。
+          if grep -q -- '--- SKIP' /tmp/conformance.log; then
+            echo "::error::the real-core conformance tests were skipped; verification did not happen"
+            exit 1
+          fi
