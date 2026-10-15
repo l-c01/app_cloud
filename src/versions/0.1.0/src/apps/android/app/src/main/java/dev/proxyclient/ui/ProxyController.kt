@@ -390,14 +390,18 @@ class ProxyController(
     }
 
     private fun reportLocal(key: String, vararg args: Any) {
-        update { it.copy(message = messages[key, *args], notice = "", detail = "") }
+        // 用 messages.get(...) 而不是 messages[...]：带 vararg 的 operator get
+        // **不能**在方括号里展开数组（`messages[key, *args]` 是语法错误，
+        // 报的是 "Expecting an expression" 与 "Unresolved reference 'times'"，
+        // 把 `*` 当成了乘号）。用具名调用就没有这个问题。
+        update { it.copy(message = messages.get(key, *args), notice = "", detail = "") }
     }
 
     private fun fail(messageKey: String, detail: String, vararg args: Any) {
         update {
             it.copy(
                 backend = BackendState.Unavailable,
-                message = messages[messageKey, *args],
+                message = messages.get(messageKey, *args),
                 notice = "",
                 detail = detail,
             )
