@@ -165,9 +165,15 @@ func (r *Report) Infof(node *domain.Node, fieldPath, messageKey, format string, 
 type InboundOptions struct {
 	// Listen 通常是 127.0.0.1；allowLanAccess 时才绑定 0.0.0.0。
 	Listen string
-	// HTTPPort 与 SocksPort 为本地代理端口，必须由调用方做冲突检测。
-	HTTPPort  int
-	SocksPort int
+	// MixedPort 是一个同时提供 HTTP 与 SOCKS 的本地端口。
+	//
+	// **这不是「两个端口」的简写，而是一个端口。** sing-box 的
+	// mixed 入站两种协议共用它（option/inbound.go 注册的 C.TypeMixed）。
+	//
+	// 此前这里是 HTTPPort + SocksPort 两个字段，生成两个入站；
+	// 而界面只让用户填一个端口，于是第二个端口是程序自己选的，
+	// 用户既看不到也改不了。见 singbox.go 里那一段的说明。
+	MixedPort int
 	// AllowLanAccess 为真时入口监听所有网卡。
 	AllowLanAccess bool
 }
@@ -176,22 +182,19 @@ type InboundOptions struct {
 //
 // 为什么放在这里而不是放服务进程里：它是**由入站配置唯一决定的**，
 // 没有任何运行时状态参与，因此可以被单测覆盖；而放在 main 包里只能靠
-// 真的起一次核心来验证——本轮就有一个同类缺陷（端口为 0）逃到了
+// 真的起一次核心来验证——此前就有一个同类缺陷（端口为 0）逃到了
 // 运行期才暴露。
 //
-// 优先用 HTTP 端口：系统代理与 TUN 都会把流量导到它上面，
-// 它可用就等于「代理真的能接收连接」。两者都为 0（配置无效）时返回空串，
-// 表示无法推导——调用方不要把空串当成「就绪」，那等于不校验。
+// 一个端口同时提供 HTTP 与 SOCKS，因此这里只有一个地址可返回。
+//
+// 端口为 0（配置无效）时返回空串，表示无法推导——调用方不要把空串
+// 当成「就绪」，那等于不校验。
 //
 // 监听地址是通配地址（0.0.0.0 / ::）时换成 127.0.0.1：拨号到一个通配
 // 地址在部分平台上并不等于拨到本机，而校验就绪只需要证明
 // 「有人在这个端口上听」。
 func (o InboundOptions) ReadyAddress() string {
-	port := o.HTTPPort
-	if port <= 0 {
-		port = o.SocksPort
-	}
-	if port <= 0 || port > 65535 {
+	if o.MixedPort <= 0 || o.MixedPort > 65535 {
 		return ""
 	}
 	host := strings.TrimSpace(o.Listen)
@@ -199,7 +202,7 @@ func (o InboundOptions) ReadyAddress() string {
 	case "", "0.0.0.0", "::", "[::]":
 		host = "127.0.0.1"
 	}
-	return net.JoinHostPort(host, strconv.Itoa(port))
+	return net.JoinHostPort(host, strconv.Itoa(o.MixedPort))
 }
 
 // OutboundPolicy 是路由策略，对应设计基线里的三维度之一。
@@ -287,14 +290,10 @@ func (r *Request) validate() error {
 	if r.Inbound.Listen == "" {
 		return fmt.Errorf("inbound listen address is required")
 	}
-	if r.Inbound.HTTPPort <= 0 || r.Inbound.HTTPPort > 65535 {
-		return fmt.Errorf("invalid http port: %d", r.Inbound.HTTPPort)
-	}
-	if r.Inbound.SocksPort <= 0 || r.Inbound.SocksPort > 65535 {
-		return fmt.Errorf("invalid socks port: %d", r.Inbound.SocksPort)
-	}
-	if r.Inbound.HTTPPort == r.Inbound.SocksPort {
-		return fmt.Errorf("http and socks ports must differ")
+	// 一个端口，因此不再有「两个端口必须不同」这条校验——
+	// 那是旧结构（http + socks 各占一个端口）的产物。
+	if r.Inbound.MixedPort <= 0 || r.Inbound.MixedPort > 65535 {
+		return fmt.Errorf("invalid mixed port: %d", r.Inbound.MixedPort)
 	}
 	switch r.Policy {
 	case PolicyRule, PolicyGlobal, PolicyDirect:
