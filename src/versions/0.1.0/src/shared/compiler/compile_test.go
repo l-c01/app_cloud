@@ -247,9 +247,15 @@ func TestSelectedNodeMissingFallsBackWithWarning(t *testing.T) {
 
 // 全部节点不可编译时必须报错，不得产出空壳配置。
 func TestNoCompilableNodeFails(t *testing.T) {
+	// 用 TUIC 当例子，**不是** hysteria2。
+	//
+	// 这条用例原先写的是 hysteria2，注释还写着「首轮不支持」。
+	// hysteria2 实现之后，这个「坏节点」就变成好节点了，用例随之失败——
+	// 这是好事：它说明实现确实生效了。但必须回来改用例，
+	// 换成当前确实不支持的协议，否则它会一直红着，最后被人关掉。
 	bad := &domain.Node{
 		Name:     "bad",
-		Protocol: domain.ProtocolHysteria2, // 首轮不支持
+		Protocol: domain.ProtocolTUIC, // 能力表里仍是 false
 		Server:   "h.example.com",
 		Port:     443,
 	}
