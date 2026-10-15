@@ -691,3 +691,39 @@ func TestSessionRequestsURIFlag(t *testing.T) {
 		t.Errorf("订阅请求的 flag = %q，期望 general", f.Flag)
 	}
 }
+
+// TrafficEntry **绝不能返回空串**。
+//
+// 这是一条回归测试，针对一个会静默失效的缺陷：
+// 协调器的 planForMode("") 落在 default 分支，返回**空计划**，
+// 也就是「不接管任何网络设置」。结果是核心起来了、状态显示「已连接」，
+// 而系统代理根本没被改动——用户的流量一点都没走代理，
+// 界面上却看不出任何异常。
+//
+// 界面只发「连接」、不发接入方式，所以这个值必须由服务端给出来。
+func TestTrafficEntryIsNeverEmpty(t *testing.T) {
+	// 尚未建立会话时也要给得出默认值，而不是空串。
+	fresh := NewManager(Config{Store: secrets.NewMemoryStore()})
+	if got := fresh.TrafficEntry(); got == "" {
+		t.Errorf("没有会话时 TrafficEntry 不应返回空串（空串等于「不接管网络」）")
+	}
+
+	// 会话存在但选项里的值为空时同样要回退。
+	ff := &fakeFetcher{results: []*subscription.FetchResult{{
+		Nodes: []*domain.Node{node("A", "a.example.com", 443)},
+	}}}
+	s := newTestSession(t, &fakePanel{}, ff, nil)
+	s.UpdateOptions(func(o *domain.Options) { o.Inbound.TrafficEntry = "" })
+
+	m := NewManager(Config{Store: secrets.NewMemoryStore()})
+	m.cur = s
+	if got := m.TrafficEntry(); got == "" {
+		t.Errorf("选项里的接入方式为空时应当回退到出厂默认，而不是返回空串")
+	}
+
+	// 用户改过就应当用用户的值。
+	s.UpdateOptions(func(o *domain.Options) { o.Inbound.TrafficEntry = "tun" })
+	if got := m.TrafficEntry(); got != "tun" {
+		t.Errorf("TrafficEntry = %q，期望 tun", got)
+	}
+}
