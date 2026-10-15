@@ -718,28 +718,21 @@ func (s *Session) BuildRequest() (*compiler.Request, *Error) {
 	// 本地代理端口。
 	//
 	// **必须无条件设置，不能只在 TUN 模式下设。** 编译器的 Request.validate()
-	// 要求 http/socks 两个端口都落在 1..65535 且互不相同；而 TUN 在桌面端
-	// **默认是关的**（默认接入方式是系统代理），于是原来的写法会让每次
-	// 「连接」都得到一个无效请求，直接报 "invalid http port: 0"。
-	// 这类缺陷编译期看不出来，只有在真的点一次连接时才会暴露。
+	// 要求端口落在 1..65535；而 TUN 在桌面端**默认是关的**（默认接入方式是
+	// 系统代理），于是原来的写法会让每次「连接」都得到一个无效请求，
+	// 直接报 "invalid http port: 0"。这类缺陷编译期看不出来，
+	// 只有在真的点一次连接时才会暴露。
 	//
-	// 需要两个不同的端口是因为编译请求当前仍按分离的 http/socks 入站生成
-	// （见 HANDOFF 2.2b 的「混合端口」一项）；选项模型里的 MixedPort 是
-	// 用户看到的那一个，这里由它派生出内部的两个。
-	httpPort := s.options.Inbound.MixedPort
-	if httpPort <= 0 {
-		// 选项被写成 0 也不要紧：退回协议里的常规端口，
+	// 现在是**一个** mixed 端口，就是界面里用户填的那个数——
+	// 不再由程序派生出第二个端口。理由见
+	// shared/compiler 里 InboundOptions.MixedPort 的说明。
+	mixedPort := s.options.Inbound.MixedPort
+	if mixedPort <= 0 || mixedPort > 65535 {
+		// 选项不可用也不要紧：退回常规端口，
 		// 而不是把一个必然被拒绝的请求交出去。
-		httpPort = defaultMixedPort
+		mixedPort = defaultMixedPort
 	}
-	socksPort := httpPort + 1
-	if socksPort > 65535 {
-		// 有人把端口写成 65534/65535 时不能溢出：退回常规端口对，
-		// 让用户得到一个能用的代理，而不是一条「端口非法」。
-		httpPort, socksPort = defaultMixedPort, defaultMixedPort+1
-	}
-	req.Inbound.HTTPPort = httpPort
-	req.Inbound.SocksPort = socksPort
+	req.Inbound.MixedPort = mixedPort
 
 	return req, nil
 }
