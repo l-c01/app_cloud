@@ -164,6 +164,10 @@ jobs:
           #
           # 不含 with_tailscale 及其 ts_omit_* 一组：本项目不使用 Tailscale，
           # 带上它会显著增大 AAR 与构建时间。
+          #
+          # -ldflags=-checklinkname=0 同样是必须的：badlinkname 标签让代码
+          # 能引用标准库内部符号，但 Go 1.23 起**链接器**还会再查一遍，
+          # 查到就报 invalid reference 并失败。两处都要放开。
           tags="with_gvisor,with_quic,with_wireguard,with_utls,with_naive_outbound,with_clash_api,with_openvpn,with_openconnect,badlinkname,tfogo_checklinkname0"
           gomobile init
           gomobile bind \
@@ -173,6 +177,7 @@ jobs:
             -javapkg=io.nekohasekai \
             -libname=box \
             -tags "$tags" \
+            -ldflags="-checklinkname=0" \
             -o "$GITHUB_WORKSPACE/libbox.aar" \
             ./experimental/libbox
           ls -la "$GITHUB_WORKSPACE/libbox.aar"
