@@ -60,7 +60,7 @@ jobs:
         id: pins
         run: |
           set -euo pipefail
-          lock="${VERSION_DIR}/deploy/targets/versions.lock.json"
+          lock="${{ inputs.version_dir }}/deploy/targets/versions.lock.json"
           if [ ! -f "$lock" ]; then
             echo "::error::version lock file not found: $lock"
             exit 1
