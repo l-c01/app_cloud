@@ -60,7 +60,7 @@ jobs:
         id: pins
         run: |
           set -euo pipefail
-          lock="${{ inputs.version_dir }}/deploy/targets/versions.lock.json"
+          lock="${VERSION_DIR}/deploy/targets/versions.lock.json"
           if [ ! -f "$lock" ]; then
             echo "::error::version lock file not found: $lock"
             exit 1
@@ -85,46 +85,19 @@ jobs:
           go-version: ${{ steps.pins.outputs.goversion }}
           cache: false
 
-      # Android SDK 在 ubuntu runner 上已有。NDK 先找现成的，找不到才装。
+      # Android SDK 在 ubuntu runner 上已有；NDK 需要显式安装。
       - name: Set up the Android NDK
         id: ndk
         run: |
           set -euo pipefail
-          if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "${ANDROID_HOME}" ]; then
-            echo "::error::ANDROID_HOME is not set; the runner image should provide it"
+          ndk_version="27.2.12479018"
+          if [ -z "${ANDROID_HOME:-}" ]; then
+            echo "::error::ANDROID_HOME is not set"
             exit 1
           fi
-
-          # 先用 runner 自带的 NDK。装了再下载一遍是纯浪费（几分钟），
-          # 而且 sdkmanager 的交互式许可在管道里很容易失败。
-          ndk_root="${ANDROID_HOME}/ndk"
-          existing=""
-          if [ -d "$ndk_root" ]; then
-            existing=$(ls -1 "$ndk_root" 2>/dev/null | sort -V | tail -n1 || true)
-          fi
-
-          if [ -z "$existing" ]; then
-            echo "no NDK found in $ndk_root; installing one"
-            ndk_version="27.2.12479018"
-            # **不要用 `yes | sdkmanager`。** sdkmanager 读完输入就退出，
-            # `yes` 于是收到 SIGPIPE，在 `set -o pipefail` 下整个管道以
-            # 非零退出——报的是「NDK 安装失败」，而真正的原因是那个管道。
-            # 用 printf 提供有限的输入，并显式接受许可。
-            printf 'y\n' | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
-              --sdk_root="${ANDROID_HOME}" --licenses >/dev/null 2>&1 || true
-            "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
-              --sdk_root="${ANDROID_HOME}" --install "ndk;${ndk_version}" >/dev/null
-            existing="$ndk_version"
-          fi
-
-          ndk_path="${ndk_root}/${existing}"
-          if [ ! -d "$ndk_path" ]; then
-            echo "::error::the NDK directory does not exist: $ndk_path"
-            exit 1
-          fi
-          echo "using NDK: $ndk_path"
-          echo "ANDROID_NDK_HOME=$ndk_path" >> "$GITHUB_ENV"
-          echo "ndk=$ndk_path" >> "$GITHUB_OUTPUT"
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${ndk_version}" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ndk_version}" >> "$GITHUB_ENV"
+          echo "ndk=${ANDROID_HOME}/ndk/${ndk_version}" >> "$GITHUB_OUTPUT"
 
       - name: Fetch the pinned core source
         run: |
