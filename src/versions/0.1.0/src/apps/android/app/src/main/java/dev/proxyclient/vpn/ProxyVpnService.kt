@@ -82,21 +82,6 @@ class ProxyVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    /**
-     * 创建一份配好 session 与 MTU 的 `VpnService.Builder`。
-     *
-     * **为什么放在这里而不是 `VpnPlatformInterface` 里**：`Builder` 是
-     * `VpnService` 的内部类，只能由 VpnService 的实例创建。在平台接口里写
-     * `VpnService.Builder()` 会报「Constructor of the inner class
-     * 'inner class Builder' can only be called with a receiver」。
-     */
-    fun newTunBuilder(session: String, mtu: Int): Builder {
-        val builder = Builder()
-        // session/mtu 在 Kotlin 里是**属性**，不是 setSession()/setMtu()。
-        builder.session = session
-        builder.mtu = mtu
-        return builder
-    }
     private fun startTunnel() {
         if (tunnel != null) {
             return
