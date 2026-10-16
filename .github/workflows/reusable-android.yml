@@ -154,9 +154,17 @@ jobs:
         working-directory: ${{ env.SINGBOX_SRC }}
         run: |
           set -euo pipefail
-          # 标签集与 sing-box 官方 build_libbox 一致（去掉 Tailscale 相关的
-          # 可选功能，本项目用不到，去掉能显著缩小 AAR）。
-          tags="with_gvisor,with_quic,with_wireguard,with_utls,with_naive_outbound,with_clash_api,with_openvpn,with_openconnect"
+          # 标签集对齐 sing-box 官方 build_libbox 的 Android 一组。
+          #
+          # **badlinkname 与 tfogo_checklinkname0 不是可选的。** 少了它们，
+          # 链接期会报 `invalid reference to os.checkPidfdOnce`——
+          # 原因是 libbox 用 //go:linkname 引用了标准库符号，而 Go 1.23 起
+          # 默认收紧了这个能力。这个错误信息完全指不到「标签少了」这一点上，
+          # 因此这里写明。
+          #
+          # 不含 with_tailscale 及其 ts_omit_* 一组：本项目不使用 Tailscale，
+          # 带上它会显著增大 AAR 与构建时间。
+          tags="with_gvisor,with_quic,with_wireguard,with_utls,with_naive_outbound,with_clash_api,with_openvpn,with_openconnect,badlinkname,tfogo_checklinkname0"
           gomobile init
           gomobile bind \
             -v \
