@@ -35,7 +35,141 @@ permissions:
   contents: read
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 0) 构建核心的 Android 绑定（libbox.aar）
+  # ---------------------------------------------------------------------------
+  #
+  # 为什么必须有这一步：APK 里**必须**带上核心的原生库，否则
+  # 「VPN 能建立但一点流量都不代理」——那正是本项目长期挂着的状态。
+  #
+  # 方式由 ADR-0006 决定：用 gomobile 把 sing-box 的 `experimental/libbox`
+  # 编成 AAR，由我们自己的 Kotlin 实现 libbox 的 `PlatformInterface`
+  # （见 apps/android/.../vpn/VpnPlatformInterface.kt），把 VpnService 的
+  # fd 交给核心。
+  #
+  # 核心版本来自 versions.lock.json —— **不在工作流里写死版本号**：
+  # 写死会让「锁定的版本」与「实际构建的版本」悄悄分叉，而
+  # versions.lock.json 存在的唯一理由就是防止这件事。
+  libbox-aar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve the pinned core version and Go version
+        id: pins
+        run: |
+          set -euo pipefail
+          lock="${VERSION_DIR}/deploy/targets/versions.lock.json"
+          if [ ! -f "$lock" ]; then
+            echo "::error::version lock file not found: $lock"
+            exit 1
+          fi
+          core=$(jq -r '.sources.sing_box_core.version // empty' "$lock")
+          if [ -z "$core" ] || [ "$core" = "null" ]; then
+            echo "::error::sources.sing_box_core.version is not pinned; refusing to build an unverified core"
+            exit 1
+          fi
+          gov=$(jq -r '.toolchains.go // empty' "$lock")
+          if [ -z "$gov" ] || [ "$gov" = "null" ]; then
+            echo "::error::toolchains.go is not pinned; the AAR must be built with a pinned toolchain"
+            exit 1
+          fi
+          echo "core=$core" >> "$GITHUB_OUTPUT"
+          echo "goversion=$gov" >> "$GITHUB_OUTPUT"
+          echo "building libbox for sing-box $core with Go $gov"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pins.outputs.goversion }}
+          cache: false
+
+      # Android SDK 在 ubuntu runner 上已有；NDK 需要显式安装。
+      - name: Set up the Android NDK
+        id: ndk
+        run: |
+          set -euo pipefail
+          ndk_version="27.2.12479018"
+          if [ -z "${ANDROID_HOME:-}" ]; then
+            echo "::error::ANDROID_HOME is not set"
+            exit 1
+          fi
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${ndk_version}" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ndk_version}" >> "$GITHUB_ENV"
+          echo "ndk=${ANDROID_HOME}/ndk/${ndk_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the pinned core source
+        run: |
+          set -euo pipefail
+          core="${{ steps.pins.outputs.core }}"
+          url="https://github.com/SagerNet/sing-box/archive/refs/tags/v${core}.tar.gz"
+          echo "downloading $url"
+          curl -fsSL "$url" -o /tmp/sing-box.tar.gz
+          mkdir -p "$RUNNER_TEMP/src"
+          tar -xzf /tmp/sing-box.tar.gz -C "$RUNNER_TEMP/src"
+          echo "SINGBOX_SRC=$RUNNER_TEMP/src/sing-box-${core}" >> "$GITHUB_ENV"
+          # 源码的 go.mod 声明的 Go 版本必须被我们的工具链满足，
+          # 否则构建会以一条看不懂的 toolchain 错误失败。
+          head -3 "$RUNNER_TEMP/src/sing-box-${core}/go.mod"
+
+      # 用 sagernet 的 gomobile 分支：官方 Android 客户端用的就是它。
+      # 上游 golang/mobile 与本仓库的构建脚本并不等价，换掉会得到
+      # 一个「看起来能编」但不被官方验证过的产物。
+      - name: Install gomobile
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@latest
+          go install github.com/sagernet/gomobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Build libbox.aar
+        working-directory: ${{ env.SINGBOX_SRC }}
+        run: |
+          set -euo pipefail
+          # 标签集与 sing-box 官方 build_libbox 一致（去掉 Tailscale 相关的
+          # 可选功能，本项目用不到，去掉能显著缩小 AAR）。
+          tags="with_gvisor,with_quic,with_wireguard,with_utls,with_naive_outbound,with_clash_api,with_openvpn,with_openconnect"
+          gomobile init
+          gomobile bind \
+            -v \
+            -target android \
+            -androidapi 24 \
+            -javapkg=io.nekohasekai \
+            -libname=box \
+            -tags "$tags" \
+            -o "$GITHUB_WORKSPACE/libbox.aar" \
+            ./experimental/libbox
+          ls -la "$GITHUB_WORKSPACE/libbox.aar"
+
+      # 断言 AAR 里真的有原生库，而不是一个空壳。
+      # 「构建成功」与「产物里带着核心」是两件事，而前者不足以让
+      # 「VPN 能代理流量」成立。
+      - name: Verify the AAR actually contains the core libraries
+        run: |
+          set -euo pipefail
+          aar="$GITHUB_WORKSPACE/libbox.aar"
+          if [ ! -s "$aar" ]; then
+            echo "::error::libbox.aar is missing or empty"
+            exit 1
+          fi
+          listing=$(unzip -l "$aar")
+          echo "$listing" | grep -E 'jni/(arm64-v8a|armeabi-v7a|x86)/' \
+            || { echo "::error::the AAR contains no native libraries for the expected ABIs"; exit 1; }
+          # Java 侧必须真的生成了 libbox 的类，否则 Kotlin 无法调用它。
+          echo "$listing" | grep -q 'classes.jar' \
+            || { echo "::error::the AAR contains no classes.jar; gomobile bind did not produce a Java API"; exit 1; }
+
+      - name: Upload libbox.aar
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-aar
+          path: libbox.aar
+          if-no-files-found: error
+          retention-days: 14
+
   resolve:
+    needs: [libbox-aar]
     uses: ./.github/workflows/reusable-resolve-targets.yml
     with:
       version_dir: ${{ inputs.version_dir }}
@@ -87,7 +221,7 @@ jobs:
           echo "signing secrets present"
 
   build:
-    needs: [resolve, preflight]
+    needs: [libbox-aar, resolve, preflight]
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
@@ -124,6 +258,26 @@ jobs:
             exit 1
           fi
           echo "ANDROID_HOME=${ANDROID_HOME}"
+
+      # 下载上一步产出的 AAR 并放进 app/libs/。
+      # 不把 AAR 提交进仓库：它是二进制产物，且必须与锁定的核心版本一致
+      # （每次都由 libbox-aar 作业按 versions.lock.json 重新构建）。
+      - name: Fetch the core binding (libbox.aar)
+        uses: actions/download-artifact@v4
+        with:
+          name: libbox-aar
+          path: ${{ inputs.version_dir }}/src/apps/android/app/libs
+
+      - name: Confirm the core binding landed where Gradle looks for it
+        working-directory: ${{ inputs.version_dir }}/src/apps/android
+        run: |
+          set -euo pipefail
+          # Gradle 的 flatDir 仓库只认 app/libs 下的 *.aar。
+          # 路径写错时构建仍然"成功"，只是 APK 里没有核心——
+          # 那种失败要到用户装上之后才会发现。
+          ls -la app/libs/
+          test -s app/libs/libbox.aar \
+            || { echo "::error::app/libs/libbox.aar is missing or empty"; exit 1; }
 
       - name: Build the APK for the requested ABI
         working-directory: ${{ inputs.version_dir }}/src/apps/android
@@ -170,9 +324,11 @@ jobs:
           echo "$abs" | sed 's/^/  /'
 
           if [ -z "$abs" ]; then
-            # 当前还没有核心原生库，因此这里只提示而不失败。
-            # 等核心绑定接入后，这个分支应当改成失败。
-            echo "::warning::the APK contains no native libraries (expected before core integration)."
+            # 这条曾经只是警告。现在核心绑定已经接进来了，因此必须失败：
+            # 一个不含原生库的 APK **装上去也不会代理任何流量**，
+            # 而那正是本项目长期挂着的问题（VPN 能建立但不代理）。
+            echo "::error::the APK contains no native libraries; the core binding did not make it into the package"
+            exit 1
           elif ! echo "$abs" | grep -qx "$ABI"; then
             echo "::error::the APK does not contain the requested ABI '$ABI'"
             exit 1
@@ -192,7 +348,7 @@ jobs:
       - name: Record the limitations of this build
         run: |
           echo "::notice::built APK for ${{ matrix.id }} (abi=${{ matrix.abi }})"
-          echo "This APK does not capture traffic yet: core integration awaits the G1 binding probe."
+          echo "This APK embeds the pinned sing-box core (libbox) and captures traffic via VpnService."
           echo "Runtime verification on a real device is not performed by this workflow; it stays 'not_run'."
 
   summary:

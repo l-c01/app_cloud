@@ -7,31 +7,66 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import dev.proxyclient.MainActivity
 import dev.proxyclient.R
+import io.nekohasekai.libbox.CommandServer
+import io.nekohasekai.libbox.OverrideOptions
+
 
 /**
  * Android 上的流量接管 / traffic takeover on Android.
  *
- * **这是骨架，不是可用实现。** 当前它只把 VpnService 的建立与拆除做正确，
- * 尚未把隧道接入核心进程。设计基线要求把「已完成」与「未完成」分开陈述，
- * 因此这里明确标注：
+ * ## 它现在做什么
  *
- *   已实现：前台服务、通知、VpnService 授权与建立、TUN 设备生命周期、
- *           应用范围（允许/排除列表）的表达。
- *   未实现：把 TUN 的流量交给核心处理（需要核心的 Android 绑定方式，
- *           由 G1 探针决定是用 AAR 内嵌还是预构建二进制）。
+ *   1. 建立 `VpnService`；
+ *   2. **实现核心的 `PlatformInterface`**（见 [VpnPlatformInterface]），
+ *      由 `openTun` 把 VpnService 的 fd 交给核心，由
+ *      `autoDetectInterfaceControl` 调 `protect` 防止回环；
+ *   3. 启动核心（`CommandServer.startOrReloadService`），把生成的配置
+ *      交给它跑。
  *
- * 为什么 Android 必须用 VpnService：这是系统提供的**唯一**流量接管方式。
- * 没有 root 的情况下无法修改系统代理设置，也没有 TUN 设备的其它获取途径。
+ * ## 此前的状态与本轮的变化
+ *
+ * 此前这个类是**骨架**：它能建立 VPN、能拿到 TUN 的 `ParcelFileDescriptor`，
+ * 但那个 fd **没有任何人使用**——核心会自己去创建 TUN，而未 root 的
+ * Android 不允许。结果就是「VPN 能建立，但一点流量都不代理」。
+ *
+ * 现在 fd 经 `openTun` 进核心，核心由本服务启动并持有配置。
+ *
+ * ## 仍然未完成的部分（必须如实标注）
+ *
+ * - **没有在真机上验证过**：本仓库的 CI 只能证明「构建成功」与
+ *   「APK 里带着核心」，证明不了流量真的走了代理；
+ * - 配置由调用方通过 [startWithConfig] 下发。界面（`ProxyController`）
+ *   目前仍走进程内 IPC 那条链，**尚未改成「编译好的配置下发给本服务」**。
+ *   也就是说：核心能跑、fd 能交，但「点连接之后把配置送进来」这一步
+ *   还没接上。这是下一步要做的。
  */
 class ProxyVpnService : VpnService() {
 
     private var tunnel: ParcelFileDescriptor? = null
 
+    /** 核心的平台接口。fd 的交接全在它里面完成。 */
+    private var platform: VpnPlatformInterface? = null
+
+    /** 核心的命令服务；它持有正在运行的 sing-box 实例。 */
+    private var commandServer: CommandServer? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startTunnel()
+            ACTION_START_WITH_CONFIG -> {
+                val config = intent.getStringExtra(EXTRA_CONFIG)
+                if (config.isNullOrEmpty()) {
+                    // 没有配置就启动核心等于让它跑一份空配置——
+                    // 那会让「已连接」变成一个假象。
+                    Log.e(TAG, "ACTION_START_WITH_CONFIG without a config; ignoring")
+                } else {
+                    pendingConfig = config
+                    startTunnel()
+                }
+            }
             ACTION_STOP -> {
                 stopTunnel()
                 stopSelf()
@@ -64,36 +99,74 @@ class ProxyVpnService : VpnService() {
             return
         }
 
-        val builder = Builder()
-            .setSession("proxyclient")
-            .setMtu(DEFAULT_MTU)
+        startForeground(NOTIFICATION_ID, buildNotification())
 
-        // 地址与路由。刻意只声明 IPv4 与一条默认路由：
-        // 声明得越多，出问题时越难判断是哪一条规则导致的。
-        builder.addAddress(VPN_ADDRESS, VPN_PREFIX_LENGTH)
-        builder.addRoute("0.0.0.0", 0)
+        // 核心启动时会调用 platform.openTun()，由那里完成 VpnService 的
+        // 建立与 fd 交接。因此**我们不再自己 establish()**：两处都建立
+        // 会得到两条隧道，而系统只会把流量送到其中一条。
+        val platformInterface = VpnPlatformInterface(this)
+        platform = platformInterface
 
-        // 排除本应用自身：否则代理发出的流量会被自己的隧道再抓一次，
-        // 形成回环，表现为「连上了但完全没网」——这是 Android 代理
-        // 最常见的错误之一。
-        runCatching { builder.addDisallowedApplication(packageName) }
-
-        tunnel = runCatching { builder.establish() }.getOrNull()
-
-        if (tunnel == null) {
-            // 建立失败必须让用户知道，而不是留下一个「已连接」的假象。
-            stopSelf()
+        val config = pendingConfig
+        if (config == null) {
+            // 还没有配置：先把平台接口准备好，等配置到达再启动核心。
+            // 不在这里编一份空配置去启动核心——那会掩盖「配置没送到」。
+            Log.i(TAG, "tunnel prepared; waiting for a compiled config before starting the core")
             return
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        startCore(platformInterface, config)
+    }
+
+    private fun startCore(platformInterface: VpnPlatformInterface, config: String) {
+        try {
+            val server = CommandServer(
+                ProxyCommandServerHandler(onStop = {
+                    // 核心要求停止时，必须真的把隧道拆掉（见 handler 的注释）。
+                    stopTunnel()
+                    stopSelf()
+                }),
+                platformInterface,
+            )
+            server.start()
+            commandServer = server
+
+            val overrides = OverrideOptions().apply {
+                // 让核心知道哪些应用在隧道内。空列表表示「全部应用」，
+                // 由平台接口在 openTun 里按 include/exclude 表达。
+                includePackage = emptyStringIterator()
+                excludePackage = emptyStringIterator()
+            }
+            server.startOrReloadService(config, overrides)
+
+            tunnel = platformInterface.tunnel
+            if (tunnel == null) {
+                // 核心没要 TUN（例如配置里没启用 TUN 入站）。
+                // 这时候「已连接」是假的：没有 TUN，流量一点都不会被接管。
+                Log.w(TAG, "the core did not request a TUN interface; traffic will not be captured")
+            }
+        } catch (e: Exception) {
+            // 启动失败必须让用户知道，而不是留下一个「已连接」的假象。
+            Log.e(TAG, "failed to start the core", e)
+            stopTunnel()
+            stopSelf()
+        }
     }
 
     private fun stopTunnel() {
+        // 先停核心再关隧道：反过来会让核心在一个已经消失的 fd 上收包。
+        runCatching { commandServer?.closeService() }
+            .onFailure { Log.w(TAG, "closing the core service failed", it) }
+        runCatching { commandServer?.close() }
+        commandServer = null
+
         // 关闭 TUN 设备。不关的话系统会保留一条指向已死进程的路由，
         // 用户表现为「断开之后完全没网」。
+        platform?.closeTunnel()
+        platform = null
         runCatching { tunnel?.close() }
         tunnel = null
+        pendingConfig = null
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
@@ -143,17 +216,26 @@ class ProxyVpnService : VpnService() {
             .build()
     }
 
+    /** 尚未交给核心的配置；`startTunnel` 会把它送进去。 */
+    @Volatile
+    private var pendingConfig: String? = null
+
     companion object {
         const val ACTION_START = "dev.proxyclient.action.START"
         const val ACTION_STOP = "dev.proxyclient.action.STOP"
 
+        /**
+         * 带着编译好的配置启动。
+         *
+         * 配置是编译器（Go 侧 `shared/compiler`）生成的 sing-box JSON，
+         * 原样交给核心——**不要在 Kotlin 侧再拼一遍配置**：
+         * 两份实现必然分叉，而分叉的症状是「界面上改了但没生效」。
+         */
+        const val ACTION_START_WITH_CONFIG = "dev.proxyclient.action.START_WITH_CONFIG"
+        const val EXTRA_CONFIG = "dev.proxyclient.extra.CONFIG"
+
+        private const val TAG = "proxyclient/vpn"
         private const val CHANNEL_ID = "proxy_status"
         private const val NOTIFICATION_ID = 1001
-
-        // 10.111.222.1 是常见 VPN 应用使用的私有网段，避开家用网段，
-        // 减少与用户实际网络冲突的可能。
-        private const val VPN_ADDRESS = "10.111.222.1"
-        private const val VPN_PREFIX_LENGTH = 32
-        private const val DEFAULT_MTU = 1500
     }
 }

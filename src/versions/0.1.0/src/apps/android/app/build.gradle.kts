@@ -206,7 +206,42 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
+    // 核心的 Android 绑定（libbox）。
+    //
+    // 用 files(...) 而不是坐标依赖：这个 AAR 不由任何仓库发布，
+    // 它由 CI 的 libbox-aar 作业按 versions.lock.json 锁定的核心版本
+    // 现场构建（见 .github/workflows/reusable-android.yml）。
+    // 不提交进仓库：二进制产物入库会让「锁定的版本」与「实际打包的版本」
+    // 悄悄分叉，而 versions.lock.json 存在的唯一理由就是防止这件事。
+    //
+    // **文件缺失时构建必须失败**，不能降级成「没有核心的 APK」：
+    // 那种包能装上、能建立 VPN，却一点流量都不代理——正是我们
+    // 要消除的那个状态。下面的检查任务负责这一点。
+    implementation(files("libs/libbox.aar"))
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
+}
+
+// -----------------------------------------------------------------------------
+// 核心绑定缺席时**明确失败**
+// -----------------------------------------------------------------------------
+//
+// 理由见上面依赖处的注释。这里放在构建脚本里而不是只放在 CI 里，
+// 是为了让本机构建也得到同样的保证——只在 CI 检查的规矩，
+// 在开发者机器上等于不存在。
+tasks.configureEach {
+    if (name.startsWith("merge") && name.endsWith("NativeLibs")) {
+        doFirst {
+            val aar = file("libs/libbox.aar")
+            if (!aar.exists()) {
+                throw GradleException(
+                    "libs/libbox.aar is missing. The APK would contain no proxy core " +
+                        "and would not capture any traffic. Build it with the " +
+                        "libbox-aar CI job, or see ADR-0006."
+                )
+            }
+        }
+    }
 }
