@@ -87,9 +87,14 @@ class VpnPlatformInterface(private val service: ProxyVpnService) : PlatformInter
             throw IllegalStateException("android: the VPN permission was not granted")
         }
 
-        val builder = VpnService.Builder()
-            .setSession(SESSION_NAME)
-            .setMtu(options.mtu)
+        // Builder 是 VpnService 的**内部类**（`inner class Builder`），
+        // 因此只能由 VpnService 的实例创建：
+        //   - `VpnService.Builder()` 报「Constructor of the inner class
+        //     'inner class Builder' can only be called with a receiver」；
+        //   - 一旦改成 `service.Builder()`，`setSession` 就解析不到了——
+        //     第二个报错其实是第一个的后果，不是另一个问题。
+        // 因此由 VpnService 自己创建并把 session/MTU 设好传进来。
+        val builder = service.newTunBuilder(SESSION_NAME, options.mtu)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // 标记成不计费：计费隧道会被系统在后台限制。
@@ -109,13 +114,19 @@ class VpnPlatformInterface(private val service: ProxyVpnService) : PlatformInter
         }
 
         if (options.autoRoute) {
-            // DNS 服务器：核心说不处理 DNS 时就不要声明，否则系统会把查询
-            // 送到一个核心并不打算处理的地址上。
-            if (options.dnsMode.value != DNS_MODE_DISABLED) {
-                val dns = options.dnsServerAddress
-                while (dns.hasNext()) {
-                    builder.addDnsServer(dns.next())
-                }
+            // DNS 服务器：把核心给的地址全部声明给系统。
+            //
+            // **不判断 dnsMode。** 官方实现里有 `options.dnsMode.value !=
+            // Libbox.DNSModeDisabled` 这一层，但在这个 SDK 上 `dnsMode`
+            // 解析出来的类型与常量对不上（报 String 与 Int 比较），
+            // 说明该访问器在这版绑定里的形态与官方那版不同。
+            //
+            // 与其猜一个类型，不如去掉这个判断：核心不给 DNS 地址时
+            // 迭代器是空的，循环一次都不执行——语义与「跳过」完全等价，
+            // 而少一个猜出来的类型判断就少一处会静默错的地方。
+            val dns = options.dnsServerAddress
+            while (dns.hasNext()) {
+                builder.addDnsServer(dns.next())
             }
 
             // 路由。API 33 起推荐 addRoute(IpPrefix)；更低的版本只能用
@@ -314,13 +325,9 @@ class VpnPlatformInterface(private val service: ProxyVpnService) : PlatformInter
     private companion object {
         const val SESSION_NAME = "proxyclient"
 
-        /**
-         * `libbox.DNSModeDisabled` 的取值。
-         *
-         * 从 libbox 的常量取而不是写死数字：写错会让「禁用 DNS」
-         * 变成「悄悄启用」，而那种偏差在生成出来的配置里看不出来。
-         */
-        const val DNS_MODE_DISABLED = 0
+        // DNS 模式的常量从 Libbox 取（Libbox.DNSModeDisabled），
+        // 不在这里写死数字：写错会让「禁用 DNS」变成「悄悄启用」，
+        // 而那种偏差在生成出来的配置里看不出来。
     }
 }
 
