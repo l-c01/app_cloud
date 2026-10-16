@@ -75,9 +75,14 @@ class ProxyCommandServerHandler(
         Log.w(TAG, message)
     }
 
-    override fun connectSSHAgent() {
+    override fun connectSSHAgent(): Int {
         // 本应用不使用 SSH agent。
-        throw UnsupportedOperationException("the SSH agent is not supported")
+        //
+        // 这个方法的 Go 签名是 `ConnectSSHAgent() (int32, error)`，
+        // 因此**有** int32 返回值，gomobile 就生成了 `Int`
+        // （对比 serviceStop 那种只返回 error 的方法，生成的是 Unit）。
+        // 返回 -1 表示「没有可用的 agent」。
+        return -1
     }
 
     private companion object {

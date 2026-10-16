@@ -92,9 +92,12 @@ class ProxyVpnService : VpnService() {
      */
     fun newTunBuilder(session: String, mtu: Int): Builder {
         val builder = Builder()
-        // session/mtu 在 Kotlin 里是**属性**，不是 setSession()/setMtu()。
-        builder.session = session
-        builder.mtu = mtu
+        // setSession/setMtu 就是方法。此前我按「Kotlin 合成属性」写成
+        // builder.session = ... 是错的——当时真正的问题是 Builder 是内部类，
+        // 属性化改法掩盖了它，于是错误从「Builder 无法构造」变成了
+        // 「session 未解析」，看起来像另一回事。
+        builder.setSession(session)
+        builder.setMtu(mtu)
         return builder
     }
     private fun startTunnel() {
